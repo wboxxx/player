@@ -1,0 +1,126 @@
+{
+  "loops": [
+    {
+      "name": "HOT",
+      "loop_start": 3451276,
+      "loop_end": 3461489,
+      "master_note_list": [
+        {
+          "timestamp_ms": 3451276,
+          "note": "F"
+        },
+        {
+          "timestamp_ms": 3452127,
+          "note": "F"
+        },
+        {
+          "timestamp_ms": 3452339,
+          "note": "E"
+        },
+        {
+          "timestamp_ms": 3452552,
+          "note": "C"
+        },
+        {
+          "timestamp_ms": 3452765,
+          "note": "A"
+        },
+        {
+          "timestamp_ms": 3452978,
+          "note": "F"
+        },
+        {
+          "timestamp_ms": 3453403,
+          "note": "C"
+        },
+        {
+          "timestamp_ms": 3456382,
+          "note": "F"
+        }
+      ],
+      "chords": [
+        {
+          "beat_position": 0,
+          "chord": "F",
+          "root": "F",
+          "beat_end": 4
+        },
+        {
+          "beat_position": 4,
+          "chord": "A#",
+          "root": "A#",
+          "beat_end": 8
+        },
+        {
+          "beat_position": 8,
+          "chord": "F",
+          "root": "F",
+          "beat_end": 12
+        }
+      ],
+      "tempo_bpm": 47.0,
+      "key": "F",
+      "mode": "ionian",
+      "loop_zoom_ratio": 0.6000212021626206
+    },
+    {
+      "name": "Slow_Blues_in_F_3-25-2025_w_Flint",
+      "loop_start": 3451532,
+      "loop_end": 3461489,
+      "key": "C",
+      "mode": "ionian",
+      "chords": [
+        {
+          "chord": "C",
+          "root": "C",
+          "degree": "I",
+          "beat_position": 0,
+          "beat_end": 4,
+          "autopad": true
+        },
+        {
+          "chord": "C",
+          "root": "C",
+          "degree": "I",
+          "beat_position": 4,
+          "beat_end": 8,
+          "autopad": true
+        },
+        {
+          "chord": "C",
+          "root": "C",
+          "degree": "I",
+          "beat_position": 8,
+          "beat_end": 12,
+          "autopad": true
+        },
+        {
+          "chord": "C",
+          "root": "C",
+          "degree": "I",
+          "beat_position": 12,
+          "beat_end": 16,
+          "autopad": true
+        },
+        {
+          "chord": "C",
+          "root": "C",
+          "degree": "I",
+          "beat_position": 16,
+          "beat_end": 20,
+          "autopad": true
+        },
+        {
+          "chord": "C",
+          "root": "C",
+          "degree": "I",
+          "beat_position": 20,
+          "beat_end": 24,
+          "autopad": true
+        }
+      ],
+      "master_note_list": [],
+      "tempo_bpm": 46.33666666666666
+    }
+  ]
+}
