@@ -1,0 +1,38 @@
+# === FICHIERS SENSIBLES ===
+mycreds.txt
+*.key
+*.json
+.env
+
+# === PYTHON ===
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# === OUTILS PYTHON ===
+*.egg-info/
+.eggs/
+*.log
+*.db
+*.sqlite3
+
+# === DOSSIERS TEMPORAIRES / DE BUILD ===
+build/
+dist/
+tmp/
+.cache/
+*.bak
+
+# === ENVIRONNEMENTS VIRTUELS ===
+venv/
+env/
+.venv/
+.env/
+
+# === OS & ÉDITEURS ===
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
