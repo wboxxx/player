@@ -85,7 +85,7 @@ DEBUG_FLAGS = {
     "GRID": True,
     "HARMONY": False,
     "HIT": True,
-    "JUMP": False,
+    "JUMP": True,
     "KEYBOARD": False,
     "LOOP": False,
     "MAPPING": False,
@@ -97,6 +97,7 @@ DEBUG_FLAGS = {
     "RHYTHM": False,
     "RLM" : True,
     "SAVE": False,
+    "SCORE": True,
     "SEGMENTS": False,
     "SPAM": False,
     "SYNC": False,
@@ -119,8 +120,12 @@ def Brint(*args, **kwargs):
     tags = re.findall(r"\[(.*?)\]", first_arg)
 
     # 🔒 Mode silencieux global : BRINT = False désactive TOUT
-    if DEBUG_FLAGS.get("BRINT", None) is False:
+    if DEBUG_FLAGS.get("BRINT", None) is None:
         return
+
+    # 🔒 Mode silencieux global : BRINT = False désactive TOUT
+    if DEBUG_FLAGS.get("BRINT", None) is False:
+        pass
 
     # 💥 Mode super-debug : BRINT = True affiche tout
     if DEBUG_FLAGS.get("BRINT", None) is True:
@@ -3377,7 +3382,7 @@ class VideoPlayer:
             "64th": base_beat / (24 if rhythm_type == "ternary" else 16)
 
         }
-        Brint(f"[DEBUG] RHYTHMe jump → BPM={bpm:.2f} | bar={levels['bar']} | beat={levels['beat']}")
+        Brint(f"[SCORE jumps] RHYTHMe jump → BPM={bpm:.2f} | bar={levels['bar']} | beat={levels['beat']}")
 
 
         return levels
@@ -3390,38 +3395,59 @@ class VideoPlayer:
         delta = self.get_jump_duration_ms(level)
         snapped = round(time_ms / delta) * delta
         return int(snapped)
-
-
+        
     def jump_playhead(self, direction, level):
         assert direction in (-1, 1), "Direction must be +1 or -1"
-        
-        delta_ms = self.get_jump_duration_ms(level)
-        
+
+        original_level = level
+        override_reason = ""
+
+        if not self.is_loop_effectively_defined():
+            # 🔁 Aucun loop actif → override durées en SECONDES
+            override_seconds = {
+                "beat": 10,
+                "8th": 60,
+                "16th": 300,
+                "64th": 600
+            }
+            seconds = override_seconds.get(level, None)
+            if seconds is not None:
+                delta_ms = int(seconds * 1000)
+                override_reason = f"[NO LOOP] override {original_level} → {seconds:.3f}s"
+                Brint(f"[JUMP] Aucun loop actif → {original_level} remplacé par {seconds:.3f}s ({delta_ms} ms)")
+            else:
+                delta_ms = self.get_jump_duration_ms(level)
+        else:
+            delta_ms = self.get_jump_duration_ms(level)
+
         mode = self.edit_mode.get() if hasattr(self, "edit_mode") else None
 
         if mode == "loop_start" and self.loop_start is not None:
             current_ms = self.loop_start
+            Brint("[JUMP] Mode édition : loop_start")
         elif mode == "loop_end" and self.loop_end is not None:
             current_ms = self.loop_end
+            Brint("[JUMP] Mode édition : loop_end")
         else:
             current_ms = int(self.playhead_time * 1000)
+            Brint(f"[JUMP] Mode normal depuis {current_ms} ms")
 
-        target_ms = current_ms + direction * int(delta_ms)
+        target_ms = current_ms + direction * delta_ms
         target_ms = self.snap_time_to_grid(target_ms, level)
         target_ms = max(0, target_ms)
 
-        # 🎯 Mise à jour en respectant le mode
         if mode == "loop_start":
             self.record_loop_marker("loop_start", milliseconds=target_ms, auto_exit=False)
         elif mode == "loop_end":
             self.record_loop_marker("loop_end", milliseconds=target_ms, auto_exit=False)
         else:
-            # self.jump_to_time(target_ms)
-            self.safe_jump_to_time(int(target_ms), source="jump_playhead")
-            self.safe_update_playhead(int(target_ms), source="jump_playhead")
+            self.safe_jump_to_time(target_ms, source="jump_playhead")
+            self.safe_update_playhead(target_ms, source="jump_playhead")
 
-        # ✅ Ajout du delta réel affiché (utile pour vérifier la réversibilité immédiate)
-        Brint(f"➡️ Jump {level} {direction:+} → {target_ms} ms (delta demandé : {int(delta_ms)} ms)")
+        Brint(f"➡️ Jump {original_level} {direction:+} → {target_ms} ms (delta : {delta_ms} ms) {override_reason}")
+
+
+
     def get_jump_duration_ms(self, level):
         return self.get_rhythm_levels().get(level, 500)
 
@@ -6933,7 +6959,7 @@ class VideoPlayer:
         self.btn_edit_A.config(relief=tk.SUNKEN if self.edit_mode.get() == "loop_start" else tk.RAISED)
         self.btn_edit_B.config(relief=tk.SUNKEN if self.edit_mode.get() == "loop_end" else tk.RAISED)
     def clear_loop(self, _=None):
-        print("Clear Loop")
+        Brint("[CLEAR]Clear Loop")
         self.cached_canvas_width = self.grid_canvas.winfo_width()
         if hasattr(self.current_loop, "chords"):
             self.current_loop.chords = []
