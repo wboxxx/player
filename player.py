@@ -83,29 +83,30 @@ DEBUG_FLAGS = {
     "ERROR": False,
     "EXPORT": False,
     "GRID": False,
-    "HARMONY": True,
-    "HIT": False,
-    "JUMP": False,
+    "HARMONY": False,
+    "HIT": True,
+    "JUMP": True,
     "KEYBOARD": False,
-    "LOOP": False,
+    "LOOP": True,
     "MAPPING": False,
     "open_chord_editor_all": False,
     "PHANTOM" : False,
-    "PH" : False,
+    "PH" : True,
     "PLAYER": False,
-    "PRECOMPUTE" : True,
-    "RHYTHM": True,
-    "RLM" : False,
+    "PRECOMPUTE" : False,
+    "RHYTHM": False,
+    "RLM" : True,
     "SAVE": False,
     "SCORE": False,
     "SEGMENTS": False,
     "SPAM": False,
     "SYNC": False,
-    "TEMPO": True,
+    "TEMPO": False,
     "TRACKER": False,
     "WARNING": False,
-    "ZOOM": False,
-    "BRINT" : False
+    "ZOOM": False
+    ,
+    "BRINT" : True
 
 
 }
@@ -123,7 +124,7 @@ def Brint(*args, **kwargs):
     if DEBUG_FLAGS.get("BRINT", None) is None:
         return
 
-    # 🔒 Mode silencieux global : BRINT = False désactive TOUT
+    # 🔒 Mode silencieux global : BRINT = None il fait les filtres
     if DEBUG_FLAGS.get("BRINT", None) is False:
         pass
 
@@ -3377,7 +3378,7 @@ class VideoPlayer:
             }
             seconds = override_seconds.get(level, None)
             if seconds is not None:
-                delta_ms = int(seconds * 1000)
+                delta_ms = int(seconds * 500)
                 override_reason = f"[NO LOOP] override {original_level} → {seconds:.3f}s"
                 Brint(f"[JUMP] Aucun loop actif → {original_level} remplacé par {seconds:.3f}s ({delta_ms} ms)")
             else:
@@ -4089,7 +4090,6 @@ class VideoPlayer:
 
         self.grid_times = []
         self.grid_labels = []
-        pass#Brint(f"[BRG RHYTHM] ➕ Grille de {total_subdivs} subdivisions | interval = {interval_sec:.3f}s")
 
         for i in range(total_subdivs):
             t = self.loop_start / 1000.0 + i * interval_sec
@@ -4102,25 +4102,52 @@ class VideoPlayer:
             suffix = label_seq[sub]
             label = f"{beat}{suffix}"
             self.grid_labels.append(label)
+
             if i < 5:
                 Brint(f"[BRG DEBUG] i={i} | t={self.hms(1000 * t)} hms")
-        # 🔧 Supprimer les subdivisions hors de la boucle A/B
+
+        # 🔍 Filtrage pour rester dans la plage A–B (avec tolérance)
         loop_start_s = self.loop_start / 1000
         loop_end_s = self.loop_end / 1000
+        subdiv_duration = 60 / (bpm * subdivs_per_beat)
+        tolerance = subdiv_duration / 2
+
         zipped = list(zip(self.grid_labels, self.grid_times))
+        filtered = [(lbl, t) for lbl, t in zipped if loop_start_s <= t <= loop_end_s + tolerance]
+
         before = len(zipped)
-        filtered = [(lbl, t) for lbl, t in zipped if loop_start_s <= t <= loop_end_s]
         after = len(filtered)
         if after < before:
             Brint(f"[BRG RHYTHM] ⚠️ {before - after} subdivisions hors A/B supprimées après build")
 
-        self.grid_labels, self.grid_times = zip(*filtered) if filtered else ([], [])
+        # 💥 Correction : forcer le type list après zip(*)
+        if filtered:
+            labels, times = zip(*filtered)
+            self.grid_labels, self.grid_times = list(labels), list(times)
+        else:
+            self.grid_labels, self.grid_times = [], []
 
-        self.grid_labels, self.grid_times = zip(*filtered) if filtered else ([], [])
-        self.grid_subdivs = list(enumerate(self.grid_times))  # ← ajoute ceci ici
+        # ➕ Patch pour inclure la subdiv finale si elle manque encore
+        if self.grid_times:
+            last_time = self.grid_times[-1]
+            if last_time + 0.5 * subdiv_duration < loop_end_s:
+                next_t = last_time + subdiv_duration
+                self.grid_times.append(next_t)
+
+                total_beats = len(self.grid_times) / subdivs_per_beat
+                bar = int(total_beats // beats_per_bar) + 1
+                beat = int(total_beats % beats_per_bar) + 1
+                sub = len(self.grid_times) % subdivs_per_beat
+                label = f"{beat}{label_seq[sub]}"
+                self.grid_labels.append(label)
+
+                Brint(f"[BRG PATCH] ➕ Subdiv extra ajoutée : t={next_t:.3f}s > loop_end")
+
+        self.grid_subdivs = list(enumerate(self.grid_times))
 
         Brint(f"[BRG RHYTHM] ✅ Grille générée : {len(self.grid_labels)} subdivisions ({mode})")
         Brint(f"[BRG BUILD RHYTHM GRID] subdivision_mode = {self.subdivision_mode}")
+
 
 
     def rebuild_grid_from_tempo(self, nb_measures=8, beats_per_measure=4, subdivision="ternary"):
@@ -7167,7 +7194,7 @@ class VideoPlayer:
 
 #fps
         if not self.is_paused:
-            self.after_id = self.root.after(40, self.update_loop)
+            self.after_id = self.root.after(400, self.update_loop)
 
 
     def on_timeline_click(self, e): self.handle_timeline_interaction(e.x)
@@ -7529,8 +7556,17 @@ class VideoPlayer:
             Brint(f"[HIT BORD B] 🔁 Hit à {current_time_sec:.3f}s rattaché à subdiv {len(grid_times) - 1} (après B)")
             closest_i = len(grid_times) - 1
 
-        else :
-            # 3. Recherche du subdiv le plus proche (même hors de la grille)
+        # 3. Gestion des cas aux frontières A/B
+        if first_time - 0.5 * subdiv_duration < current_time_sec < first_time:
+            Brint(f"[HIT BORD A] 🔁 Hit à {current_time_sec:.3f}s rattaché à subdiv 0 (avant A)")
+            closest_i = 0
+
+        elif last_time < current_time_sec < last_time + 0.5 * subdiv_duration:
+            Brint(f"[HIT BORD B] 🔁 Hit à {current_time_sec:.3f}s rattaché à subdiv {len(grid_times) - 1} (après B)")
+            closest_i = len(grid_times) - 1
+
+        else:
+            # 4. Recherche du subdiv le plus proche (standard)
             closest_i_ext, closest_t = min(indexed_grid, key=lambda item: abs(item[1] - current_time_sec))
             delta = abs(closest_t - current_time_sec)
 
@@ -7538,16 +7574,11 @@ class VideoPlayer:
                 Brint(f"[HIT IGNORÉ] 🛑 Aucun subdiv proche (Δ = {delta:.3f}s > tolérance)")
                 return
 
-            # 4. Gestion spéciale si frappe en dehors des subdivisions connues
             if closest_i_ext < 0 or closest_i_ext >= len(grid_times):
                 Brint(f"[HIT HORS GRILLE] Subdiv virtuelle {closest_i_ext:+d} détectée | frappe hors A/B | non comptabilisée")
                 return
 
-            # 5. Frappe valide : index réel dans precomputed
             closest_i = closest_i_ext
-        if closest_i is None:
-            Brint("[HIT ERROR] ❌ closest_i indéfini — frappe ignorée")
-            return
     
         
         last_hit = self.subdiv_last_hit_pass.get(closest_i, -1)
@@ -7573,6 +7604,11 @@ class VideoPlayer:
         # 🔍 Log final de validation complète du hit
         x = self.precomputed_grid_infos[closest_i]["x"]
         Brint(f"[HIT VALIDATED] ✅ Subdiv {closest_i} ← hit à {current_time_sec:.3f}s | x={x:.1f}px | loop_pass={self.loop_pass_count}")
+        # 🔴 Mise à jour immédiate du state = 2 pour affichage en rouge
+        if not hasattr(self, "subdivision_states"):
+            self.subdivision_states = {}
+        self.subdivision_states[closest_i] = 2
+        Brint(f"[HIT COLOR] 🔴 Subdiv {closest_i} marqué state=2 (rouge) immédiatement après frappe")
 
         self.draw_rhythm_grid_canvas()
 
