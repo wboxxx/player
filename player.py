@@ -82,9 +82,9 @@ DEBUG_FLAGS = {
     "EDITOR" : False,
     "ERROR": False,
     "EXPORT": False,
-    "GRID": True,
-    "HARMONY": False,
-    "HIT": True,
+    "GRID": False,
+    "HARMONY": True,
+    "HIT": False,
     "JUMP": False,
     "KEYBOARD": False,
     "LOOP": False,
@@ -93,15 +93,15 @@ DEBUG_FLAGS = {
     "PHANTOM" : False,
     "PH" : False,
     "PLAYER": False,
-    "PRECOMPUTE" : False,
-    "RHYTHM": False,
-    "RLM" : True,
+    "PRECOMPUTE" : True,
+    "RHYTHM": True,
+    "RLM" : False,
     "SAVE": False,
     "SCORE": False,
     "SEGMENTS": False,
     "SPAM": False,
     "SYNC": False,
-    "TEMPO": False,
+    "TEMPO": True,
     "TRACKER": False,
     "WARNING": False,
     "ZOOM": False,
@@ -1449,14 +1449,7 @@ class LoopData:
         Retourne un dict {subdiv_index: [notes]} où chaque subdivision contient une liste de notes associées.
         Basé sur self.grid_times (en secondes), master_note_list (en millisecondes).
         """
-        if not hasattr(self, "grid_times") or not self.grid_times:
-            if hasattr(self, "grid_subdivs"):
-                self.grid_times = [t for _, t in self.grid_subdivs]
-                Brint("[REMAP] 🔄 grid_times reconstruit depuis grid_subdivs")
-            else:
-                Brint("[ERROR map_notes_to_subdivs] Aucune grille disponible pour associer les notes.")
-                return {}
-
+ 
         mapping = {i: [] for i in range(len(self.grid_times))}
 
         for note in self.master_note_list:
@@ -2147,7 +2140,9 @@ class VideoPlayer:
 
     def rebuild_loop_context(self):
         Brint("[DEBUG rebuild_loop_context] 🔁 Reconstruction contexte boucle")
-        self.grid_times = self.build_grid_times_from_loop()
+        self.build_rhythm_grid()
+        self.draw_rhythm_grid_canvas()
+        self.compute_rhythm_grid_infos()
         self.grid_subdivs = [(i, t) for i, t in enumerate(self.grid_times)]
         self.current_loop.grid_times = self.grid_times
         self.current_loop.grid_subdivs = self.grid_subdivs
@@ -2205,36 +2200,6 @@ class VideoPlayer:
         Brint(f"[TRACE GRID] ✅ Généré {len(self.grid_subdivs)} subdivisions via debug fallback")
         Brint(f"[TRACE GRID] Extrait: {self.grid_subdivs[:3]}")
             
-    def build_grid_times_from_loop(self):
-        bpm = self.get_effective_bpm()
-        start_sec = self.current_loop.loop_start / 1000.0
-        end_sec = self.current_loop.loop_end / 1000.0
-        duration_sec = end_sec - start_sec
-
-        subdivs_per_beat = {
-            "binary8": 2,
-            "binary16": 4,
-            "ternary8": 3,
-            "ternary16": 6
-        }.get(self.subdivision_mode, 2)
-
-        beats_per_sec = bpm / 60.0
-        total_beats = duration_sec * beats_per_sec
-        # total_subdivs = int(total_beats * subdivs_per_beat)
-        total_subdivs = math.ceil(total_beats * subdivs_per_beat)
-
-        Brint(f"[build_grid_times_from_loop] ⏱ BPM = {bpm} | Mode = {self.subdivision_mode} → {total_subdivs} subdivisions")
-
-        grid_times = []
-        for i in range(total_subdivs):
-            t = start_sec + (i / subdivs_per_beat) * (60.0 / bpm)
-            grid_times.append(t)
-            if i < 5:
-                Brint(f"[build_grid_times_from_loop] ▶ Subdiv {i} = {self.hms(t * 1000)}")
-        
-        Brint(f"[build_grid_times_from_loop] ✅ Fin : {len(grid_times)} subdivisions totales")
-        return grid_times
-
 
     def add_note_event(self, timestamp_ms, note, velocity=100):
         self.master_note_list.append({
@@ -4094,7 +4059,7 @@ class VideoPlayer:
         - self.subdivision_mode: 'ternary8', 'ternary16', 'binary8', 'binary16'
         """
         if not self.loop_start or not self.loop_end or not self.tempo_bpm:
-            pass#Brint("[BRG RHYTHM] ❌ Impossible de générer la grille : boucle ou tempo manquant")
+            Brint("[BRG RHYTHM] ❌ Impossible de générer la grille : boucle ou tempo manquant")
             self.grid_times, self.grid_labels = [], []
             return
 
@@ -4116,7 +4081,7 @@ class VideoPlayer:
             subdivs_per_beat = 6
             label_seq = ["t", "l", "n", "t", "l", ""]
         else:
-            pass#Brint(f"[BRG RHYTHM] ❌ Mode subdivision inconnu : {mode}")
+            Brint(f"[BRG RHYTHM] ❌ Mode subdivision inconnu : {mode}")
             return
 
         total_subdivs = int((bpm / 60) * loop_duration_sec * subdivs_per_beat)
@@ -4138,11 +4103,24 @@ class VideoPlayer:
             label = f"{beat}{suffix}"
             self.grid_labels.append(label)
             if i < 5:
-                pass#Brint(f"[BRG DEBUG] i={i} | t={self.hms(1000 * t)} hms")
+                Brint(f"[BRG DEBUG] i={i} | t={self.hms(1000 * t)} hms")
+        # 🔧 Supprimer les subdivisions hors de la boucle A/B
+        loop_start_s = self.loop_start / 1000
+        loop_end_s = self.loop_end / 1000
+        zipped = list(zip(self.grid_labels, self.grid_times))
+        before = len(zipped)
+        filtered = [(lbl, t) for lbl, t in zipped if loop_start_s <= t <= loop_end_s]
+        after = len(filtered)
+        if after < before:
+            Brint(f"[BRG RHYTHM] ⚠️ {before - after} subdivisions hors A/B supprimées après build")
 
+        self.grid_labels, self.grid_times = zip(*filtered) if filtered else ([], [])
 
-        pass#Brint(f"[BRG RHYTHM] ✅ Grille générée : {len(self.grid_labels)} subdivisions ({mode})")
-        pass#Brint(f"[BRG BUILD RHYTHM GRID] subdivision_mode = {self.subdivision_mode}")
+        self.grid_labels, self.grid_times = zip(*filtered) if filtered else ([], [])
+        self.grid_subdivs = list(enumerate(self.grid_times))  # ← ajoute ceci ici
+
+        Brint(f"[BRG RHYTHM] ✅ Grille générée : {len(self.grid_labels)} subdivisions ({mode})")
+        Brint(f"[BRG BUILD RHYTHM GRID] subdivision_mode = {self.subdivision_mode}")
 
 
     def rebuild_grid_from_tempo(self, nb_measures=8, beats_per_measure=4, subdivision="ternary"):
@@ -4258,30 +4236,38 @@ class VideoPlayer:
     def set_tempo_bpm(self, bpm, source="manual"):
         try:
             bpm = float(bpm)
-            if bpm <= 0: raise ValueError
+            if bpm <= 0:
+                raise ValueError
             self.tempo_bpm = bpm
+            Brint(f"[TEMPO] 🎼 Nouveau tempo défini : {bpm:.2f} BPM (source={source})")
+
             if hasattr(self, "current_loop") and self.current_loop:
                 self.current_loop.tempo_bpm = bpm
-                Brint(f"[SYNC] tempo_bpm synchronisé dans current_loop : {bpm}")
+                Brint(f"[TEMPO][SYNC] tempo_bpm synchronisé dans current_loop : {bpm:.2f}")
 
             self.tempo_var.set(round(bpm, 2))
             ms_per_beat = round(60000 / bpm, 1)
             self.console.config(text=f"🎼 Tempo mis à jour ({source}) : {bpm:.2f} BPM → {ms_per_beat} ms / beat")
             self.tempo_label.config(text=f"{bpm:.2f} BPM • {ms_per_beat} ms/beat")
-            self.draw_rhythm_grid_canvas()
+
             if self.lock_tempo_var.get():
+                Brint("[TEMPO] 🔒 Tempo verrouillé → mise à jour vitesse vidéo")
                 self.update_video_speed_from_tempo()
         except:
             self.console.config(text="❌ BPM invalide")
-            
+            Brint("[TEMPO][ERROR] Valeur BPM invalide reçue")
+            return
+
+        Brint("[TEMPO] 🔄 Reconstruction complète de la grille rythmique")
+        
+        self.grid_times = []  # force reconstruction propre
+        self.mapped_notes = {}
+
         self.build_rhythm_grid()
         self.draw_rhythm_grid_canvas()
-
-        self.refresh_note_display()
         self.compute_rhythm_grid_infos()
-        # self.current_loop.map_notes_to_grid(self.grid_subdivs)
         self.current_loop.map_notes_to_subdivs()
-
+        self.refresh_note_display()
 
         
 
