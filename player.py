@@ -640,7 +640,8 @@ def extract_audio_segment(audio_path, start, duration, sr=22050):
 
 def detect_tempo_and_beats(audio_path, loop_start=35.0, loop_end=75.0):
     import time
-    start = time.time()
+    start_time_func = time.time() # Renamed start to avoid conflict
+    tmp_path = None  # Initialize tmp_path to None
     if os.name == "nt" and audio_path.startswith("/"):
         Brint("[DEBUG] Correction du chemin source audio_path")
         audio_path = audio_path[1:]
@@ -653,12 +654,12 @@ def detect_tempo_and_beats(audio_path, loop_start=35.0, loop_end=75.0):
         pass #Brint(f"[DEBUG] Fichier temporaire créé : {tmp_path}")
         if not os.path.exists(tmp_path) or os.path.getsize(tmp_path) == 0:
             Brint("❌ Fichier audio temporaire vide ou manquant.")
-            return
+            return None # Ensure to return something identifiable as failure
 
         y, sr = librosa.load(tmp_path, sr=None, dtype=np.float32)
         if y is None or len(y) == 0:
             Brint("❌ Erreur de chargement audio depuis le fichier WAV.")
-            return
+            return None # Ensure to return something identifiable as failure
         pass #Brint(f"[DEBUG] Taille fichier : {os.path.getsize(tmp_path)} octets, SR = {sr}, longueur = {len(y)}")
 
         sos = scipy.signal.butter(4, [40, 120], btype='bandpass', fs=sr, output='sos')
@@ -674,28 +675,35 @@ def detect_tempo_and_beats(audio_path, loop_start=35.0, loop_end=75.0):
         candidates = np.where((rms_bass > threshold) & (times_bass > 1.0))[0]
         if not candidates.size:
             Brint("⚠️ Aucun pic d’énergie clair détecté.")
-            return
+            return None # Ensure to return something identifiable as failure
 
         beat1_time = float(loop_start + times_bass[candidates[0]])
         ts = timedelta(seconds=beat1_time)
         hms = f"{ts.seconds // 3600}:{(ts.seconds % 3600) // 60:02}:{ts.seconds % 60:02}.{int(ts.microseconds/1000):03}"
         Brint(f"🌟 Beat 1 : {hms} ({beat1_time:.3f}s)")
 
-        idx_start = int((beat1_time - loop_start) * sr)
-        y_focus = y[idx_start:idx_start + int(15 * sr)]
+        idx_start_focus = int((beat1_time - loop_start) * sr) # Renamed idx_start to avoid conflict
+        y_focus = y[idx_start_focus:idx_start_focus + int(15 * sr)]
 
         tempo_raw, _ = librosa.beat.beat_track(y=y_focus, sr=sr)
         tempo = float(tempo_raw/3)  # mesure?beat?
         Brint(f"🎵 Tempo beats estimé  : {tempo:.2f} BPM")
 
-        os.remove(tmp_path)
-        Brint(f"[TIMER] detect_tempo_and_beats: {time.time() - start:.2f}s")
-        # return beat1_time, tempo
+        Brint(f"[TIMER] detect_tempo_and_beats: {time.time() - start_time_func:.2f}s")
         return beat1_time, tempo
 
     except Exception as e:
-
-        return self.loop_start / 1000.0 if self.loop_start is not None else None
+        # It's better to handle specific cases for returning loop_start/loop_end if needed
+        # For a general exception, returning None or raising might be more appropriate
+        # The original logic here seems to be a fallback, ensure it's what's intended.
+        # For now, replicating the original fallback logic in case of an error,
+        # but this might need review depending on how `self` is accessed here.
+        # Assuming `self` is not accessible in this global function, returning None.
+        Brint(f"❌ Erreur tempo : {type(e).__name__} - {e}")
+        return None
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            os.remove(tmp_path)
 
         return self.loop_end / 1000.0 if self.loop_end is not None else None
 
@@ -1227,44 +1235,48 @@ def predict_on_loop_segment(original_path, beat1_sec, duration_sec):
     else:
         audio_path = original_path
 
-    # Charger tout le fichier audio avec soundfile
-    y_full, sr = sf.read(audio_path, always_2d=False)
+    temp_path = None # Initialize tmp_path to None
+    try:
+        # Charger tout le fichier audio avec soundfile
+        y_full, sr = sf.read(audio_path, always_2d=False)
 
-    # Convertir temps en samples
-    start_sample = int(beat1_sec * sr)
-    end_sample = int((beat1_sec + duration_sec) * sr)
+        # Convertir temps en samples
+        start_sample = int(beat1_sec * sr)
+        end_sample = int((beat1_sec + duration_sec) * sr)
 
-    # Extraction du segment
-    y = y_full[start_sample:end_sample]
+        # Extraction du segment
+        y = y_full[start_sample:end_sample]
 
-    # Sauvegarder le segment dans un WAV temporaire
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmpfile:
-        temp_path = tmpfile.name
-        sf.write(temp_path, y, sr)
+        # Sauvegarder le segment dans un WAV temporaire
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmpfile:
+            temp_path = tmpfile.name
+            sf.write(temp_path, y, sr)
 
-    Brint(f"🎧 Analyse de {os.path.basename(temp_path)} (durée {len(y)/sr:.2f}s)")
+        Brint(f"🎧 Analyse de {os.path.basename(temp_path)} (durée {len(y)/sr:.2f}s)")
 
-    # Analyse avec Basic Pitch
-    start_predict = time.time()
-    model_output, midi_data, note_events = predict(
-        temp_path,
-        model_or_model_path=ICASSP_2022_MODEL_PATH,
-        onset_threshold=0.3,
-        frame_threshold=0.3,
-        minimum_note_length=30.0,
-        minimum_frequency=70.0,
-        maximum_frequency=1300.0,
-        melodia_trick=True
-    )
-    Brint(f"[TIMER] Predict: {time.time() - start_predict:.2f}s")
+        # Analyse avec Basic Pitch
+        start_predict = time.time()
+        model_output, midi_data, note_events = predict(
+            temp_path,
+            model_or_model_path=ICASSP_2022_MODEL_PATH,
+            onset_threshold=0.3,
+            frame_threshold=0.3,
+            minimum_note_length=30.0,
+            minimum_frequency=70.0,
+            maximum_frequency=1300.0,
+            melodia_trick=True
+        )
+        Brint(f"[TIMER] Predict: {time.time() - start_predict:.2f}s")
 
-    adjusted_events = [
-        (start + beat1_sec, end + beat1_sec, pitch, conf, extra)
-        for start, end, pitch, conf, extra in note_events
-    ]
+        adjusted_events = [
+            (start + beat1_sec, end + beat1_sec, pitch, conf, extra)
+            for start, end, pitch, conf, extra in note_events
+        ]
 
-    os.remove(temp_path)
-    return model_output, midi_data, adjusted_events
+        return model_output, midi_data, adjusted_events
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            os.remove(temp_path)
 
 def export_masked_segment(source_path, dest_path, beat1, duration):
     """
@@ -3248,10 +3260,17 @@ class VideoPlayer:
         if destination == 'disk':
             self.console.config(text=f"✅ Exporté : {os.path.basename(output_path)}")
         else:
-            Brint(f"[GDRIVE] Uploading {output_path} as {media_base_name}")
-
-            upload_loop_to_drive(output_path, os.path.basename(output_path))
-            self.console.config(text=f"✅ Boucle {os.path.basename(output_path)} envoyée sur Google Drive")
+            # GDrive destination
+            try:
+                Brint(f"[GDRIVE] Uploading {output_path} as {media_base_name}")
+                # The base name for Google Drive folder should be from the original media, not the temp export.
+                # Assuming media_base_name is correctly derived from self.current_path earlier.
+                upload_loop_to_drive(output_path, media_base_name) # Use media_base_name for folder, filename for file
+                self.console.config(text=f"✅ Boucle {filename} envoyée sur Google Drive")
+            finally:
+                if os.path.exists(output_path):
+                    os.remove(output_path)
+                    Brint(f"[TEMP CLEANUP] Removed temporary GDrive export: {output_path}")
 
    
     #wavx10 
@@ -3329,10 +3348,44 @@ class VideoPlayer:
         pass#Brint(f"[RHYTHM] ⬅️ Mode subdivision : {self.subdivision_mode}")
         
         self.build_rhythm_grid()
+        self.compute_rhythm_grid_infos() # Ensure precomputed_grid_infos is fresh for the new mode
         self.update_all_detected_notes_from_master()  # ← très important
-        self.update_all_detected_notes_from_master()
         Brint(f"[DEBUG CYCLE] Après update notes → accords = {len(self.current_loop.chords)}")
 
+        # Remap persistent validated hits to the new grid
+        Brint("[REMAP_VALIDATED_HITS cycle_subdivision_mode_backward] Clearing old subdivision_state.")
+        self.subdivision_state.clear()
+
+        if not hasattr(self, 'persistent_validated_hit_timestamps') or not self.persistent_validated_hit_timestamps:
+            Brint("[REMAP_VALIDATED_HITS cycle_subdivision_mode_backward] No persistent validated hit timestamps to remap.")
+        elif not hasattr(self, 'precomputed_grid_infos') or not self.precomputed_grid_infos:
+            Brint("[REMAP_VALIDATED_HITS_ERROR cycle_subdivision_mode_backward] precomputed_grid_infos not available for remapping.")
+        else:
+            Brint(f"[REMAP_VALIDATED_HITS cycle_subdivision_mode_backward] Remapping {len(self.persistent_validated_hit_timestamps)} persistent hit timestamps...")
+            current_grid_times_map = {idx: info['t_subdiv_sec'] for idx, info in self.precomputed_grid_infos.items()}
+
+            if not current_grid_times_map:
+                Brint("[REMAP_VALIDATED_HITS_ERROR cycle_subdivision_mode_backward] current_grid_times_map is empty.")
+            else:
+                grid_times_list = sorted(current_grid_times_map.values())
+                intervals = [t2 - t1 for t1, t2 in zip(grid_times_list[:-1], grid_times_list[1:])]
+                avg_interval_sec = sum(intervals) / len(intervals) if intervals else 0.5
+                tolerance = avg_interval_sec / 3.0
+
+                for timestamp_sec in self.persistent_validated_hit_timestamps:
+                    new_closest_subdiv_idx = None
+                    min_delta = float('inf')
+                    for subdiv_idx, subdiv_t_sec in current_grid_times_map.items():
+                        delta = abs(subdiv_t_sec - timestamp_sec)
+                        if delta < min_delta:
+                            min_delta = delta
+                            new_closest_subdiv_idx = subdiv_idx
+
+                    if new_closest_subdiv_idx is not None and min_delta <= tolerance:
+                        self.subdivision_state[new_closest_subdiv_idx] = 2
+                        Brint(f"[REMAP_VALIDATED_HITS cycle_subdivision_mode_backward] Timestamp {timestamp_sec:.3f}s remapped to new subdiv {new_closest_subdiv_idx} (state 2) with delta {min_delta:.3f}s.")
+                    else:
+                        Brint(f"[REMAP_VALIDATED_HITS_WARN cycle_subdivision_mode_backward] Timestamp {timestamp_sec:.3f}s (min_delta {min_delta:.3f}s > tol {tolerance:.3f}s) could not be reliably remapped to any subdiv in the new grid.")
 
         # 🔍 Debug : affichage des 10 premières notes de la master list
         Brint("[DEBUG] 🔍 master_note_list (extrait) :")
@@ -3360,6 +3413,41 @@ class VideoPlayer:
         pass#Brint(f"[RHYTHM] ➡️ Mode subdivision : {self.subdivision_mode}")
         self.build_rhythm_grid()
         self.rebuild_loop_context()  # ← met à jour self.grid_subdivs ET chords si tu les relies dedans
+
+        # Remap persistent validated hits to the new grid
+        Brint("[REMAP_VALIDATED_HITS cycle_subdivision_mode] Clearing old subdivision_state.")
+        self.subdivision_state.clear()
+
+        if not hasattr(self, 'persistent_validated_hit_timestamps') or not self.persistent_validated_hit_timestamps:
+            Brint("[REMAP_VALIDATED_HITS cycle_subdivision_mode] No persistent validated hit timestamps to remap.")
+        elif not hasattr(self, 'precomputed_grid_infos') or not self.precomputed_grid_infos:
+            Brint("[REMAP_VALIDATED_HITS_ERROR cycle_subdivision_mode] precomputed_grid_infos not available for remapping.")
+        else:
+            Brint(f"[REMAP_VALIDATED_HITS cycle_subdivision_mode] Remapping {len(self.persistent_validated_hit_timestamps)} persistent hit timestamps...")
+            current_grid_times_map = {idx: info['t_subdiv_sec'] for idx, info in self.precomputed_grid_infos.items()}
+
+            if not current_grid_times_map:
+                Brint("[REMAP_VALIDATED_HITS_ERROR cycle_subdivision_mode] current_grid_times_map is empty.")
+            else:
+                grid_times_list = sorted(current_grid_times_map.values())
+                intervals = [t2 - t1 for t1, t2 in zip(grid_times_list[:-1], grid_times_list[1:])]
+                avg_interval_sec = sum(intervals) / len(intervals) if intervals else 0.5
+                tolerance = avg_interval_sec / 3.0
+
+                for timestamp_sec in self.persistent_validated_hit_timestamps:
+                    new_closest_subdiv_idx = None
+                    min_delta = float('inf')
+                    for subdiv_idx, subdiv_t_sec in current_grid_times_map.items():
+                        delta = abs(subdiv_t_sec - timestamp_sec)
+                        if delta < min_delta:
+                            min_delta = delta
+                            new_closest_subdiv_idx = subdiv_idx
+
+                    if new_closest_subdiv_idx is not None and min_delta <= tolerance:
+                        self.subdivision_state[new_closest_subdiv_idx] = 2
+                        Brint(f"[REMAP_VALIDATED_HITS cycle_subdivision_mode] Timestamp {timestamp_sec:.3f}s remapped to new subdiv {new_closest_subdiv_idx} (state 2) with delta {min_delta:.3f}s.")
+                    else:
+                        Brint(f"[REMAP_VALIDATED_HITS_WARN cycle_subdivision_mode] Timestamp {timestamp_sec:.3f}s (min_delta {min_delta:.3f}s > tol {tolerance:.3f}s) could not be reliably remapped to any subdiv in the new grid.")
 
         self.update_all_detected_notes_from_master()  # ← très important
 
@@ -4922,15 +5010,24 @@ class VideoPlayer:
         cmd += [export_path]
 
         subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-        upload_loop_to_drive(export_path, media_base_name)
-
-        #GDRIVE CALLER ENDS
+        try:
+            upload_loop_to_drive(export_path, media_base_name)
+        finally:
+            if os.path.exists(export_path):
+                os.remove(export_path)
+                Brint(f"[TEMP CLEANUP] Removed temporary GDrive export: {export_path}")
     
         
     # --- Fonction pour charger une boucle sauvegardée quand on clique ---
     def load_saved_loop(self, index):
         Brint(f"\n[LOAD LOOP] 🔁 Chargement boucle index={index}")
+        self.reset_rhythm_overlay()
+        self.subdivision_state.clear()
+        self.persistent_validated_hit_timestamps.clear()
+        self.user_hit_timestamps.clear()  # Clearing raw user hits for the previous loop
+        self.subdiv_last_hit_loop.clear() # Clearing which subdiv was hit in which pass of the old loop
+        self.loop_pass_count = 0          # Resetting loop pass counter for the new loop
+        Brint("[LOAD LOOP] Cleared persistent hit states for new loop.")
         
         if index < 0 or index >= len(self.saved_loops):
             Brint(f"[ERROR] Index de boucle invalide : {index}")
@@ -4949,6 +5046,7 @@ class VideoPlayer:
         self.current_loop = LoopData.from_dict(loop)
         self.loop_start = self.current_loop.loop_start
         self.loop_end = self.current_loop.loop_end
+        self.auto_zoom_on_loop_markers(force=True)
 
         if self.loop_start is None or self.loop_end is None:
             Brint("[ERROR] loop_start ou loop_end manquant après chargement")
@@ -5402,6 +5500,13 @@ class VideoPlayer:
     
     def stop_ram_loop(self, _=None):
         """Arrête complètement la lecture RAM (audio + vidéo) et remet VLC normal."""
+        if hasattr(self, 'ram_audio_clip_path') and self.ram_audio_clip_path and os.path.exists(self.ram_audio_clip_path):
+            try:
+                os.remove(self.ram_audio_clip_path)
+                Brint(f"[RAM LOOP CLEANUP] Removed temp audio clip: {self.ram_audio_clip_path}")
+            except Exception as e:
+                Brint(f"[RAM LOOP CLEANUP ERROR] Failed to remove {self.ram_audio_clip_path}: {e}")
+            self.ram_audio_clip_path = None
 
         # 🛑 Stop audio RAM si lancé
         try:
@@ -5413,8 +5518,8 @@ class VideoPlayer:
         except Exception as e:
             Brint(f"[RAM LOOP] Erreur arrêt audio RAM : {e}")
 
-        # 🎯 Clean des attributs RAM
-        self.ram_audio_clip = None
+        # 🎯 Clean des attributs RAM (original attributes, if any beyond path)
+        # self.ram_audio_clip = None # If this was a Pygame object, it's handled by pygame.mixer.quit()
         self.ram_audio_start_time = None
 
         # 🔈 Remettre VLC audio actif
@@ -5443,9 +5548,11 @@ class VideoPlayer:
             Brint("[RAM LOOP] Erreur extraction audio.")
             return
 
+        self.ram_audio_clip_path = audio_path # Store the path for cleanup
+
         try:
             pygame.mixer.init(frequency=48000, channels=2)
-            pygame.mixer.music.load(audio_path)
+            pygame.mixer.music.load(self.ram_audio_clip_path)
             pygame.mixer.music.play(loops=-1)  # 🔄 boucle infinie
             self.ram_audio_start_time = time.perf_counter()
             Brint("[RAM LOOP] Lecture audio RAM démarrée.")
@@ -7158,19 +7265,24 @@ class VideoPlayer:
 
         def faststart_remux(input_path):
             temp_output = tempfile.NamedTemporaryFile(delete=False, suffix='.mp4').name
-            cmd = [
-                "ffmpeg", "-y",
-                "-i", input_path,
-                "-c", "copy",
-                "-movflags", "+faststart",
-                temp_output
-            ]
             try:
+                cmd = [
+                    "ffmpeg", "-y",
+                    "-i", input_path,
+                    "-c", "copy",
+                    "-movflags", "+faststart",
+                    temp_output
+                ]
                 subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 shutil.move(temp_output, input_path)
                 Brint(f"✅ Remux faststart appliqué sur {input_path}")
             except Exception as e:
                 Brint(f"⚠️ Remux échoué : {e}")
+            finally:
+                if os.path.exists(temp_output) and temp_output != input_path: # Ensure we don't delete the original if move failed
+                    os.remove(temp_output)
+                    Brint(f"[TEMP CLEANUP] Removed temporary remux file: {temp_output}")
+
 
         # Lance automatiquement le remux
         # faststart_remux(self.current_path)
