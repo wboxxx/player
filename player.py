@@ -1741,13 +1741,25 @@ class ToolTip:
 
 class VideoPlayer:
     
-    def _remove_impact_vfx(self, line_id):
-        if self.grid_canvas:
-            self.grid_canvas.delete(line_id)
-        if line_id in self.impact_strikes:
-            self.impact_strikes.remove(line_id)
-        Brint(f"[HIT FX] ✅ Impact visuel retiré (line_id={line_id})")
+    def try_itemconfig(self, canvas_widget, item_id, **kwargs):
+        # Helper to safely call itemconfig, catching TclError if item is gone.
+        try:
+            canvas_widget.itemconfig(item_id, **kwargs)
+        except tk.TclError:
+            # Optional: Log this occurrence if it's unexpected.
+            # Brint(f"[HIT_FX_ANIM_WARN] Item {item_id} no longer exists for itemconfig: {kwargs}")
+            pass # Item was already deleted, which is fine.
 
+    def _remove_impact_vfx(self, line_id):
+        try:
+            if self.grid_canvas: # Ensure canvas itself exists
+                self.grid_canvas.delete(line_id)
+            if line_id in self.impact_strikes:
+                self.impact_strikes.remove(line_id)
+            # Brint(f"[HIT FX] ✅ Impact visuel retiré (line_id={line_id})") # Keep or silence this
+        except tk.TclError:
+            # Brint(f"[HIT FX_REMOVE_WARN] Item {line_id} no longer exists for delete.")
+            pass # Item was already deleted.
     
     def match_hits_to_subdivs(self):
         from collections import defaultdict
@@ -2635,7 +2647,36 @@ class VideoPlayer:
                 # Si déjà pré-validée -> passe en validé rouge
                 if state == 1:
                     self.subdivision_state[i[0]] = 2
-                    Brint(f"[VALIDATED] Subdiv {i[0]} passe en ROUGE (confirmée)")
+                    promoted_subdiv_idx = i[0]
+                    Brint(f"[VALIDATED] Subdiv {promoted_subdiv_idx} passe en ROUGE (confirmée)")
+                    # Add logic to store the original hit timestamp
+                    if hasattr(self, "precomputed_grid_infos") and self.precomputed_grid_infos and \
+                       hasattr(self, "user_hit_timestamps") and self.user_hit_timestamps:
+                        current_grid_times_map = {idx: info['t_subdiv_sec'] for idx, info in self.precomputed_grid_infos.items()}
+                        if current_grid_times_map:
+                            grid_times_list = sorted(current_grid_times_map.values())
+                            intervals = [t2 - t1 for t1, t2 in zip(grid_times_list[:-1], grid_times_list[1:])]
+                            avg_interval_sec = sum(intervals) / len(intervals) if intervals else 0.5
+                            tolerance = avg_interval_sec / 3.0
+
+                            for t_hit, pass_count in self.user_hit_timestamps:
+                                if pass_count == self.loop_pass_count - 1: # Hit from the pass that just confirmed validation
+                                    matched_idx_for_t_hit = None
+                                    min_delta_for_t_hit = float('inf')
+                                    for current_sub_idx, current_sub_t_sec in current_grid_times_map.items():
+                                        delta = abs(current_sub_t_sec - t_hit)
+                                        if delta < min_delta_for_t_hit:
+                                            min_delta_for_t_hit = delta
+                                            matched_idx_for_t_hit = current_sub_idx
+
+                                    if matched_idx_for_t_hit == promoted_subdiv_idx and min_delta_for_t_hit <= tolerance:
+                                        self.persistent_validated_hit_timestamps.add(t_hit)
+                                        Brint(f"[PERSIST_HIT_ADD] Added {t_hit:.3f}s to persistent_validated_hit_timestamps for validated subdiv {promoted_subdiv_idx}")
+                        else:
+                            Brint("[PERSIST_HIT_ADD] current_grid_times_map is empty, cannot associate timestamp.")
+                    else:
+                        Brint("[PERSIST_HIT_ADD] Missing precomputed_grid_infos or user_hit_timestamps, cannot associate timestamp.")
+
                 # Sinon devient pré-validée orange
                 elif state == 0:
                     self.subdivision_state[i[0]] = 1
@@ -2645,6 +2686,9 @@ class VideoPlayer:
                 if state == 1:
                     self.subdivision_state[i[0]] = 0
                     Brint(f"[RESET] Subdiv {i[0]} retourne à NEUTRE (non confirmée)")
+                # If a subdivision is reset from state 2 or 1, attempt to remove its associated timestamps
+                # This part is tricky because we don't directly store which t_hit caused state 2 for a subdiv.
+                # For now, we'll rely on clearing persistent_validated_hit_timestamps globally when appropriate (e.g., on full reset).
 
         # ⚡ Optionnel : clean les entrées obsolètes
         # self.subdiv_last_hit_loop = {k: v for k, v in self.subdiv_last_hit_loop.items() if v >= self.loop_pass_count - 1}
@@ -2665,11 +2709,13 @@ class VideoPlayer:
         self.subdivision_counters.clear()
         self.subdivision_state.clear()
         self.subdiv_last_hit_loop = {}
+        self.persistent_validated_hit_timestamps.clear() # Clear persistent validated timestamps
         
-        for i, t_subdiv_ms in self.grid_subdivs:
-            self.subdivision_counters[i] = 0
-            self.subdivision_state[i] = 0
-            self.subdiv_last_hit_loop[i] = -1
+        for i, t_subdiv_ms in self.grid_subdivs: # Ensure this uses the correct structure of grid_subdivs
+            idx_to_clear = i if isinstance(i, int) else i[0] # Adapt if grid_subdivs is list of tuples
+            self.subdivision_counters[idx_to_clear] = 0
+            self.subdivision_state[idx_to_clear] = 0
+            self.subdiv_last_hit_loop[idx_to_clear] = -1
 
         # Supprimer les frappes dynamiques
         self.user_hit_timestamps = []
@@ -2678,7 +2724,7 @@ class VideoPlayer:
         self.grid_canvas.delete("syllabic_label")
         self.grid_canvas.delete("syllabic_hit")
 
-        Brint(f"[RESET SYLLABIC] Reset complet effectué : {len(self.grid_subdivs)} subdivisions remises à zéro (counters, states, timestamps).")
+        Brint(f"[RESET SYLLABIC] Reset complet effectué : {len(self.grid_subdivs)} subdivisions remises à zéro (counters, states, timestamps, and persistent validated timestamps).")
 
         # Redessiner grille sans marques
         self.draw_syllabic_grid_heatmap()
@@ -4293,7 +4339,43 @@ class VideoPlayer:
         self.build_rhythm_grid()
         self.draw_rhythm_grid_canvas()
         self.compute_rhythm_grid_infos()
-        self.current_loop.map_notes_to_subdivs()
+
+        # Remap persistent validated hits to the new grid
+        Brint("[REMAP_VALIDATED_HITS] Clearing old subdivision_state before remapping.")
+        self.subdivision_state.clear()
+
+        if not hasattr(self, 'persistent_validated_hit_timestamps') or not self.persistent_validated_hit_timestamps:
+            Brint("[REMAP_VALIDATED_HITS] No persistent validated hit timestamps to remap.")
+        elif not hasattr(self, 'precomputed_grid_infos') or not self.precomputed_grid_infos:
+            Brint("[REMAP_VALIDATED_HITS_ERROR] precomputed_grid_infos not available for remapping.")
+        else:
+            Brint(f"[REMAP_VALIDATED_HITS] Remapping {len(self.persistent_validated_hit_timestamps)} persistent hit timestamps...")
+            current_grid_times_map = {idx: info['t_subdiv_sec'] for idx, info in self.precomputed_grid_infos.items()}
+
+            if not current_grid_times_map:
+                Brint("[REMAP_VALIDATED_HITS_ERROR] current_grid_times_map is empty.")
+            else:
+                grid_times_list = sorted(current_grid_times_map.values())
+                intervals = [t2 - t1 for t1, t2 in zip(grid_times_list[:-1], grid_times_list[1:])]
+                avg_interval_sec = sum(intervals) / len(intervals) if intervals else 0.5
+                tolerance = avg_interval_sec / 3.0
+
+                for timestamp_sec in self.persistent_validated_hit_timestamps:
+                    new_closest_subdiv_idx = None
+                    min_delta = float('inf')
+                    for subdiv_idx, subdiv_t_sec in current_grid_times_map.items():
+                        delta = abs(subdiv_t_sec - timestamp_sec)
+                        if delta < min_delta:
+                            min_delta = delta
+                            new_closest_subdiv_idx = subdiv_idx
+
+                    if new_closest_subdiv_idx is not None and min_delta <= tolerance:
+                        self.subdivision_state[new_closest_subdiv_idx] = 2
+                        Brint(f"[REMAP_VALIDATED_HITS] Timestamp {timestamp_sec:.3f}s remapped to new subdiv {new_closest_subdiv_idx} (state 2) with delta {min_delta:.3f}s.")
+                    else:
+                        Brint(f"[REMAP_VALIDATED_HITS_WARN] Timestamp {timestamp_sec:.3f}s (min_delta {min_delta:.3f}s > tol {tolerance:.3f}s) could not be reliably remapped to any subdiv in the new grid.")
+
+        self.current_loop.map_notes_to_subdivs() # This should ideally happen after states are remapped if it depends on subdivision_state for any filtering
         self.refresh_note_display()
 
         
@@ -5437,6 +5519,7 @@ class VideoPlayer:
           #new timestamps on hits
         self.user_hit_timestamps = []
         self.impact_strikes = []
+        self.persistent_validated_hit_timestamps = set()
 
         #new ph
         self._last_playhead_x = None
@@ -7471,31 +7554,32 @@ class VideoPlayer:
         current_time_sec = self.playhead_time  # déjà en secondes
         
         # Phase 1 : ligne visible avec "bounce"
-        x = getattr(self, 'playhead_canvas_x', None)
+        x = getattr(self, 'playhead_canvas_x', None) # Restored original line
+
         if x is None or not isinstance(x, (int, float)) or x < 0:
-            Brint("[HIT FX] ❌ x playhead_canvas_x invalide — impact visuel annulé")
-            return
+            Brint(f"[HIT FX] ❌ x playhead_canvas_x ({x}) is invalid — impact visuel annulé")
+            # Fallback or decide not to draw the visual effect if x is invalid
+        else:
+            canvas = self.grid_canvas
+            canvas_height = canvas.winfo_height()
 
-        canvas = self.grid_canvas
-        canvas_height = canvas.winfo_height()
+            line_id = canvas.create_line(
+                x, 0, x, canvas_height,
+                fill="#FF66CC",
+                width=2,
+                tags=("impact_vfx",)
+            )
+            Brint(f"[HIT FX] 💥 Impact visuel créé à x={x:.1f}px (line_id={line_id})")
 
-        line_id = canvas.create_line(
-            x, 0, x, canvas_height,
-            fill="#FF66CC",
-            width=2,
-            tags=("impact_vfx",)
-        )
-        Brint(f"[HIT FX] 💥 Impact visuel créé à x={x:.1f}px (line_id={line_id})")
+            # Bounce rapide (using new try_itemconfig helper)
+            canvas.after(50, lambda lid=line_id: self.try_itemconfig(canvas, lid, width=6))
+            canvas.after(200, lambda lid=line_id: self.try_itemconfig(canvas, lid, width=4))
+            canvas.after(400, lambda lid=line_id: self.try_itemconfig(canvas, lid, width=3))
+            canvas.after(800, lambda lid=line_id: self.try_itemconfig(canvas, lid, width=1))
 
-        # Bounce rapide
-        canvas.after(50, lambda: canvas.itemconfig(line_id, width=6))
-        canvas.after(200, lambda: canvas.itemconfig(line_id, width=4))
-        canvas.after(400, lambda: canvas.itemconfig(line_id, width=3))
-        canvas.after(800, lambda: canvas.itemconfig(line_id, width=1))
-
-        # 💨 Ajout effet de disparition (transparence simulée)
-        canvas.after(1000, lambda: canvas.itemconfig(line_id, fill="#FFBBDD"))  # semi-transparent
-        canvas.after(1200, lambda: self._remove_impact_vfx(line_id))        
+            # 💨 Ajout effet de disparition (transparence simulée)
+            canvas.after(1000, lambda lid=line_id: self.try_itemconfig(canvas, lid, fill="#FFBBDD"))
+            canvas.after(1200, lambda lid=line_id: self._remove_impact_vfx(lid)) # _remove_impact_vfx now handles try-except
         
         Brint(f"[HIT] 🎯 Fonction on_user_hit() appelée")
         Brint(f"[HIT] Frappe utilisateur à {self.hms(current_time_ms)} hms")
