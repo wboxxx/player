@@ -4931,6 +4931,7 @@ class VideoPlayer:
     # --- Fonction pour charger une boucle sauvegardée quand on clique ---
     def load_saved_loop(self, index):
         Brint(f"\n[LOAD LOOP] 🔁 Chargement boucle index={index}")
+        self.reset_rhythm_overlay()
         
         if index < 0 or index >= len(self.saved_loops):
             Brint(f"[ERROR] Index de boucle invalide : {index}")
@@ -4949,6 +4950,7 @@ class VideoPlayer:
         self.current_loop = LoopData.from_dict(loop)
         self.loop_start = self.current_loop.loop_start
         self.loop_end = self.current_loop.loop_end
+        self.auto_zoom_on_loop_markers(force=True)
 
         if self.loop_start is None or self.loop_end is None:
             Brint("[ERROR] loop_start ou loop_end manquant après chargement")
