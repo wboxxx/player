@@ -3329,10 +3329,44 @@ class VideoPlayer:
         pass#Brint(f"[RHYTHM] ⬅️ Mode subdivision : {self.subdivision_mode}")
         
         self.build_rhythm_grid()
+        self.compute_rhythm_grid_infos() # Ensure precomputed_grid_infos is fresh for the new mode
         self.update_all_detected_notes_from_master()  # ← très important
-        self.update_all_detected_notes_from_master()
         Brint(f"[DEBUG CYCLE] Après update notes → accords = {len(self.current_loop.chords)}")
 
+        # Remap persistent validated hits to the new grid
+        Brint("[REMAP_VALIDATED_HITS cycle_subdivision_mode_backward] Clearing old subdivision_state.")
+        self.subdivision_state.clear()
+
+        if not hasattr(self, 'persistent_validated_hit_timestamps') or not self.persistent_validated_hit_timestamps:
+            Brint("[REMAP_VALIDATED_HITS cycle_subdivision_mode_backward] No persistent validated hit timestamps to remap.")
+        elif not hasattr(self, 'precomputed_grid_infos') or not self.precomputed_grid_infos:
+            Brint("[REMAP_VALIDATED_HITS_ERROR cycle_subdivision_mode_backward] precomputed_grid_infos not available for remapping.")
+        else:
+            Brint(f"[REMAP_VALIDATED_HITS cycle_subdivision_mode_backward] Remapping {len(self.persistent_validated_hit_timestamps)} persistent hit timestamps...")
+            current_grid_times_map = {idx: info['t_subdiv_sec'] for idx, info in self.precomputed_grid_infos.items()}
+
+            if not current_grid_times_map:
+                Brint("[REMAP_VALIDATED_HITS_ERROR cycle_subdivision_mode_backward] current_grid_times_map is empty.")
+            else:
+                grid_times_list = sorted(current_grid_times_map.values())
+                intervals = [t2 - t1 for t1, t2 in zip(grid_times_list[:-1], grid_times_list[1:])]
+                avg_interval_sec = sum(intervals) / len(intervals) if intervals else 0.5
+                tolerance = avg_interval_sec / 3.0
+
+                for timestamp_sec in self.persistent_validated_hit_timestamps:
+                    new_closest_subdiv_idx = None
+                    min_delta = float('inf')
+                    for subdiv_idx, subdiv_t_sec in current_grid_times_map.items():
+                        delta = abs(subdiv_t_sec - timestamp_sec)
+                        if delta < min_delta:
+                            min_delta = delta
+                            new_closest_subdiv_idx = subdiv_idx
+
+                    if new_closest_subdiv_idx is not None and min_delta <= tolerance:
+                        self.subdivision_state[new_closest_subdiv_idx] = 2
+                        Brint(f"[REMAP_VALIDATED_HITS cycle_subdivision_mode_backward] Timestamp {timestamp_sec:.3f}s remapped to new subdiv {new_closest_subdiv_idx} (state 2) with delta {min_delta:.3f}s.")
+                    else:
+                        Brint(f"[REMAP_VALIDATED_HITS_WARN cycle_subdivision_mode_backward] Timestamp {timestamp_sec:.3f}s (min_delta {min_delta:.3f}s > tol {tolerance:.3f}s) could not be reliably remapped to any subdiv in the new grid.")
 
         # 🔍 Debug : affichage des 10 premières notes de la master list
         Brint("[DEBUG] 🔍 master_note_list (extrait) :")
@@ -3360,6 +3394,41 @@ class VideoPlayer:
         pass#Brint(f"[RHYTHM] ➡️ Mode subdivision : {self.subdivision_mode}")
         self.build_rhythm_grid()
         self.rebuild_loop_context()  # ← met à jour self.grid_subdivs ET chords si tu les relies dedans
+
+        # Remap persistent validated hits to the new grid
+        Brint("[REMAP_VALIDATED_HITS cycle_subdivision_mode] Clearing old subdivision_state.")
+        self.subdivision_state.clear()
+
+        if not hasattr(self, 'persistent_validated_hit_timestamps') or not self.persistent_validated_hit_timestamps:
+            Brint("[REMAP_VALIDATED_HITS cycle_subdivision_mode] No persistent validated hit timestamps to remap.")
+        elif not hasattr(self, 'precomputed_grid_infos') or not self.precomputed_grid_infos:
+            Brint("[REMAP_VALIDATED_HITS_ERROR cycle_subdivision_mode] precomputed_grid_infos not available for remapping.")
+        else:
+            Brint(f"[REMAP_VALIDATED_HITS cycle_subdivision_mode] Remapping {len(self.persistent_validated_hit_timestamps)} persistent hit timestamps...")
+            current_grid_times_map = {idx: info['t_subdiv_sec'] for idx, info in self.precomputed_grid_infos.items()}
+
+            if not current_grid_times_map:
+                Brint("[REMAP_VALIDATED_HITS_ERROR cycle_subdivision_mode] current_grid_times_map is empty.")
+            else:
+                grid_times_list = sorted(current_grid_times_map.values())
+                intervals = [t2 - t1 for t1, t2 in zip(grid_times_list[:-1], grid_times_list[1:])]
+                avg_interval_sec = sum(intervals) / len(intervals) if intervals else 0.5
+                tolerance = avg_interval_sec / 3.0
+
+                for timestamp_sec in self.persistent_validated_hit_timestamps:
+                    new_closest_subdiv_idx = None
+                    min_delta = float('inf')
+                    for subdiv_idx, subdiv_t_sec in current_grid_times_map.items():
+                        delta = abs(subdiv_t_sec - timestamp_sec)
+                        if delta < min_delta:
+                            min_delta = delta
+                            new_closest_subdiv_idx = subdiv_idx
+
+                    if new_closest_subdiv_idx is not None and min_delta <= tolerance:
+                        self.subdivision_state[new_closest_subdiv_idx] = 2
+                        Brint(f"[REMAP_VALIDATED_HITS cycle_subdivision_mode] Timestamp {timestamp_sec:.3f}s remapped to new subdiv {new_closest_subdiv_idx} (state 2) with delta {min_delta:.3f}s.")
+                    else:
+                        Brint(f"[REMAP_VALIDATED_HITS_WARN cycle_subdivision_mode] Timestamp {timestamp_sec:.3f}s (min_delta {min_delta:.3f}s > tol {tolerance:.3f}s) could not be reliably remapped to any subdiv in the new grid.")
 
         self.update_all_detected_notes_from_master()  # ← très important
 
@@ -4931,6 +5000,13 @@ class VideoPlayer:
     # --- Fonction pour charger une boucle sauvegardée quand on clique ---
     def load_saved_loop(self, index):
         Brint(f"\n[LOAD LOOP] 🔁 Chargement boucle index={index}")
+        self.reset_rhythm_overlay()
+        self.subdivision_state.clear()
+        self.persistent_validated_hit_timestamps.clear()
+        self.user_hit_timestamps.clear()  # Clearing raw user hits for the previous loop
+        self.subdiv_last_hit_loop.clear() # Clearing which subdiv was hit in which pass of the old loop
+        self.loop_pass_count = 0          # Resetting loop pass counter for the new loop
+        Brint("[LOAD LOOP] Cleared persistent hit states for new loop.")
         
         if index < 0 or index >= len(self.saved_loops):
             Brint(f"[ERROR] Index de boucle invalide : {index}")
@@ -4949,6 +5025,7 @@ class VideoPlayer:
         self.current_loop = LoopData.from_dict(loop)
         self.loop_start = self.current_loop.loop_start
         self.loop_end = self.current_loop.loop_end
+        self.auto_zoom_on_loop_markers(force=True)
 
         if self.loop_start is None or self.loop_end is None:
             Brint("[ERROR] loop_start ou loop_end manquant après chargement")
