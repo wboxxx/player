@@ -1741,13 +1741,25 @@ class ToolTip:
 
 class VideoPlayer:
     
-    def _remove_impact_vfx(self, line_id):
-        if self.grid_canvas:
-            self.grid_canvas.delete(line_id)
-        if line_id in self.impact_strikes:
-            self.impact_strikes.remove(line_id)
-        Brint(f"[HIT FX] ✅ Impact visuel retiré (line_id={line_id})")
+    def try_itemconfig(self, canvas_widget, item_id, **kwargs):
+        # Helper to safely call itemconfig, catching TclError if item is gone.
+        try:
+            canvas_widget.itemconfig(item_id, **kwargs)
+        except tk.TclError:
+            # Optional: Log this occurrence if it's unexpected.
+            # Brint(f"[HIT_FX_ANIM_WARN] Item {item_id} no longer exists for itemconfig: {kwargs}")
+            pass # Item was already deleted, which is fine.
 
+    def _remove_impact_vfx(self, line_id):
+        try:
+            if self.grid_canvas: # Ensure canvas itself exists
+                self.grid_canvas.delete(line_id)
+            if line_id in self.impact_strikes:
+                self.impact_strikes.remove(line_id)
+            # Brint(f"[HIT FX] ✅ Impact visuel retiré (line_id={line_id})") # Keep or silence this
+        except tk.TclError:
+            # Brint(f"[HIT FX_REMOVE_WARN] Item {line_id} no longer exists for delete.")
+            pass # Item was already deleted.
     
     def match_hits_to_subdivs(self):
         from collections import defaultdict
@@ -7559,15 +7571,15 @@ class VideoPlayer:
             )
             Brint(f"[HIT FX] 💥 Impact visuel créé à x={x:.1f}px (line_id={line_id})")
 
-            # Bounce rapide (kept robust canvas.after calls)
-            canvas.after(50, lambda lid=line_id: canvas.itemconfig(lid, width=6) if canvas.exists(lid) else None)
-            canvas.after(200, lambda lid=line_id: canvas.itemconfig(lid, width=4) if canvas.exists(lid) else None)
-            canvas.after(400, lambda lid=line_id: canvas.itemconfig(lid, width=3) if canvas.exists(lid) else None)
-            canvas.after(800, lambda lid=line_id: canvas.itemconfig(lid, width=1) if canvas.exists(lid) else None)
+            # Bounce rapide (using new try_itemconfig helper)
+            canvas.after(50, lambda lid=line_id: self.try_itemconfig(canvas, lid, width=6))
+            canvas.after(200, lambda lid=line_id: self.try_itemconfig(canvas, lid, width=4))
+            canvas.after(400, lambda lid=line_id: self.try_itemconfig(canvas, lid, width=3))
+            canvas.after(800, lambda lid=line_id: self.try_itemconfig(canvas, lid, width=1))
 
             # 💨 Ajout effet de disparition (transparence simulée)
-            canvas.after(1000, lambda lid=line_id: canvas.itemconfig(lid, fill="#FFBBDD") if canvas.exists(lid) else None)  # semi-transparent
-            canvas.after(1200, lambda lid=line_id: self._remove_impact_vfx(lid))
+            canvas.after(1000, lambda lid=line_id: self.try_itemconfig(canvas, lid, fill="#FFBBDD"))
+            canvas.after(1200, lambda lid=line_id: self._remove_impact_vfx(lid)) # _remove_impact_vfx now handles try-except
         
         Brint(f"[HIT] 🎯 Fonction on_user_hit() appelée")
         Brint(f"[HIT] Frappe utilisateur à {self.hms(current_time_ms)} hms")
