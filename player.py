@@ -5001,12 +5001,14 @@ class VideoPlayer:
     def load_saved_loop(self, index):
         Brint(f"\n[LOAD LOOP] 🔁 Chargement boucle index={index}")
         self.reset_rhythm_overlay()
+
         self.subdivision_state.clear()
         self.persistent_validated_hit_timestamps.clear()
         self.user_hit_timestamps.clear()  # Clearing raw user hits for the previous loop
         self.subdiv_last_hit_loop.clear() # Clearing which subdiv was hit in which pass of the old loop
         self.loop_pass_count = 0          # Resetting loop pass counter for the new loop
         Brint("[LOAD LOOP] Cleared persistent hit states for new loop.")
+
         
         if index < 0 or index >= len(self.saved_loops):
             Brint(f"[ERROR] Index de boucle invalide : {index}")
