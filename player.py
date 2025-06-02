@@ -7604,7 +7604,7 @@ class VideoPlayer:
                     if bounce_ts is None:
                         bounce_ts = 0
 
-                    highlighted = abs(x - getattr(self, 'playhead_canvas_x', -9999)) < 1
+                    highlighted = abs(x - getattr(self, 'playhead_canvas_x', -9999)) < (pixels_per_subdiv / 2)
 
                     if is_main_beat:
                         beat_index = i // subdivisions_per_beat
