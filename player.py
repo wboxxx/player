@@ -3006,7 +3006,7 @@ class VideoPlayer:
     def safe_jump_to_time(self, target_ms, source="UNKNOWN"):
         Brint(f"[PH JUMP] 🚀 {source} → jump à {int(target_ms)} ms demandé")
 
-        if source == "Jump B estim (all rates)":
+        if target_ms == self.loop_start and source in ("Jump B estim (all rates)", "Advanced Jump B estim"):
             self.is_measuring_jump = True
             self.jump_measure_start_time = time.perf_counter()
 
@@ -7373,6 +7373,8 @@ class VideoPlayer:
                 # Adjust last_loop_jump_time for precision
                 self.last_loop_jump_time = time.perf_counter() - (elapsed_patch_time_sec - expected_patch_duration_sec)
                 Brint(f"[ADV JUMP] Adjusted last_loop_jump_time to: {self.last_loop_jump_time:.4f}")
+                Brint(f"[SYNC] Player time when patch ends: {self.player.get_time()} ms. Target loop_start: {self.loop_start} ms.")
+                Brint(f"[SYNC] Patch audio ended. VLC unmuted. New last_loop_jump_time (perf_counter based): {self.last_loop_jump_time:.2f}")
 
                 if self.patch_audio_path and os.path.exists(self.patch_audio_path):
                     try:
@@ -7413,6 +7415,7 @@ class VideoPlayer:
                 advanced_jump_trigger_sec = loop_duration_corrected
                 if self.avg_jump_latency_ms > 0:
                     advanced_jump_trigger_sec = loop_duration_corrected - (self.avg_jump_latency_ms / 1000.0)
+                Brint(f"[SYNC] Loop {self.loop_pass_count}: Using avg_jump_latency_ms: {self.avg_jump_latency_ms:.2f} for advanced jump calc. Adv Trig Sec: {advanced_jump_trigger_sec:.3f}s")
 
                 if elapsed_since_last_jump >= advanced_jump_trigger_sec and self.avg_jump_latency_ms > 10:
                     # Advanced Jump Logic
