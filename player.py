@@ -4411,6 +4411,17 @@ class VideoPlayer:
             self.console.config(text=f"🎼 Tempo mis à jour ({source}) : {bpm:.2f} BPM → {ms_per_beat} ms / beat")
             self.tempo_label.config(text=f"{bpm:.2f} BPM • {ms_per_beat} ms/beat")
 
+            # Recalculate one_bar_duration_ms and adjust B marker
+            num_bars = getattr(self, 'mode_bar_bars', 1)
+            if hasattr(self, 'tempo_bpm') and self.tempo_bpm and self.tempo_bpm > 0:
+                self.one_bar_duration_ms = ((60000 / self.tempo_bpm) * 4) * num_bars
+            else:
+                self.one_bar_duration_ms = 4000 * num_bars # Default
+            Brint(f"[TEMPO CHANGE] Recalculated one_bar_duration_ms to {self.one_bar_duration_ms} ms for {num_bars} bar(s).")
+
+            if hasattr(self, 'adjust_b_marker_if_mode_bar_enabled'):
+                self.adjust_b_marker_if_mode_bar_enabled()
+
             if self.lock_tempo_var.get():
                 Brint("[TEMPO] 🔒 Tempo verrouillé → mise à jour vitesse vidéo")
                 self.update_video_speed_from_tempo()
@@ -4518,9 +4529,161 @@ class VideoPlayer:
             self.grid_canvas.pack_forget()
             self.grid_toggle_button.config(text='Grille ▲')
 
+    def toggle_mode_bar(self, event=None): # Add event=None if it's directly bound to a key
+        self.mode_bar_enabled = not self.mode_bar_enabled
+        num_bars = getattr(self, 'mode_bar_bars', 1)
 
+        if self.mode_bar_enabled:
+            if hasattr(self, 'tempo_bpm') and self.tempo_bpm and self.tempo_bpm > 0:
+                self.one_bar_duration_ms = ((60000 / self.tempo_bpm) * 4) * num_bars
+            else:
+                self.one_bar_duration_ms = 4000 * num_bars # Default
+            Brint(f"[MODE BAR] Toggled ON. Duration for {num_bars} bar(s): {self.one_bar_duration_ms} ms")
+            self.console.config(text=f"Mode Bar: B = A + {num_bars} bar(s)")
+        else:
+            # Mode bar is toggled OFF
+            self.mode_bar_bars = 1 # Reset bar count
+            num_bars = 1 # Ensure num_bars reflects the reset for the immediate recalculation
+            if hasattr(self, 'tempo_bpm') and self.tempo_bpm and self.tempo_bpm > 0:
+                self.one_bar_duration_ms = ((60000 / self.tempo_bpm) * 4) * num_bars
+            else:
+                self.one_bar_duration_ms = 4000 * num_bars # Default
+            Brint(f"[MODE BAR] Toggled OFF. Bars reset to 1. Duration for 1 bar: {self.one_bar_duration_ms} ms")
+            self.console.config(text="Mode Bar: OFF (bars reset to 1)")
 
+        # Call the method to adjust B marker
+        if hasattr(self, 'adjust_b_marker_if_mode_bar_enabled'):
+            self.adjust_b_marker_if_mode_bar_enabled()
+        else:
+            Brint("[MODE BAR] adjust_b_marker_if_mode_bar_enabled method not yet implemented.")
 
+    def adjust_b_marker_if_mode_bar_enabled(self):
+        if not self.mode_bar_enabled:
+            Brint("[MODE BAR] Adjust B: Mode bar is OFF. No change to B.")
+            return
+
+        if self.loop_start is None:
+            Brint("[MODE BAR] Adjust B: Loop start (A) is not defined. No change to B.")
+            return
+
+        if not hasattr(self, 'one_bar_duration_ms') or self.one_bar_duration_ms <= 0:
+            Brint(f"[MODE BAR] Adjust B: Invalid one_bar_duration_ms ({getattr(self, 'one_bar_duration_ms', 'N/A')}). No change to B.")
+            return
+
+        video_duration = self.player.get_length()
+        if not video_duration or video_duration <= 0:
+            Brint("[MODE BAR] Adjust B: Video duration not available. No change to B.")
+            return
+
+        new_loop_end = self.loop_start + self.one_bar_duration_ms
+
+        # Clamp new_loop_end to be within video duration and not before loop_start
+        new_loop_end = max(self.loop_start + 1, new_loop_end) # Ensure B is at least 1ms after A
+        new_loop_end = min(new_loop_end, video_duration)
+
+        if new_loop_end != self.loop_end:
+            self.loop_end = new_loop_end
+            Brint(f"[MODE BAR] Adjusted B marker to {self.loop_end} ms (A + 1 bar at {self.one_bar_duration_ms}ms/bar)")
+
+            # Update current_loop object as well
+            if hasattr(self, 'current_loop') and self.current_loop:
+                self.current_loop.loop_end = self.loop_end
+                Brint(f"[MODE BAR] current_loop.loop_end also updated to {self.current_loop.loop_end}")
+
+            # Explicitly update loop_duration_s for the main update_loop
+            if self.loop_start is not None and self.loop_end is not None and self.loop_end > self.loop_start:
+                self.loop_duration_s = (self.loop_end - self.loop_start) / 1000.0
+                Brint(f"[MODE BAR] Updated self.loop_duration_s to {self.loop_duration_s:.3f}s")
+            else:
+                self.loop_duration_s = None
+                Brint(f"[MODE BAR] Loop became invalid or undefined, self.loop_duration_s set to None")
+
+            # Check if we need to jump the player to loop_start
+            playhead_must_jump_to_A = (self.playhead_time * 1000) > self.loop_end
+
+            if playhead_must_jump_to_A:
+                self.last_loop_jump_time = time.perf_counter() # Standard reset for a jump to A
+                Brint(f"[MODE BAR] Playhead past new B. Reset last_loop_jump_time for jump to A: {self.last_loop_jump_time:.3f}")
+                # The existing call to safe_jump_to_time(self.loop_start, ...) for this case should remain later in the code if it exists,
+                # or be added if it was removed. The subtask for previous step mentioned it was there.
+            else:
+                # Maintain current relative playhead position by adjusting last_loop_jump_time
+                # This prevents visual jump to A if audio is not jumping to A.
+                current_playback_rate = self.player.get_rate() or 1.0
+                if current_playback_rate == 0: current_playback_rate = 1.0 # Avoid division by zero
+
+                # playhead_time is in seconds, loop_start is in ms
+                current_offset_from_A_media_seconds = self.playhead_time - (self.loop_start / 1000.0)
+
+                # How much unscaled (real) time has passed for the playhead to reach its current position from A
+                current_offset_real_seconds = current_offset_from_A_media_seconds / current_playback_rate
+
+                self.last_loop_jump_time = time.perf_counter() - current_offset_real_seconds
+                Brint(f"[MODE BAR] Adjusted last_loop_jump_time to maintain playhead position: {self.last_loop_jump_time:.3f} (current_offset_real_seconds: {current_offset_real_seconds:.3f})")
+
+            self.needs_refresh = True
+            self.refresh_static_timeline_elements()
+            self.maybe_adjust_zoom_if_out_of_frame() # Or auto_zoom_on_loop_markers(force=True)
+            self.invalidate_jump_estimators()
+
+            # It might be necessary to update the playhead if it was past the new B
+            if hasattr(self, 'playhead_time') and self.playhead_time and self.playhead_time * 1000 > self.loop_end:
+                self.safe_jump_to_time(self.loop_start, source="Adjust B - Playhead Reset")
+        else:
+            Brint(f"[MODE BAR] Adjust B: B marker already correctly positioned at {self.loop_end} ms. No change.")
+
+    def increase_mode_bar_bars(self, event=None):
+        if not hasattr(self, 'mode_bar_enabled') or not self.mode_bar_enabled:
+            Brint("[MODE BAR BARS] Increase: Mode bar is OFF. No change.")
+            return
+
+        if not hasattr(self, 'mode_bar_bars'):
+            self.mode_bar_bars = 1
+
+        self.mode_bar_bars += 1
+        Brint(f"[MODE BAR BARS] Increased to {self.mode_bar_bars} bar(s).")
+
+        # Recalculate one_bar_duration_ms (incorporating self.mode_bar_bars)
+        if hasattr(self, 'tempo_bpm') and self.tempo_bpm and self.tempo_bpm > 0:
+            self.one_bar_duration_ms = ((60000 / self.tempo_bpm) * 4) * self.mode_bar_bars
+        else:
+            self.one_bar_duration_ms = 4000 * self.mode_bar_bars # Default
+        Brint(f"[MODE BAR BARS] Recalculated one_bar_duration_ms to {self.one_bar_duration_ms}ms for {self.mode_bar_bars} bar(s).")
+
+        if hasattr(self, 'adjust_b_marker_if_mode_bar_enabled'):
+            self.adjust_b_marker_if_mode_bar_enabled()
+
+        if hasattr(self, 'console'):
+            self.console.config(text=f"Mode Bar: B = A + {self.mode_bar_bars} bar(s)")
+
+    def decrease_mode_bar_bars(self, event=None):
+        if not hasattr(self, 'mode_bar_enabled') or not self.mode_bar_enabled:
+            Brint("[MODE BAR BARS] Decrease: Mode bar is OFF. No change.")
+            return
+
+        if not hasattr(self, 'mode_bar_bars'):
+            self.mode_bar_bars = 1 # Should not happen if mode is ON, but defensive
+
+        if self.mode_bar_bars > 1:
+            self.mode_bar_bars -= 1
+            Brint(f"[MODE BAR BARS] Decreased to {self.mode_bar_bars} bar(s).")
+
+            # Recalculate one_bar_duration_ms
+            if hasattr(self, 'tempo_bpm') and self.tempo_bpm and self.tempo_bpm > 0:
+                self.one_bar_duration_ms = ((60000 / self.tempo_bpm) * 4) * self.mode_bar_bars
+            else:
+                self.one_bar_duration_ms = 4000 * self.mode_bar_bars # Default
+            Brint(f"[MODE BAR BARS] Recalculated one_bar_duration_ms to {self.one_bar_duration_ms}ms for {self.mode_bar_bars} bar(s).")
+
+            if hasattr(self, 'adjust_b_marker_if_mode_bar_enabled'):
+                self.adjust_b_marker_if_mode_bar_enabled()
+
+            if hasattr(self, 'console'):
+                self.console.config(text=f"Mode Bar: B = A + {self.mode_bar_bars} bar(s)")
+        else:
+            Brint(f"[MODE BAR BARS] Already at minimum 1 bar. No change.")
+            if hasattr(self, 'console'):
+                self.console.config(text=f"Mode Bar: B = A + {self.mode_bar_bars} bar(s) (min)")
 
     def get_or_create_video_folder(drive):
         return get_or_create_subfolder(ROOT_FOLDER_ID, "videopyplayer", drive)
@@ -5694,6 +5857,9 @@ class VideoPlayer:
         self.last_loop_exit_time = 0
         self.loop_cycle_id = 0
         self.last_handled_loop_id = -1
+        self.mode_bar_enabled = False
+        self.one_bar_duration_ms = 0
+        self.mode_bar_bars = 1
 
         
 
@@ -6038,6 +6204,9 @@ class VideoPlayer:
         
         #quicksave
         self.root.bind("<Control-s>", self.quick_save_current_loop)
+        self.root.bind("<Control-p>", self.toggle_mode_bar)
+        self.root.bind("<asterisk>", self.increase_mode_bar_bars) # '*' key
+        self.root.bind("<slash>", self.decrease_mode_bar_bars)   # '/' key
 
         
         #heatmap
@@ -6902,13 +7071,32 @@ class VideoPlayer:
             self.loop_start = temp_start
         if mode == "loop_end" or inversion:
             self.loop_end = temp_end
+
+        Brint(f"[RLM]✅ Affectation finale : A={self.loop_start} | B={self.loop_end}")
+
+        # If mode bar is enabled and we just set 'A', readjust 'B'
+        if mode == "loop_start" and hasattr(self, 'mode_bar_enabled') and self.mode_bar_enabled:
+            # Ensure one_bar_duration_ms is fresh based on current tempo when 'A' is set
+            num_bars = getattr(self, 'mode_bar_bars', 1)
+            if hasattr(self, 'tempo_bpm') and self.tempo_bpm and self.tempo_bpm > 0:
+                self.one_bar_duration_ms = ((60000 / self.tempo_bpm) * 4) * num_bars
+            else:
+                self.one_bar_duration_ms = 4000 * num_bars # Default
+            Brint(f"[RLM] Mode Bar ON (A set): Refreshed one_bar_duration_ms to {self.one_bar_duration_ms}ms for {num_bars} bar(s) using tempo {getattr(self, 'tempo_bpm', 'N/A')}.")
+
+            if hasattr(self, 'adjust_b_marker_if_mode_bar_enabled'):
+                Brint(f"[RLM] Mode bar is ON, A was set. Triggering B adjustment.")
+                self.adjust_b_marker_if_mode_bar_enabled()
+            else:
+                Brint(f"[RLM] Mode bar is ON, A was set, but adjust_b_marker_if_mode_bar_enabled not found.")
+
         # 📏 Auto-zoom immédiat si les deux marqueurs viennent d’être définis
         if self.loop_start and self.loop_end:
             # self.auto_zoom_on_loop_markers(force=True)
             self.maybe_adjust_zoom_if_out_of_frame()
 
 
-        Brint(f"[RLM]✅ Affectation finale : A={self.loop_start} | B={self.loop_end}")
+
         if self.loop_start is not None and self.loop_end is not None:
             
             self.current_loop = LoopData(
