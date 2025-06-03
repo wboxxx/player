@@ -104,8 +104,8 @@ DEBUG_FLAGS = {
     "TEMPO": False,
     "TRACKER": False,
     "WARNING": False,
-    "ZOOM": False
-    ,
+    "ZOOM": False,
+    "VISUAL": False,
     "BRINT" : True
 
 
@@ -3004,7 +3004,11 @@ class VideoPlayer:
             Brint(f"[FORCED JUMP TRACKER] {source} change in_forced_jump: {old_value} → {value}")
             
     def safe_jump_to_time(self, target_ms, source="UNKNOWN"):
-        Brint(f"[PH JUMP] 🚀 {source} → jump à {int(target_ms)} ms demandé")
+        if target_ms == self.loop_start and source in ("Jump B estim (all rates)", "Advanced Jump B estim"):
+            Brint(f"[VISUAL][PH JUMP] 🚀 {source} → jump à {int(target_ms)} ms demandé (loop start)")
+            self.is_measuring_jump = True
+        else:
+            Brint(f"[PH JUMP] 🚀 {source} → jump à {int(target_ms)} ms demandé")
 
         if target_ms == self.loop_start and source in ("Jump B estim (all rates)", "Advanced Jump B estim"):
             self.is_measuring_jump = True
@@ -7357,14 +7361,15 @@ class VideoPlayer:
                 if self.jump_latency_measurements: # Avoid division by zero
                     self.avg_jump_latency_ms = sum(self.jump_latency_measurements) / len(self.jump_latency_measurements)
                 self.is_measuring_jump = False
-                Brint(f"[JUMP LATENCY] Current: {current_latency_ms:.2f} ms, Avg: {self.avg_jump_latency_ms:.2f} ms")
+                Brint(f"[VISUAL][JUMP LATENCY] Current: {current_latency_ms:.2f} ms, Avg: {self.avg_jump_latency_ms:.2f} ms")
 
         if self.patch_audio_player is not None and self.patch_audio_start_time is not None:
             elapsed_patch_time_sec = time.perf_counter() - self.patch_audio_start_time
             expected_patch_duration_sec = self.avg_jump_latency_ms / 1000.0
             if elapsed_patch_time_sec >= expected_patch_duration_sec:
+                Brint(f"[VISUAL][UNMUTE] Unmuting VLC (patch finished). Player time: {self.player.get_time()} ms. Target loop_start: {self.loop_start} ms.")
                 self.player.audio_set_mute(False)
-                Brint("[ADV JUMP] VLC Unmuted.")
+                Brint("[VISUAL][ADV JUMP] VLC Unmuted.")
                 if self.patch_audio_player: # Check if it's not None before stopping
                     self.patch_audio_player.stop()
                 self.patch_audio_player = None
@@ -7372,16 +7377,16 @@ class VideoPlayer:
 
                 # Adjust last_loop_jump_time for precision
                 self.last_loop_jump_time = time.perf_counter() - (elapsed_patch_time_sec - expected_patch_duration_sec)
-                Brint(f"[ADV JUMP] Adjusted last_loop_jump_time to: {self.last_loop_jump_time:.4f}")
-                Brint(f"[SYNC] Player time when patch ends: {self.player.get_time()} ms. Target loop_start: {self.loop_start} ms.")
-                Brint(f"[SYNC] Patch audio ended. VLC unmuted. New last_loop_jump_time (perf_counter based): {self.last_loop_jump_time:.2f}")
+                Brint(f"[VISUAL][ADV JUMP] Adjusted last_loop_jump_time to: {self.last_loop_jump_time:.4f}")
+                Brint(f"[VISUAL][SYNC] Player time when patch ends: {self.player.get_time()} ms. Target loop_start: {self.loop_start} ms.")
+                Brint(f"[VISUAL][SYNC] Patch audio ended. VLC unmuted. New last_loop_jump_time (perf_counter based): {self.last_loop_jump_time:.2f}")
 
                 if self.patch_audio_path and os.path.exists(self.patch_audio_path):
                     try:
                         os.remove(self.patch_audio_path)
-                        Brint(f"[ADV JUMP] Removed patch audio file: {self.patch_audio_path}")
+                        Brint(f"[VISUAL][ADV JUMP] Removed patch audio file: {self.patch_audio_path}")
                     except Exception as e:
-                        Brint(f"[ADV JUMP ERROR] Failed to remove patch audio file {self.patch_audio_path}: {e}")
+                        Brint(f"[VISUAL][ADV JUMP ERROR] Failed to remove patch audio file {self.patch_audio_path}: {e}")
                 self.patch_audio_path = None
 
         if self.grid_visible:
@@ -7432,8 +7437,8 @@ class VideoPlayer:
                                 start_offset_sec,
                                 patch_duration_sec
                             )
-                            Brint("[DYNAMIC] extract_audio_segment call successful, path: ", self.patch_audio_path)
-                            Brint(f"[ADV JUMP] Patch audio: {self.patch_audio_path}, Duration: {patch_duration_sec:.3f}s")
+                            Brint("[VISUAL][DYNAMIC] extract_audio_segment call successful, path: ", self.patch_audio_path)
+                            Brint(f"[VISUAL][ADV JUMP] Patch audio: {self.patch_audio_path}, Duration: {patch_duration_sec:.3f}s")
 
                             if self.patch_audio_path and os.path.exists(self.patch_audio_path):
                                 try:
@@ -7442,22 +7447,24 @@ class VideoPlayer:
                                     self.patch_audio_player = pygame.mixer.Sound(self.patch_audio_path)
                                     self.patch_audio_player.play()
                                     self.patch_audio_start_time = time.perf_counter()
+                                    Brint(f"[VISUAL][MUTE] Muting VLC. Player time: {self.player.get_time()} ms. Patch duration: {patch_duration_sec:.3f}s. Expected loop start: {self.loop_start} ms.")
                                     self.player.audio_set_mute(True)
-                                    Brint("[ADV JUMP] Playing patch audio, VLC muted.")
+                                    Brint("[VISUAL][ADV JUMP] Playing patch audio, VLC muted.")
                                 except Exception as e:
-                                    Brint(f"[ADV JUMP ERROR] Failed to play patch audio: {e}")
+                                    Brint(f"[VISUAL][ADV JUMP ERROR] Failed to play patch audio: {e}")
                                     self.patch_audio_path = None # Invalidate path if play failed
                                     self.player.audio_set_mute(False) # Ensure VLC is not muted if patch fails
                             else:
-                                Brint("[ADV JUMP ERROR] Patch audio preparation failed (file not found or not created).")
+                                Brint("[VISUAL][ADV JUMP ERROR] Patch audio preparation failed (file not found or not created).")
                                 self.patch_audio_path = None # Invalidate path
                                 self.player.audio_set_mute(False) # Ensure VLC is not muted
                         else:
-                            Brint("[ADV JUMP ERROR] current_path is not set. Cannot extract patch audio.")
+                            Brint("[VISUAL][ADV JUMP ERROR] current_path is not set. Cannot extract patch audio.")
                             self.patch_audio_path = None # Invalidate path
                             self.player.audio_set_mute(False) # Ensure VLC is not muted
                     else:
-                        Brint(f"[ADV JUMP] Patch audio skipped, duration too small: {patch_duration_sec*1000:.2f} ms")
+                        Brint(f"[VISUAL][ADV JUMP] Patch audio skipped, duration too small: {patch_duration_sec*1000:.2f} ms")
+                        Brint(f"[VISUAL][UNMUTE] Unmuting VLC (patch skipped, duration too short: {patch_duration_sec:.3f}s). Player time: {self.player.get_time()} ms. Target loop_start: {self.loop_start} ms.")
                         self.player.audio_set_mute(False) # Ensure VLC is not muted
 
                     self.safe_jump_to_time(self.loop_start, source="Advanced Jump B estim")
