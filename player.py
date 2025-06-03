@@ -5632,6 +5632,15 @@ class VideoPlayer:
         # Initialize Pygame Mixer
         pygame.mixer.init(frequency=44100, channels=2)
 
+        # Jump Latency Measurement Attributes
+        self.jump_latency_measurements = []
+        self.avg_jump_latency_ms = 0
+        self.is_measuring_jump = False
+        self.jump_measure_start_time = 0
+        self.patch_audio_player = None
+        self.patch_audio_path = None
+        # Note: self.patch_audio_start_time = None is already present further down, so I won't add it here to avoid duplication.
+
         #new timestamps on hits
         self.user_hit_timestamps = []
         self.impact_strikes = []
@@ -5646,11 +5655,11 @@ class VideoPlayer:
         # Jump Latency Measurement Attributes
         self.jump_latency_measurements = []
         self.avg_jump_latency_ms = 0
-        self.is_measuring_jump = False
-        self.jump_measure_start_time = 0
-        self.patch_audio_player = None
-        self.patch_audio_path = None
-        self.patch_audio_start_time = None
+        # self.is_measuring_jump = False # Already added above
+        # self.jump_measure_start_time = 0 # Already added above
+        # self.patch_audio_player = None # Already added above
+        # self.patch_audio_path = None # Already added above
+        self.patch_audio_start_time = None # This one is confirmed to be present and correctly placed.
         
         #harmony
         self.harmony_chord_display_mode = "chord"      # ou "degree"
