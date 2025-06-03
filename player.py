@@ -3006,6 +3006,10 @@ class VideoPlayer:
     def safe_jump_to_time(self, target_ms, source="UNKNOWN"):
         Brint(f"[PH JUMP] 🚀 {source} → jump à {int(target_ms)} ms demandé")
 
+        if source == "Jump B estim (all rates)":
+            self.is_measuring_jump = True
+            self.jump_measure_start_time = time.perf_counter()
+
         self.player.set_time(int(target_ms))
         self.set_forced_jump(True, source=source)
         self.safe_update_playhead(target_ms, source)
@@ -5625,7 +5629,10 @@ class VideoPlayer:
     
 
     def __init__(self, root):
-          #new timestamps on hits
+        # Initialize Pygame Mixer
+        pygame.mixer.init(frequency=44100, channels=2)
+
+        #new timestamps on hits
         self.user_hit_timestamps = []
         self.impact_strikes = []
         self.persistent_validated_hit_timestamps = set()
@@ -5636,6 +5643,14 @@ class VideoPlayer:
         self.is_paused = False
 
 
+        # Jump Latency Measurement Attributes
+        self.jump_latency_measurements = []
+        self.avg_jump_latency_ms = 0
+        self.is_measuring_jump = False
+        self.jump_measure_start_time = 0
+        self.patch_audio_player = None
+        self.patch_audio_path = None
+        self.patch_audio_start_time = None
         
         #harmony
         self.harmony_chord_display_mode = "chord"      # ou "degree"
@@ -7323,6 +7338,41 @@ class VideoPlayer:
     def update_loop(self):
         self.root.bind('t', lambda e: self.tap_tempo())
 
+        if self.is_measuring_jump:
+            if self.player.is_playing() and self.loop_start is not None and \
+               abs(self.player.get_time() - self.loop_start) < 50:
+                current_latency_ms = (time.perf_counter() - self.jump_measure_start_time) * 1000
+                self.jump_latency_measurements.append(current_latency_ms)
+                if len(self.jump_latency_measurements) > 5:
+                    self.jump_latency_measurements.pop(0)
+                if self.jump_latency_measurements: # Avoid division by zero
+                    self.avg_jump_latency_ms = sum(self.jump_latency_measurements) / len(self.jump_latency_measurements)
+                self.is_measuring_jump = False
+                Brint(f"[JUMP LATENCY] Current: {current_latency_ms:.2f} ms, Avg: {self.avg_jump_latency_ms:.2f} ms")
+
+        if self.patch_audio_player is not None and self.patch_audio_start_time is not None:
+            elapsed_patch_time_sec = time.perf_counter() - self.patch_audio_start_time
+            expected_patch_duration_sec = self.avg_jump_latency_ms / 1000.0
+            if elapsed_patch_time_sec >= expected_patch_duration_sec:
+                self.player.audio_set_mute(False)
+                Brint("[ADV JUMP] VLC Unmuted.")
+                if self.patch_audio_player: # Check if it's not None before stopping
+                    self.patch_audio_player.stop()
+                self.patch_audio_player = None
+                self.patch_audio_start_time = None
+
+                # Adjust last_loop_jump_time for precision
+                self.last_loop_jump_time = time.perf_counter() - (elapsed_patch_time_sec - expected_patch_duration_sec)
+                Brint(f"[ADV JUMP] Adjusted last_loop_jump_time to: {self.last_loop_jump_time:.4f}")
+
+                if self.patch_audio_path and os.path.exists(self.patch_audio_path):
+                    try:
+                        os.remove(self.patch_audio_path)
+                        Brint(f"[ADV JUMP] Removed patch audio file: {self.patch_audio_path}")
+                    except Exception as e:
+                        Brint(f"[ADV JUMP ERROR] Failed to remove patch audio file {self.patch_audio_path}: {e}")
+                self.patch_audio_path = None
+
         if self.grid_visible:
             self.draw_rhythm_grid_canvas()
 
@@ -7351,14 +7401,76 @@ class VideoPlayer:
 
                 self.safe_update_playhead(interpolated * 1000, source="Loop interpolation")
 
-                if elapsed_since_last_jump >= loop_duration_corrected:
-                    self.safe_jump_to_time(self.loop_start, source="Jump B estim (all rates)")
-                    self.last_loop_jump_time = time.perf_counter()
+                advanced_jump_trigger_sec = loop_duration_corrected
+                if self.avg_jump_latency_ms > 0:
+                    advanced_jump_trigger_sec = loop_duration_corrected - (self.avg_jump_latency_ms / 1000.0)
 
+                if elapsed_since_last_jump >= advanced_jump_trigger_sec and self.avg_jump_latency_ms > 10:
+                    # Advanced Jump Logic
+                    patch_duration_sec = self.avg_jump_latency_ms / 1000.0
+
+                    if patch_duration_sec > 0.01: # Only play patch if duration is meaningful
+                        start_offset_sec = self.loop_start / 1000.0
+
+                        # Ensure current_path is valid before using it
+                        if hasattr(self, 'current_path') and self.current_path:
+                            self.patch_audio_path = self.extract_audio_segment(
+                                self.current_path,
+                                start_offset_sec,
+                                patch_duration_sec
+                            )
+                            Brint(f"[ADV JUMP] Patch audio: {self.patch_audio_path}, Duration: {patch_duration_sec:.3f}s")
+
+                            if self.patch_audio_path and os.path.exists(self.patch_audio_path):
+                                try:
+                                    if not pygame.mixer.get_init(): # Ensure mixer is initialized
+                                        pygame.mixer.init(frequency=44100, channels=2)
+                                    self.patch_audio_player = pygame.mixer.Sound(self.patch_audio_path)
+                                    self.patch_audio_player.play()
+                                    self.patch_audio_start_time = time.perf_counter()
+                                    self.player.audio_set_mute(True)
+                                    Brint("[ADV JUMP] Playing patch audio, VLC muted.")
+                                except Exception as e:
+                                    Brint(f"[ADV JUMP ERROR] Failed to play patch audio: {e}")
+                                    self.patch_audio_path = None # Invalidate path if play failed
+                                    self.player.audio_set_mute(False) # Ensure VLC is not muted if patch fails
+                            else:
+                                Brint("[ADV JUMP ERROR] Patch audio preparation failed (file not found or not created).")
+                                self.patch_audio_path = None # Invalidate path
+                                self.player.audio_set_mute(False) # Ensure VLC is not muted
+                        else:
+                            Brint("[ADV JUMP ERROR] current_path is not set. Cannot extract patch audio.")
+                            self.patch_audio_path = None # Invalidate path
+                            self.player.audio_set_mute(False) # Ensure VLC is not muted
+                    else:
+                        Brint(f"[ADV JUMP] Patch audio skipped, duration too small: {patch_duration_sec*1000:.2f} ms")
+                        self.player.audio_set_mute(False) # Ensure VLC is not muted
+
+                    self.safe_jump_to_time(self.loop_start, source="Advanced Jump B estim")
+                    self.last_loop_jump_time = time.perf_counter() # Will be adjusted later
                     self.loop_pass_count += 1
-                    Brint(f"[LOOP PASS] Boucle AB passée {self.loop_pass_count} fois")
+                    Brint(f"[LOOP PASS] Boucle AB passée {self.loop_pass_count} fois (Advanced Jump)")
                     self.evaluate_subdivision_states()
                     self.last_playhead_time = self.playhead_time
+                    # Original decay logic for subdivision counters
+                    for i in list(self.subdivision_counters.keys()):
+                        last_hit_loop = self.subdiv_last_hit_loop.get(i, -1)
+                        if 0 < self.subdivision_counters[i] < 3:
+                            if last_hit_loop <= self.loop_pass_count - 2:
+                                Brint(f"[DECAY] Subdiv {i} remise à zéro (dernier hit = loop {last_hit_loop}, loop courante = {self.loop_pass_count})")
+                                self.subdivision_counters[i] = 0
+                                if i in self.subdiv_last_hit_loop:
+                                    del self.subdiv_last_hit_loop[i]
+
+                elif elapsed_since_last_jump >= loop_duration_corrected:
+                    # Original Jump Logic (fallback or when latency is too small)
+                    self.safe_jump_to_time(self.loop_start, source="Jump B estim (all rates)")
+                    self.last_loop_jump_time = time.perf_counter()
+                    self.loop_pass_count += 1
+                    Brint(f"[LOOP PASS] Boucle AB passée {self.loop_pass_count} fois (Standard Jump)")
+                    self.evaluate_subdivision_states()
+                    self.last_playhead_time = self.playhead_time
+                    # Original decay logic for subdivision counters
                     for i in list(self.subdivision_counters.keys()):
                         last_hit_loop = self.subdiv_last_hit_loop.get(i, -1)
                         if 0 < self.subdivision_counters[i] < 3:
