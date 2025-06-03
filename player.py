@@ -113,7 +113,17 @@ DEBUG_FLAGS = {
 
 import re
 
+_last_brint_time = None # Initialize last Brint call time
+
 def Brint(*args, **kwargs):
+    global _last_brint_time
+    now = time.perf_counter()
+    delta_ms_str = ""
+    if _last_brint_time is not None:
+        delta_s = now - _last_brint_time
+        delta_ms_str = f"(+{delta_s*1000:.2f}ms) " # Note the space at the end
+    _last_brint_time = now
+
     if not args:
         return
 
@@ -130,18 +140,18 @@ def Brint(*args, **kwargs):
 
     # 💥 Mode super-debug : BRINT = True affiche tout
     if DEBUG_FLAGS.get("BRINT", None) is True:
-        print(*args, **kwargs)
+        print(delta_ms_str, *args, **kwargs)
         return
 
     if not tags:
         # Aucun tag → affichage inconditionnel (si BRINT n'est pas False)
-        print(*args, **kwargs)
+        print(delta_ms_str, *args, **kwargs)
         return
 
     for tag_str in tags:
         keywords = tag_str.upper().split()
         if any(DEBUG_FLAGS.get(kw, False) for kw in keywords):
-            print(*args, **kwargs)
+            print(delta_ms_str, *args, **kwargs)
             return
 
     # Sinon → silence
