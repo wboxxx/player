@@ -7423,11 +7423,13 @@ class VideoPlayer:
 
                         # Ensure current_path is valid before using it
                         if hasattr(self, 'current_path') and self.current_path:
-                            self.patch_audio_path = self.extract_audio_segment(
+                            Brint("[DYNAMIC] Attempting to call extract_audio_segment as global function.")
+                            self.patch_audio_path = extract_audio_segment(
                                 self.current_path,
                                 start_offset_sec,
                                 patch_duration_sec
                             )
+                            Brint("[DYNAMIC] extract_audio_segment call successful, path: ", self.patch_audio_path)
                             Brint(f"[ADV JUMP] Patch audio: {self.patch_audio_path}, Duration: {patch_duration_sec:.3f}s")
 
                             if self.patch_audio_path and os.path.exists(self.patch_audio_path):
