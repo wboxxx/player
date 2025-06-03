@@ -5674,6 +5674,7 @@ class VideoPlayer:
         # self.patch_audio_player = None # Already added above
         # self.patch_audio_path = None # Already added above
         self.patch_audio_start_time = None # This one is confirmed to be present and correctly placed.
+        self.jump_measurement_settle_delay_ms = 100
         
         #harmony
         self.harmony_chord_display_mode = "chord"      # ou "degree"
@@ -7362,16 +7363,46 @@ class VideoPlayer:
         self.root.bind('t', lambda e: self.tap_tempo())
 
         if self.is_measuring_jump:
-            if self.player.is_playing() and self.loop_start is not None and \
-               abs(self.player.get_time() - self.loop_start) < 50:
-                current_latency_ms = (time.perf_counter() - self.jump_measure_start_time) * 1000
-                self.jump_latency_measurements.append(current_latency_ms)
-                if len(self.jump_latency_measurements) > 5:
-                    self.jump_latency_measurements.pop(0)
-                if self.jump_latency_measurements: # Avoid division by zero
-                    self.avg_jump_latency_ms = sum(self.jump_latency_measurements) / len(self.jump_latency_measurements)
-                self.is_measuring_jump = False
-                Brint(f"[VISUAL][JUMP LATENCY] Current: {current_latency_ms:.2f} ms, Avg: {self.avg_jump_latency_ms:.2f} ms")
+            # Check if enough time has passed since the jump command to let VLC settle
+            # self.jump_measure_start_time is set in safe_jump_to_time BEFORE player.set_time()
+            elapsed_since_jump_command_ms = (time.perf_counter() - self.jump_measure_start_time) * 1000
+
+            if elapsed_since_jump_command_ms > self.jump_measurement_settle_delay_ms:
+                # Now, check if player is at the target position and playing
+                # Using a slightly wider threshold for get_time() check after settle delay, e.g. 75ms,
+                # as VLC might not be perfectly at loop_start but actively playing from near it.
+                if abs(self.player.get_time() - self.loop_start) < 75 and self.player.is_playing():
+                    # Latency is total time from jump command until it's settled and playing at target
+                    current_latency_ms = elapsed_since_jump_command_ms
+
+                    self.jump_latency_measurements.append(current_latency_ms)
+                    if len(self.jump_latency_measurements) > 5: # Keep last 5 measurements
+                        self.jump_latency_measurements.pop(0)
+
+                    if self.jump_latency_measurements:
+                        self.avg_jump_latency_ms = sum(self.jump_latency_measurements) / len(self.jump_latency_measurements)
+                    else:
+                        self.avg_jump_latency_ms = 0 # Should not happen if we append first
+
+                    Brint(f"[VISUAL][JUMP LATENCY] Settled. Current Latency: {current_latency_ms:.2f} ms, Avg: {self.avg_jump_latency_ms:.2f} ms. Player time: {self.player.get_time()} ms")
+                    self.is_measuring_jump = False # Measurement complete for this jump
+                else:
+                    # Not yet at target OR not playing, even after settle_delay.
+                    # This could mean settle_delay is too short, or jump failed, or player was paused.
+                    # If it keeps happening, avg_jump_latency_ms might not update.
+                    Brint(f"[VISUAL][JUMP LATENCY] Post-settle check failed. Player time: {self.player.get_time()}ms, Loop start: {self.loop_start}ms, Playing: {self.player.is_playing()}. Elapsed: {elapsed_since_jump_command_ms:.2f}ms")
+                    # Decide if is_measuring_jump should be reset here or if we wait longer.
+                    # For now, let it try again next cycle if still is_measuring_jump.
+                    # If this state persists for too long, it might indicate an issue.
+                    # Resetting after a timeout could be an option:
+                    if elapsed_since_jump_command_ms > (self.jump_measurement_settle_delay_ms + 500): # e.g., 500ms additional timeout
+                        Brint(f"[VISUAL][JUMP LATENCY] Timeout waiting for settle. Resetting measurement flag. Avg Latency unchanged: {self.avg_jump_latency_ms:.2f} ms")
+                        self.is_measuring_jump = False
+
+
+            # Optional: Add an else for the settle_delay check if you want to log that it's waiting.
+            # else:
+            #    Brint(f"[VISUAL][JUMP LATENCY] Waiting for settle_delay. Elapsed: {elapsed_since_jump_command_ms:.2f}ms / {self.jump_measurement_settle_delay_ms}ms")
 
         if self.patch_audio_player is not None and self.patch_audio_start_time is not None:
             elapsed_patch_time_sec = time.perf_counter() - self.patch_audio_start_time
