@@ -1183,6 +1183,26 @@ dbflag = False
 
 import subprocess
 
+RHYTHM_SYLLABLE_SETS = {
+    "ternary12": [
+        ["1", "T", "L", "2", "T", "L", "3", "T", "L", "4", "T", "L"], # Default for 4 beats
+        ["1", "2", "3", "2", "2", "3", "3", "2", "3"] # 9 syllables, will repeat/truncate as needed for 4 beats (12 subdivisions)
+    ],
+    "ternary24": [
+        # Base pattern for one beat: 1, n, T, n, P, n
+        ["1", "n", "T", "n", "P", "n", "2", "n", "T", "n", "P", "n", "3", "n", "T", "n", "P", "n", "4", "n", "T", "n", "P", "n"], # Default for 4 beats
+        # Base pattern for one beat: 1, n, 2, n, 3, n
+        ["1", "n", "2", "n", "3", "n", "2", "n", "2", "n", "3", "n", "3", "n", "2", "n", "3", "n", "4", "n", "2", "n", "3", "n"], # Syllables "1,n,2,n,3,n" for beat 1, "2,n,2,n,3,n" for beat 2 etc. (example for 4 beats)
+        ["1", "2", "3", "4", "5", "6", "7", "8", "9"] # Nonet, will be stretched over 3 beats (18 subdivisions)
+    ],
+    "binary8": [ # For completeness, though not changing yet
+        ["1", "&", "2", "&", "3", "&", "4", "&"]
+    ],
+    "binary16": [ # For completeness
+        ["1", "y", "n", "a", "2", "y", "n", "a", "3", "y", "n", "a", "4", "y", "n", "a"]
+    ]
+}
+
 def hms_to_seconds(hms):
     parts = list(map(float, hms.split(":")))
     return sum(t * 60**i for i, t in enumerate(reversed(parts)))
@@ -2094,8 +2114,8 @@ class VideoPlayer:
         subdivisions_per_beat = {
             "binary8": 2,
             "binary16": 4,
-            "ternary8": 3,
-            "ternary16": 6
+            "ternary12": 3,
+            "ternary24": 6
         }.get(self.subdivision_mode, 2)
 
         beats = []
@@ -2213,8 +2233,8 @@ class VideoPlayer:
         subdivisions_per_beat = {
             'binary8': 2,
             'binary16': 4,
-            'ternary8': 3,
-            'ternary16': 6
+            'ternary12': 3,
+            'ternary24': 6
         }.get(self.subdivision_mode, 2)
 
         interval_sec = 60.0 / self.tempo_bpm / subdivisions_per_beat
@@ -2601,8 +2621,8 @@ class VideoPlayer:
         subdivisions_per_beat = {
             'binary8': 2,
             'binary16': 4,
-            'ternary8': 3,
-            'ternary16': 6
+            'ternary12': 3,
+            'ternary24': 6
         }.get(self.subdivision_mode, 2)
 
         Brint(f"[PRECOMPUTE] 🧮 subdivisions_per_beat = {subdivisions_per_beat} (mode = {self.subdivision_mode})")
@@ -2623,16 +2643,53 @@ class VideoPlayer:
             beat_in_bar = (i % steps_per_bar) // subdivisions_per_beat
             pos_in_beat = (i % steps_per_bar) % subdivisions_per_beat
 
+            label = "-" # Default label
+
             if self.subdivision_mode == "binary8":
-                label = str(beat_in_bar + 1) if pos_in_beat == 0 else "n"
+                # Syllables: 1, &, 2, &, 3, &, 4, & (for 4 beats)
+                # Assumes RHYTHM_SYLLABLE_SETS["binary8"][0] is ["1", "&", "1", "&", ...]
+                # beat_in_bar is 0-indexed, pos_in_beat is 0 or 1
+                syllables = RHYTHM_SYLLABLE_SETS["binary8"][0]
+                label_idx = (beat_in_bar * 2 + pos_in_beat) % len(syllables)
+                label = syllables[label_idx]
             elif self.subdivision_mode == "binary16":
-                label = str(beat_in_bar + 1) if pos_in_beat == 0 else ["y", "&", "a", "n"][(pos_in_beat - 1) % 4]
-            elif self.subdivision_mode == "ternary8":
-                label = [str(beat_in_bar + 1), "T", "L"][pos_in_beat]
-            elif self.subdivision_mode == "ternary16":
-                label = str(beat_in_bar + 1) if pos_in_beat == 0 else ["n", "T", "n", "L", "n"][(pos_in_beat - 1) % 5]
-            else:
-                label = "-"
+                # Syllables: 1, y, n, a, 2, y, n, a, ...
+                # beat_in_bar is 0-indexed, pos_in_beat is 0, 1, 2, or 3
+                syllables = RHYTHM_SYLLABLE_SETS["binary16"][0]
+                label_idx = (beat_in_bar * 4 + pos_in_beat) % len(syllables)
+                label = syllables[label_idx]
+            elif self.subdivision_mode == "ternary12": # Formerly ternary8
+                syllables_sets = RHYTHM_SYLLABLE_SETS.get("ternary12", [])
+                if syllables_sets:
+                    current_syllables = syllables_sets[self.current_tern12_syllable_idx]
+                    if self.current_tern12_syllable_idx == 0: # Default: 1, T, L, 2, T, L, ...
+                        # beat_in_bar is 0-indexed, pos_in_beat is 0, 1, 2
+                        label_idx = (beat_in_bar * 3 + pos_in_beat) % len(current_syllables)
+                        label = current_syllables[label_idx]
+                    elif self.current_tern12_syllable_idx == 1: # Alternate: 1,2,3,2,2,3,3,2,3
+                        # This pattern has 9 syllables. It repeats.
+                        label_idx = (beat_in_bar * 3 + pos_in_beat) % 9
+                        label = current_syllables[label_idx]
+            elif self.subdivision_mode == "ternary24": # Formerly ternary16
+                # Has 6 subdivisions per beat. beat_in_bar is 0-indexed, pos_in_beat is 0-5.
+                syllables_sets = RHYTHM_SYLLABLE_SETS.get("ternary24", [])
+                if syllables_sets:
+                    current_syllables = syllables_sets[self.current_tern24_syllable_idx]
+                    if self.current_tern24_syllable_idx == 0: # Default: 1,n,T,n,P,n / 2,n,T,n,P,n ...
+                        label_idx = (beat_in_bar * 6 + pos_in_beat) % len(current_syllables)
+                        label = current_syllables[label_idx]
+                    elif self.current_tern24_syllable_idx == 1: # Alternate: 1,n,2,n,3,n / 2,n,2,n,3,n ...
+                        label_idx = (beat_in_bar * 6 + pos_in_beat) % len(current_syllables)
+                        label = current_syllables[label_idx]
+                    elif self.current_tern24_syllable_idx == 2: # Nonet: 1-9 over 3 beats
+                        if beat_in_bar < 3: # Nonet applies to first 3 beats
+                            # Each nonet syllable spans 2 subdivisions of tern24
+                            nonet_idx = ((beat_in_bar % 3) * 6 + pos_in_beat) // 2
+                            label = current_syllables[nonet_idx % len(current_syllables)] # Use modulo for safety
+                        else: # For the 4th beat, revert to default tern24 syllables (Set 0)
+                            default_t24_syllables = syllables_sets[0]
+                            label_idx = (beat_in_bar * 6 + pos_in_beat) % len(default_t24_syllables)
+                            label = default_t24_syllables[label_idx]
 
             precomputed[i] = {
                 'x': x,
@@ -3342,7 +3399,7 @@ class VideoPlayer:
     def cycle_subdivision_mode_backward(self):
         Brint(f"[DEBUG CYCLE] Avant changement → {len(self.current_loop.chords)} accords")
 
-        modes = ["ternary8", "ternary16", "binary8", "binary16"]
+        modes = ["ternary12", "ternary24", "binary8", "binary16"]
         i = modes.index(self.subdivision_mode)
         self.subdivision_mode = modes[(i - 1) % len(modes)]
         pass#Brint(f"[RHYTHM] ⬅️ Mode subdivision : {self.subdivision_mode}")
@@ -3407,7 +3464,7 @@ class VideoPlayer:
 
 
     def cycle_subdivision_mode(self):
-        modes = ["ternary8", "ternary16", "binary8", "binary16"]
+        modes = ["ternary12", "ternary24", "binary8", "binary16"]
         i = modes.index(self.subdivision_mode)
         self.subdivision_mode = modes[(i + 1) % len(modes)]
         pass#Brint(f"[RHYTHM] ➡️ Mode subdivision : {self.subdivision_mode}")
@@ -3462,6 +3519,30 @@ class VideoPlayer:
         self.refresh_note_display()
         self.draw_rhythm_grid_canvas()
 
+    def cycle_syllable_set_for_current_mode(self, event=None):
+        Brint(f"[SYLLABLE CYCLE] Current mode: {self.subdivision_mode}")
+        updated = False
+        if self.subdivision_mode == "ternary12":
+            num_sets = len(RHYTHM_SYLLABLE_SETS.get("ternary12", []))
+            if num_sets > 0:
+                self.current_tern12_syllable_idx = (self.current_tern12_syllable_idx + 1) % num_sets
+                Brint(f"[SYLLABLE CYCLE] Ternary12 new syllable index: {self.current_tern12_syllable_idx}")
+                updated = True
+        elif self.subdivision_mode == "ternary24":
+            num_sets = len(RHYTHM_SYLLABLE_SETS.get("ternary24", []))
+            if num_sets > 0:
+                self.current_tern24_syllable_idx = (self.current_tern24_syllable_idx + 1) % num_sets
+                Brint(f"[SYLLABLE CYCLE] Ternary24 new syllable index: {self.current_tern24_syllable_idx}")
+                updated = True
+
+        if updated:
+            # Rebuild/refresh logic
+            self.compute_rhythm_grid_infos() # This should update labels based on new idx
+            self.draw_rhythm_grid_canvas()   # This will redraw the grid with new labels
+            # self.refresh_note_display() # May be needed if syllables are part of this display
+            self.console.config(text=f"Syllable set changed for {self.subdivision_mode}")
+        else:
+            self.console.config(text=f"No alternate syllable sets for {self.subdivision_mode}")
 
     def get_rhythm_levels(self):
         """
@@ -3925,13 +4006,13 @@ class VideoPlayer:
                 # Syllabe correcte selon subdivision_mode
                 if self.subdivision_mode == "binary16":
                     syllables = [str(beat_in_measure), "y", "&", "a"]
-                elif self.subdivision_mode == "ternary8":
+                elif self.subdivision_mode == "ternary12":
                     syllables = [str(beat_in_measure), "T", "L"]                    
                     
                 elif self.subdivision_mode == "binary8":
                     syllables = [str(beat_in_measure), "n"]
                     
-                elif self.subdivision_mode == "ternary16":
+                elif self.subdivision_mode == "ternary24":
                     syllables = [str(beat_in_measure), "t", "l", "n", "t", "l"]
                   
                   
@@ -4043,11 +4124,11 @@ class VideoPlayer:
                 # Déterminer la bonne syllabe
                 if self.subdivision_mode == "binary16":
                     syllables = [str(beat_in_measure), "y", "&", "a"]
-                elif self.subdivision_mode == "ternary8":
+                elif self.subdivision_mode == "ternary12":
                     syllables = [str(beat_in_measure), "T", "L"]
                 elif self.subdivision_mode == "binary8":
                     syllables = [str(beat_in_measure), "n"]
-                elif self.subdivision_mode == "ternary16":
+                elif self.subdivision_mode == "ternary24":
                     syllables = [str(beat_in_measure), "t", "l", "n", "t", "l"]
                 else:
                     syllables = [f".{k+1}" for k in range(subdivs_per_beat)]
@@ -4206,13 +4287,13 @@ class VideoPlayer:
         if mode == "binary8":
             subdivs_per_beat = 2
             label_seq = ["", "n"]
-        elif mode == "ternary8":
+        elif mode == "ternary12":
             subdivs_per_beat = 3
             label_seq = ["T", "L", ""]
         elif mode == "binary16":
             subdivs_per_beat = 4
             label_seq = ["y", "&", "a", ""]
-        elif mode == "ternary16":
+        elif mode == "ternary24":
             subdivs_per_beat = 6
             label_seq = ["t", "l", "n", "t", "l", ""]
         else:
@@ -5837,7 +5918,7 @@ class VideoPlayer:
         
         import json
         #RHYTHMe grille
-        self.subdivision_mode = "ternary8"  # valeurs possibles : 'ternary8', 'ternary16', 'binary8', 'binary16'
+        self.subdivision_mode = "ternary12"  # valeurs possibles : 'ternary12', 'ternary24', 'binary8', 'binary16'
         self._grid_bounce_x = None
         self._grid_bounce_ts = 0
         self.grid_subdivs = []
@@ -6200,7 +6281,7 @@ class VideoPlayer:
         # === BINDINGS CLAVIER PRINCIPAUX ===
         #note display
         self.root.bind("<Shift-Tab>", lambda e: self.cycle_note_display_mode())
-
+        self.root.bind("<Control-Tab>", self.cycle_syllable_set_for_current_mode)
         
         #quicksave
         self.root.bind("<Control-s>", self.quick_save_current_loop)
@@ -6527,9 +6608,9 @@ class VideoPlayer:
                 musical = str(beat_in_bar + 1) if pos_in_beat == 0 else "n"
             elif self.subdivision_mode == "binary16":
                 musical = str(beat_in_bar + 1) if pos_in_beat == 0 else ["y", "&", "a", "n"][(pos_in_beat - 1) % 4]
-            elif self.subdivision_mode == "ternary8":
+            elif self.subdivision_mode == "ternary12":
                 musical = [str(beat_in_bar + 1), "T", "L"][pos_in_beat]
-            elif self.subdivision_mode == "ternary16":
+            elif self.subdivision_mode == "ternary24":
                 musical = str(beat_in_bar + 1) if pos_in_beat == 0 else ["t", "l", "n", "t", "l"][pos_in_beat - 1]
             else:
                 musical = "-"
