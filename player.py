@@ -1235,7 +1235,7 @@ def predict_on_loop_segment(original_path, beat1_sec, duration_sec):
     else:
         audio_path = original_path
 
-    temp_path = None # Initialize tmp_path to None
+    temp_path = None # Initialize temp_path to None
     try:
         # Charger tout le fichier audio avec soundfile
         y_full, sr = sf.read(audio_path, always_2d=False)
