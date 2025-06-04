@@ -1380,7 +1380,7 @@ def predict_on_loop_segment(original_path, beat1_sec, duration_sec):
     else:
         audio_path = original_path
 
-    temp_path = None # Initialize tmp_path to None
+    temp_path = None # Initialize temp_path to None
     try:
         # Charger tout le fichier audio avec soundfile
         y_full, sr = sf.read(audio_path, always_2d=False)
@@ -3216,6 +3216,7 @@ class VideoPlayer:
         if not hasattr(self, 'current_path'):
             return
 
+# codex/ajouter-fenêtre-de-visualisation-du-signal-audio
         if not hasattr(self, 'audio_power_data') or self.audio_power_data is None:
             self._compute_audio_power_data()
             if not hasattr(self, 'audio_power_data') or self.audio_power_data is None:
@@ -3250,6 +3251,7 @@ class VideoPlayer:
 
         _update()
 
+# codex/ajouter-fenêtre-de-visualisation-du-signal-audio
 
     def _compute_audio_power_data(self):
         if not getattr(self, 'current_path', None):
