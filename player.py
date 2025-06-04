@@ -246,6 +246,60 @@ ROMAN_TO_SEMITONE = {
 
 AVAILABLE_MODES = ["ionian", "dorian", "phrygian", "lydian", "mixolydian", "aeolian", "locrian"]
 
+# === RHYTHM SYLLABLE SETS ===
+# Each entry maps a rhythm mode to a list of alternative syllable sets.
+# Each set contains a name and the sequence of labels for one bar (4 beats).
+RHYTHM_SYLLABLE_SETS = {
+    "ternary12": [
+        {"name": "Triplet", "labels": [
+            "1", "T", "L", "2", "T", "L", "3", "T", "L", "4", "T", "L"]},
+        {"name": "Shuffled 8ths", "labels": [
+            "1", "", "L", "2", "", "L", "3", "", "L", "4", "", "L"]},
+        {"name": "Singing eights", "labels": [
+            "DA", "BA", "LA", "DA", "BA", "LA", "DA", "BA", "LA",
+            "DA", "BA", "LA"]},
+        {"name": "Rapid Valse", "labels": [
+            "1", "2", "3", "2", "2", "3", "3", "2", "3", "4", "2", "3"]},
+    ],
+    "ternary24": [
+        {"name": "Split Triplet", "labels": [
+            "1", "n", "T", "n", "P", "n", "2", "n", "T", "n", "P", "n",
+            "3", "n", "T", "n", "P", "n", "4", "n", "T", "n", "P", "n"]},
+        {"name": "Shuffled 16ths", "labels": [
+            "1", "", "y", "n", "", "a", "2", "", "y", "n", "", "a",
+            "3", "y", "", "n", "", "a", "4", "", "y", "n", "", "a"]},
+        {"name": "Split Valse", "labels": [
+            "1", "n", "2", "n", "3", "n", "2", "n", "2", "n", "3", "n",
+            "3", "n", "2", "n", "3", "n", "4", "n", "2", "n", "3", "n"]},
+    ],
+    "ternary36": [
+        {"name": "Nonets", "labels": [
+            "1", "2", "3", "4", "5", "6", "7", "8", "9",
+            "2", "2", "3", "4", "5", "6", "7", "8", "9",
+            "3", "2", "3", "4", "5", "6", "7", "8", "9",
+            "4", "2", "3", "4", "5", "6", "7", "8", "9",]},
+    ],
+    "binary4": [
+        {"name": "4ths", "labels": ["1", "2", "3", "4"]},
+    ],
+    "binary8": [
+        {"name": "Straight 8ths", "labels": ["1", "&", "2", "&", "3", "&", "4", "&"]},
+    ],
+    "binary16": [
+        {"name": "Straight 16ths", "labels": [
+            "1", "y", "n", "a", "2", "y", "n", "a",
+            "3", "y", "n", "a", "4", "y", "n", "a"]},
+    ],
+}
+
+# Mapping from internal subdivision modes to the syllable set keys
+MODE_TO_SYLLABLE_KEY = {
+    "binary8": "binary8",
+    "binary16": "binary16",
+    "ternary8": "ternary12",
+    "ternary16": "ternary24",
+}
+
 def extract_tonic_from_chord(chord_name):
     """
     Extrait la tonique d’un nom d’accord (ex : 'Dm7b5' → 'D', 'Abmaj7' → 'Ab').
@@ -2764,18 +2818,8 @@ class VideoPlayer:
             state = self.subdivision_state.get(i, 0)
             is_playhead = abs(x - playhead_x) < 1
 
-            steps_per_bar = 4 * subdivisions_per_beat
-            beat_in_bar = (i % steps_per_bar) // subdivisions_per_beat
-            pos_in_beat = (i % steps_per_bar) % subdivisions_per_beat
-
-            if self.subdivision_mode == "binary8":
-                label = str(beat_in_bar + 1) if pos_in_beat == 0 else "n"
-            elif self.subdivision_mode == "binary16":
-                label = str(beat_in_bar + 1) if pos_in_beat == 0 else ["y", "&", "a", "n"][(pos_in_beat - 1) % 4]
-            elif self.subdivision_mode == "ternary8":
-                label = [str(beat_in_bar + 1), "T", "L"][pos_in_beat]
-            elif self.subdivision_mode == "ternary16":
-                label = str(beat_in_bar + 1) if pos_in_beat == 0 else ["n", "T", "n", "L", "n"][(pos_in_beat - 1) % 5]
+            if i < len(self.grid_labels):
+                label = self.grid_labels[i]
             else:
                 label = "-"
 
@@ -3666,6 +3710,52 @@ class VideoPlayer:
         self.refresh_note_display()
         self.draw_rhythm_grid_canvas()
 
+    # === SYLLABLE SET MANAGEMENT ===
+    def _get_syllable_key(self):
+        return MODE_TO_SYLLABLE_KEY.get(self.subdivision_mode)
+
+    def get_current_syllable_sequence(self):
+        key = self._get_syllable_key()
+        sets = RHYTHM_SYLLABLE_SETS.get(key, [])
+        if not sets:
+            return []
+        idx = self.syllable_set_idx.get(key, 0) % len(sets)
+        return sets[idx]["labels"]
+
+    def get_current_syllable_description(self):
+        key = self._get_syllable_key()
+        sets = RHYTHM_SYLLABLE_SETS.get(key, [])
+        if not sets:
+            return ""
+        idx = self.syllable_set_idx.get(key, 0) % len(sets)
+        return sets[idx]["name"]
+
+    def cycle_syllable_set(self):
+        key = self._get_syllable_key()
+        sets = RHYTHM_SYLLABLE_SETS.get(key, [])
+        if not sets:
+            self.console.config(text="⛔ No syllable sets for this mode")
+            return
+        idx = (self.syllable_set_idx.get(key, 0) + 1) % len(sets)
+        self.syllable_set_idx[key] = idx
+        self.build_rhythm_grid()
+        self.draw_rhythm_grid_canvas()
+        desc = sets[idx]["name"]
+        self.console.config(text=f"🎵 Syllable set: {desc}")
+
+    def cycle_syllable_set_backward(self):
+        key = self._get_syllable_key()
+        sets = RHYTHM_SYLLABLE_SETS.get(key, [])
+        if not sets:
+            self.console.config(text="⛔ No syllable sets for this mode")
+            return
+        idx = (self.syllable_set_idx.get(key, 0) - 1) % len(sets)
+        self.syllable_set_idx[key] = idx
+        self.build_rhythm_grid()
+        self.draw_rhythm_grid_canvas()
+        desc = sets[idx]["name"]
+        self.console.config(text=f"🎵 Syllable set: {desc}")
+
 
     def get_rhythm_levels(self):
         """
@@ -3900,14 +3990,9 @@ class VideoPlayer:
 
 
         # Séquence de syllabes selon le mode
-        if self.subdivision_mode == "binary16":
-            label_seq = ["1", "y", "&", "a"]
-        elif self.subdivision_mode == "ternary8":
-            label_seq = ["1", "T", "L"]
-        elif self.subdivision_mode == "binary8":
-            label_seq = ["1", "n"]
-        else:
-            label_seq = [str(i + 1) for i in range(subdivs_per_beat)]
+        label_seq = self.get_current_syllable_sequence()
+        if not label_seq:
+            label_seq = [str(i + 1) for i in range(subdivs_per_beat * beats_per_measure)]
             
         mode_key_frame = tk.Frame(frame)  # ⚠️ pas popup, sinon conflit avec scrollable
         mode_key_frame.pack(pady=5, fill="x")
@@ -4126,23 +4211,8 @@ class VideoPlayer:
                 t_ms = t_subdiv_sec * 1000
                 notes_list = subdiv_mapping.get(subdiv_index, [])
 
-                # Syllabe correcte selon subdivision_mode
-                if self.subdivision_mode == "binary16":
-                    syllables = [str(beat_in_measure), "y", "&", "a"]
-                elif self.subdivision_mode == "ternary8":
-                    syllables = [str(beat_in_measure), "T", "L"]                    
-                    
-                elif self.subdivision_mode == "binary8":
-                    syllables = [str(beat_in_measure), "n"]
-                    
-                elif self.subdivision_mode == "ternary16":
-                    syllables = [str(beat_in_measure), "t", "l", "n", "t", "l"]
-                  
-                  
-                else:
-                    syllables = [f".{i+1}" for i in range(subdivs_per_beat)]
-
-                syllabe = syllables[syll_in_beat] if syll_in_beat < len(syllables) else ""
+                # Use current syllable set
+                syllabe = label_seq[j] if j < len(label_seq) else ""
                 note_strs = [n["note"] if isinstance(n, dict) else str(n) for n in notes_list]
                 Brint(f"[CHORD EDITOR] S{subdiv_index} | t={self.hms(t_ms)} | Beat={beat_in_measure} | Syllabe={syllabe} | Notes={','.join(note_strs)}")
                 # Afficher la syllabe seule
@@ -4409,19 +4479,23 @@ class VideoPlayer:
 
         if mode == "binary8":
             subdivs_per_beat = 2
-            label_seq = ["", "n"]
         elif mode == "ternary8":
             subdivs_per_beat = 3
-            label_seq = ["T", "L", ""]
         elif mode == "binary16":
             subdivs_per_beat = 4
-            label_seq = ["y", "&", "a", ""]
         elif mode == "ternary16":
             subdivs_per_beat = 6
-            label_seq = ["t", "l", "n", "t", "l", ""]
         else:
             Brint(f"[BRG RHYTHM] ❌ Mode subdivision inconnu : {mode}")
             return
+
+        label_seq = self.get_current_syllable_sequence()
+        if not label_seq:
+            label_seq = []
+            # Generic fallback: beat numbers on the first subdivision
+            for beat in range(beats_per_bar):
+                for s in range(subdivs_per_beat):
+                    label_seq.append(str(beat + 1) if s == 0 else "")
 
         total_subdivs = int((bpm / 60) * loop_duration_sec * subdivs_per_beat)
         interval_sec = 60 / (bpm * subdivs_per_beat)
@@ -4429,16 +4503,12 @@ class VideoPlayer:
         self.grid_times = []
         self.grid_labels = []
 
+        seq_len = len(label_seq)
         for i in range(total_subdivs):
             t = self.loop_start / 1000.0 + i * interval_sec
             self.grid_times.append(t)
 
-            total_beats = i / subdivs_per_beat
-            bar = int(total_beats // beats_per_bar) + 1
-            beat = int(total_beats % beats_per_bar) + 1
-            sub = i % subdivs_per_beat
-            suffix = label_seq[sub]
-            label = f"{beat}{suffix}"
+            label = label_seq[i % seq_len] if seq_len else str((i % subdivs_per_beat) + 1)
             self.grid_labels.append(label)
 
             if i < 5:
@@ -6046,6 +6116,8 @@ class VideoPlayer:
         import json
         #RHYTHMe grille
         self.subdivision_mode = "ternary8"  # valeurs possibles : 'ternary8', 'ternary16', 'binary8', 'binary16'
+        # index of current syllable set for each mode
+        self.syllable_set_idx = {key: 0 for key in RHYTHM_SYLLABLE_SETS}
         self._grid_bounce_x = None
         self._grid_bounce_ts = 0
         self.grid_subdivs = []
@@ -6432,6 +6504,8 @@ class VideoPlayer:
         self.loop_menu_button.bind("<Button-1>", lambda e: self.update_loop_menu())
         # self.root.bind("<F4>", self.edit_current_chord_from_playhead)
         self.root.bind("<F4>", lambda e: self.open_chord_editor_all())
+        self.root.bind("<F1>", lambda e: self.cycle_syllable_set_backward())
+        self.root.bind("<F2>", lambda e: self.cycle_syllable_set())
         
         self.root.bind("<F10>", self.start_profiling_5s)
         # self.root.bind("<F9>", self.dump_playhead_debug_log())
