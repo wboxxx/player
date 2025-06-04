@@ -1380,7 +1380,7 @@ def predict_on_loop_segment(original_path, beat1_sec, duration_sec):
     else:
         audio_path = original_path
 
-    temp_path = None # Initialize tmp_path to None
+    temp_path = None # Initialize temp_path to None
     try:
         # Charger tout le fichier audio avec soundfile
         y_full, sr = sf.read(audio_path, always_2d=False)
@@ -3216,6 +3216,9 @@ class VideoPlayer:
         if not hasattr(self, 'current_path'):
             return
 
+
+# codex/ajouter-fenêtre-de-visualisation-du-signal-audio
+
         if not hasattr(self, 'audio_power_data') or self.audio_power_data is None:
             self._compute_audio_power_data()
             if not hasattr(self, 'audio_power_data') or self.audio_power_data is None:
@@ -3249,6 +3252,9 @@ class VideoPlayer:
             self.power_window.after(200, _update)
 
         _update()
+
+
+# codex/ajouter-fenêtre-de-visualisation-du-signal-audio
 
 
     def _compute_audio_power_data(self):
@@ -6974,21 +6980,25 @@ class VideoPlayer:
         if len(times) == 0:
             return
         bottom = 24
+
         height = bottom
         canvas_width = max(1, self.timeline.winfo_width())
         step = max(1, len(times) // canvas_width)
         points = []
         for t, r in zip(times[::step], rms[::step]):
+
             x = self.time_sec_to_canvas_x(t)
             y = bottom - (r / self.audio_power_max) * height
             points.extend([x, y])
         if len(points) >= 4:
+
             poly = [points[0], bottom]
             for i in range(0, len(points), 2):
                 poly.extend([points[i], points[i + 1]])
             poly.extend([points[-2], bottom])
             self.timeline.create_polygon(*poly, fill='#444', outline='', tags='audio_power')
             self.timeline.create_line(*points, fill='#444', width=1, tags='audio_power')
+
 
 
     def load_hotspot_candidates(self):
