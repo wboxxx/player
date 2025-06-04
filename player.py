@@ -3,6 +3,8 @@ import os
 import sys
 import platform
 import subprocess
+import builtins
+builtins.subprocess = subprocess
 import re
 import json
 import time
@@ -32,10 +34,20 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import matplotlib.gridspec as gridspec
 import matplotlib.animation as animation
-import torch
-import pretty_midi
-from basic_pitch.inference import predict
-from basic_pitch import ICASSP_2022_MODEL_PATH
+try:
+    import torch
+except ImportError:  # pragma: no cover - optional dependency
+    torch = None
+try:
+    import pretty_midi
+except ImportError:  # pragma: no cover - optional dependency
+    pretty_midi = None
+try:
+    from basic_pitch.inference import predict
+    from basic_pitch import ICASSP_2022_MODEL_PATH
+except Exception:  # pragma: no cover - optional dependency
+    predict = None
+    ICASSP_2022_MODEL_PATH = None
 import pygame
 import tkinter as tk
 from tkinter import filedialog, Frame, Label, Button, Canvas, StringVar, LEFT, X, W
@@ -62,8 +74,12 @@ import tempfile
 #GDRIVEUPLOADER
 import os
 # NOUVEAU :
-from pydrive2.auth import GoogleAuth
-from pydrive2.drive import GoogleDrive
+try:
+    from pydrive2.auth import GoogleAuth
+    from pydrive2.drive import GoogleDrive
+except Exception:  # pragma: no cover - optional dependency
+    GoogleAuth = None
+    GoogleDrive = None
 
 
 
@@ -741,6 +757,119 @@ HOP_LENGTH = 256
 def seconds_to_hms(seconds):
     return str(timedelta(seconds=float(seconds))).split(".")[0]
 
+def format_time(seconds, include_ms=True, include_tenths=False):
+    """Format seconds as H:M:S with optional milliseconds or tenths."""
+    if seconds is None or seconds < 0:
+        if include_ms:
+            return "--:--:--.-" if include_tenths else "--:--:--.---"
+        return "--:--:--"
+
+    h = int(seconds // 3600)
+    m = int((seconds % 3600) // 60)
+    s = int(seconds % 60)
+
+    if include_ms:
+        if include_tenths:
+            tenths = int((seconds - int(seconds)) * 10)
+            return f"{h}:{m:02}:{s:02}.{tenths}"
+        ms = int(round((seconds - int(seconds)) * 1000))
+        return f"{h}:{m:02}:{s:02}.{ms:03}"
+    return f"{h}:{m:02}:{s:02}"
+
+def _util_extract_audio_segment(
+    input_path,
+    output_path=None,
+    *,
+    start_sec=None,
+    duration_sec=None,
+    audio_codec="pcm_s16le",
+    sample_rate=44100,
+    channels=1,
+    overwrite=True,
+    use_temp_file=True,
+):
+    """Extract an audio segment via ffmpeg."""
+    if output_path is None:
+        if use_temp_file:
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+                output_path = tmp.name
+        else:
+            raise ValueError("output_path required if use_temp_file=False")
+
+    cmd = ["ffmpeg"]
+    if overwrite:
+        cmd.append("-y")
+    if start_sec is not None:
+        cmd += ["-ss", str(start_sec)]
+    if duration_sec is not None:
+        cmd += ["-t", str(duration_sec)]
+    cmd += ["-i", input_path, "-vn", "-acodec", audio_codec, "-ar", str(sample_rate), "-ac", str(channels), output_path]
+
+    try:
+        subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except Exception:
+        return None
+
+    if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
+        return None
+
+    return output_path
+
+def _util_get_tempo_and_beats_librosa(y, sr):
+    """Return tempo and beat frames from audio using librosa."""
+    if y is None or len(y) == 0:
+        return 0.0, np.array([])
+    try:
+        tempo, beats = librosa.beat.beat_track(y=y, sr=sr)
+        return float(tempo), beats
+    except Exception:
+        return 0.0, np.array([])
+
+def extract_keyframes(
+    video_path,
+    start_time_sec=None,
+    duration_sec=None,
+    end_time_sec=None,
+):
+    """Extract keyframe timestamps from a video using ffprobe."""
+    cmd = [
+        "ffprobe",
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "frame=pkt_pts_time,pict_type",
+        "-of",
+        "csv=p=0",
+        video_path,
+    ]
+    try:
+        output = subprocess.check_output(cmd, stderr=subprocess.PIPE).decode()
+    except Exception:
+        return []
+    keyframes = []
+    for line in output.strip().splitlines():
+        try:
+            time_str, frame_type = line.split(",")
+        except ValueError:
+            continue
+        if frame_type.strip() == "I":
+            try:
+                t = float(time_str)
+            except ValueError:
+                continue
+            keyframes.append(t)
+
+    if start_time_sec is not None:
+        end = start_time_sec + duration_sec if duration_sec is not None else end_time_sec
+        if end is not None:
+            keyframes = [t for t in keyframes if start_time_sec <= t < end]
+        else:
+            keyframes = [t for t in keyframes if t >= start_time_sec]
+
+    return keyframes
+
 def detect_countins_with_rms(filepath, hop_length=256, strict=False, mode="default", verbose=True):
     threshold = 0.01 if strict else 0.03
     lin_threshold = 0.05
@@ -919,7 +1048,10 @@ import numpy as np
 import subprocess
 import tempfile
 import os
-import ffmpeg
+try:
+    import ffmpeg
+except ImportError:  # pragma: no cover - optional dependency
+    ffmpeg = None
 
 def detect_multiple_beat1(path, sr=22050, segment_duration=15.0, step=10.0, min_beats=1):
     """
@@ -1160,7 +1292,10 @@ import time
 import tkinter as tk
 from tkinter import filedialog, Frame, Label, Button, Canvas, StringVar, LEFT, X, W
 from tkinter import messagebox
-import psutil
+try:
+    import psutil
+except ImportError:  # pragma: no cover - optional dependency
+    psutil = None
 from tkinter import simpledialog, Toplevel, Listbox, Button, Label, SINGLE
 import vlc
 import os
@@ -1169,12 +1304,22 @@ import time
 import numpy as np
 import librosa
 import soundfile as sf
-from basic_pitch.inference import predict
-from basic_pitch import ICASSP_2022_MODEL_PATH
-import pretty_midi
+try:
+    from basic_pitch.inference import predict
+    from basic_pitch import ICASSP_2022_MODEL_PATH
+except Exception:  # pragma: no cover - optional dependency
+    predict = None
+    ICASSP_2022_MODEL_PATH = None
+try:
+    import pretty_midi
+except ImportError:  # pragma: no cover - optional dependency
+    pretty_midi = None
 import re
 
-import torch
+try:
+    import torch
+except ImportError:  # pragma: no cover - optional dependency
+    torch = None
 import sys
 import ctypes
 import tempfile
@@ -1318,7 +1463,7 @@ def suppress_vlc_warnings():
     warnings.filterwarnings("ignore")
 #suppress_vlc_warnings()
 
-device = "cuda" if torch.cuda.is_available() else "cpu"
+device = "cuda" if (torch is not None and torch.cuda.is_available()) else "cpu"
 
 
 
@@ -3067,6 +3212,59 @@ class VideoPlayer:
     def log_to_console(self, message):
         self.console.config(text=message)
 
+    def open_audio_power_window(self):
+        if not hasattr(self, 'current_path'):
+            return
+
+        if not hasattr(self, 'audio_power_data') or self.audio_power_data is None:
+            self._compute_audio_power_data()
+            if not hasattr(self, 'audio_power_data') or self.audio_power_data is None:
+                return
+
+        if hasattr(self, 'power_window') and self.power_window.winfo_exists():
+            return
+
+        self.power_window = tk.Toplevel(self.root)
+        self.power_window.title('Audio Power')
+        fig, ax = plt.subplots(figsize=(6, 3))
+        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+        canvas = FigureCanvasTkAgg(fig, master=self.power_window)
+        canvas.get_tk_widget().pack(fill='both', expand=True)
+        self._power_line, = ax.plot([], [])
+        ax.set_ylim(0, max(self.audio_power_data[1]) * 1.1)
+        ax.set_xlim(0, 10)
+        ax.set_xlabel('Time (s)')
+        ax.set_ylabel('RMS')
+
+        def _update():
+            if not self.power_window.winfo_exists():
+                return
+            current_sec = self.player.get_time() / 1000.0
+            start = max(0, current_sec - 10)
+            times, rms = self.audio_power_data
+            mask = (times >= start) & (times <= current_sec)
+            ax.set_xlim(start, current_sec if current_sec > start else start + 10)
+            self._power_line.set_data(times[mask], rms[mask])
+            canvas.draw()
+            self.power_window.after(200, _update)
+
+        _update()
+
+
+    def _compute_audio_power_data(self):
+        if not getattr(self, 'current_path', None):
+            return
+        try:
+            y, sr = librosa.load(self.current_path, sr=None, mono=True)
+            hop = 512
+            rms = librosa.feature.rms(y=y, hop_length=hop)[0]
+            times = librosa.frames_to_time(np.arange(len(rms)), sr=sr, hop_length=hop)
+            self.audio_power_data = (times, rms)
+            self.audio_power_max = float(rms.max()) if len(rms) else 0.0
+        except Exception:
+            self.audio_power_data = None
+            self.audio_power_max = 0.0
+        self.root.after(0, self.refresh_static_timeline_elements)
 
     def reset_zoom_slider(self):
         self.zoom_slider.set(.8)  # Reset à 80%
@@ -4754,6 +4952,10 @@ class VideoPlayer:
         self.player.set_media(self.media)
         self.player.set_hwnd(self.canvas.winfo_id())
         self.apply_crop()
+        self.audio_power_data = None
+        self.audio_power_max = 0.0
+        import threading as _thread
+        _thread.Thread(target=self._compute_audio_power_data, daemon=True).start()
 
         self.playhead_time = 0.0
         self.last_jump_target_ms = 0
@@ -5994,6 +6196,9 @@ class VideoPlayer:
         self.console.pack(side=LEFT, fill=X, expand=True)
         self.time_display = Label(self.controls_bottom, text="", anchor=W)
         self.time_display.pack(side=LEFT, padx=10)
+
+        self.power_btn = Button(self.controls_bottom, text="📈 Power", command=self.open_audio_power_window)
+        self.power_btn.pack(side='right', padx=5)
                 
         #quickopen
         self.load_recent_files()
@@ -6696,6 +6901,7 @@ class VideoPlayer:
             return
         self.timeline.delete("loop_marker")
         self.timeline.delete("saved_loop")
+        self.timeline.delete("audio_power")
         self.timeline_saved_loop_tags.clear()
 
         if self.cached_width is None or time.time() - self.last_width_update > 1:
@@ -6749,7 +6955,40 @@ class VideoPlayer:
             self.timeline.create_line(xb, 0, xb, 24, fill="orange", tags="loop_marker")
             self.timeline.create_text(xb + 10, 18, text=f"B: {self.hms(self.loop_end)}", anchor='w', fill="white", tags="loop_marker")
 
+        self.draw_audio_power_overlay()
+
         self.needs_refresh = False
+
+    def draw_audio_power_overlay(self):
+        if not hasattr(self, 'audio_power_data') or self.audio_power_data is None:
+            return
+        if getattr(self, 'audio_power_max', 0) == 0:
+            self.audio_power_max = float(np.max(self.audio_power_data[1])) if len(self.audio_power_data[1]) else 0.0
+        times, rms = self.audio_power_data
+        zoom = self.get_zoom_context()
+        start_ms = zoom['zoom_start']
+        end_ms = zoom['zoom_end']
+        mask = (times * 1000 >= start_ms) & (times * 1000 <= end_ms)
+        times = times[mask]
+        rms = rms[mask]
+        if len(times) == 0:
+            return
+        bottom = 24
+        height = bottom
+        canvas_width = max(1, self.timeline.winfo_width())
+        step = max(1, len(times) // canvas_width)
+        points = []
+        for t, r in zip(times[::step], rms[::step]):
+            x = self.time_sec_to_canvas_x(t)
+            y = bottom - (r / self.audio_power_max) * height
+            points.extend([x, y])
+        if len(points) >= 4:
+            poly = [points[0], bottom]
+            for i in range(0, len(points), 2):
+                poly.extend([points[i], points[i + 1]])
+            poly.extend([points[-2], bottom])
+            self.timeline.create_polygon(*poly, fill='#444', outline='', tags='audio_power')
+            self.timeline.create_line(*points, fill='#444', width=1, tags='audio_power')
 
 
     def load_hotspot_candidates(self):
@@ -7483,6 +7722,10 @@ class VideoPlayer:
 
         self.player.set_media(self.media)
         self.player.set_hwnd(self.canvas.winfo_id())
+        self.audio_power_data = None
+        self.audio_power_max = 0.0
+        import threading as _thread
+        _thread.Thread(target=self._compute_audio_power_data, daemon=True).start()
         # self.apply_crop()  # <-- Recharge le zoom enregistré
 
         self.playhead_time = 0.0
