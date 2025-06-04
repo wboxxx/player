@@ -3216,7 +3216,9 @@ class VideoPlayer:
         if not hasattr(self, 'current_path'):
             return
 
+
 # codex/ajouter-fenêtre-de-visualisation-du-signal-audio
+
         if not hasattr(self, 'audio_power_data') or self.audio_power_data is None:
             self._compute_audio_power_data()
             if not hasattr(self, 'audio_power_data') or self.audio_power_data is None:
@@ -3251,7 +3253,9 @@ class VideoPlayer:
 
         _update()
 
+
 # codex/ajouter-fenêtre-de-visualisation-du-signal-audio
+
 
     def _compute_audio_power_data(self):
         if not getattr(self, 'current_path', None):
@@ -6976,14 +6980,25 @@ class VideoPlayer:
         if len(times) == 0:
             return
         bottom = 24
-        height = 8
+
+        height = bottom
+        canvas_width = max(1, self.timeline.winfo_width())
+        step = max(1, len(times) // canvas_width)
         points = []
-        for t, r in zip(times, rms):
+        for t, r in zip(times[::step], rms[::step]):
+
             x = self.time_sec_to_canvas_x(t)
             y = bottom - (r / self.audio_power_max) * height
             points.extend([x, y])
         if len(points) >= 4:
-            self.timeline.create_line(*points, fill='yellow', width=1, tags='audio_power')
+
+            poly = [points[0], bottom]
+            for i in range(0, len(points), 2):
+                poly.extend([points[i], points[i + 1]])
+            poly.extend([points[-2], bottom])
+            self.timeline.create_polygon(*poly, fill='#444', outline='', tags='audio_power')
+            self.timeline.create_line(*points, fill='#444', width=1, tags='audio_power')
+
 
 
     def load_hotspot_candidates(self):
@@ -7717,6 +7732,10 @@ class VideoPlayer:
 
         self.player.set_media(self.media)
         self.player.set_hwnd(self.canvas.winfo_id())
+        self.audio_power_data = None
+        self.audio_power_max = 0.0
+        import threading as _thread
+        _thread.Thread(target=self._compute_audio_power_data, daemon=True).start()
         # self.apply_crop()  # <-- Recharge le zoom enregistré
 
         self.playhead_time = 0.0
