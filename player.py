@@ -6957,6 +6957,7 @@ class VideoPlayer:
             self.playhead_id = self.timeline.create_line(x, 0, x, 24, fill="red", tags="playhead")
         else:
             self.timeline.coords(self.playhead_id, x, 0, x, 24)
+        self.timeline.tag_raise(self.playhead_id)
 
         self.draw_count += 1
         self.GlobApos = x
@@ -7070,8 +7071,9 @@ class VideoPlayer:
             for i in range(0, len(points), 2):
                 poly.extend([points[i], points[i + 1]])
             poly.extend([points[-2], bottom])
-            self.timeline.create_polygon(*poly, fill='#444', outline='', tags='audio_power')
-            self.timeline.create_line(*points, fill='#444', width=1, tags='audio_power')
+            self.timeline.create_polygon(*poly, fill='#666', outline='', tags='audio_power')
+            self.timeline.create_line(*points, fill='#666', width=1, tags='audio_power')
+            self.timeline.tag_lower('audio_power')
 
 
 
