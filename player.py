@@ -3216,12 +3216,11 @@ class VideoPlayer:
         if not hasattr(self, 'current_path'):
             return
 
-        if not hasattr(self, 'audio_power_data'):
-            y, sr = librosa.load(self.current_path, sr=None, mono=True)
-            hop = 512
-            rms = librosa.feature.rms(y=y, hop_length=hop)[0]
-            times = librosa.frames_to_time(np.arange(len(rms)), sr=sr, hop_length=hop)
-            self.audio_power_data = (times, rms)
+# codex/ajouter-fenêtre-de-visualisation-du-signal-audio
+        if not hasattr(self, 'audio_power_data') or self.audio_power_data is None:
+            self._compute_audio_power_data()
+            if not hasattr(self, 'audio_power_data') or self.audio_power_data is None:
+                return
 
         if hasattr(self, 'power_window') and self.power_window.winfo_exists():
             return
@@ -3252,6 +3251,22 @@ class VideoPlayer:
 
         _update()
 
+# codex/ajouter-fenêtre-de-visualisation-du-signal-audio
+
+    def _compute_audio_power_data(self):
+        if not getattr(self, 'current_path', None):
+            return
+        try:
+            y, sr = librosa.load(self.current_path, sr=None, mono=True)
+            hop = 512
+            rms = librosa.feature.rms(y=y, hop_length=hop)[0]
+            times = librosa.frames_to_time(np.arange(len(rms)), sr=sr, hop_length=hop)
+            self.audio_power_data = (times, rms)
+            self.audio_power_max = float(rms.max()) if len(rms) else 0.0
+        except Exception:
+            self.audio_power_data = None
+            self.audio_power_max = 0.0
+        self.root.after(0, self.refresh_static_timeline_elements)
 
     def reset_zoom_slider(self):
         self.zoom_slider.set(.8)  # Reset à 80%
@@ -4939,6 +4954,10 @@ class VideoPlayer:
         self.player.set_media(self.media)
         self.player.set_hwnd(self.canvas.winfo_id())
         self.apply_crop()
+        self.audio_power_data = None
+        self.audio_power_max = 0.0
+        import threading as _thread
+        _thread.Thread(target=self._compute_audio_power_data, daemon=True).start()
 
         self.playhead_time = 0.0
         self.last_jump_target_ms = 0
@@ -6884,6 +6903,7 @@ class VideoPlayer:
             return
         self.timeline.delete("loop_marker")
         self.timeline.delete("saved_loop")
+        self.timeline.delete("audio_power")
         self.timeline_saved_loop_tags.clear()
 
         if self.cached_width is None or time.time() - self.last_width_update > 1:
@@ -6937,7 +6957,33 @@ class VideoPlayer:
             self.timeline.create_line(xb, 0, xb, 24, fill="orange", tags="loop_marker")
             self.timeline.create_text(xb + 10, 18, text=f"B: {self.hms(self.loop_end)}", anchor='w', fill="white", tags="loop_marker")
 
+        self.draw_audio_power_overlay()
+
         self.needs_refresh = False
+
+    def draw_audio_power_overlay(self):
+        if not hasattr(self, 'audio_power_data') or self.audio_power_data is None:
+            return
+        if getattr(self, 'audio_power_max', 0) == 0:
+            self.audio_power_max = float(np.max(self.audio_power_data[1])) if len(self.audio_power_data[1]) else 0.0
+        times, rms = self.audio_power_data
+        zoom = self.get_zoom_context()
+        start_ms = zoom['zoom_start']
+        end_ms = zoom['zoom_end']
+        mask = (times * 1000 >= start_ms) & (times * 1000 <= end_ms)
+        times = times[mask]
+        rms = rms[mask]
+        if len(times) == 0:
+            return
+        bottom = 24
+        height = 8
+        points = []
+        for t, r in zip(times, rms):
+            x = self.time_sec_to_canvas_x(t)
+            y = bottom - (r / self.audio_power_max) * height
+            points.extend([x, y])
+        if len(points) >= 4:
+            self.timeline.create_line(*points, fill='yellow', width=1, tags='audio_power')
 
 
     def load_hotspot_candidates(self):
