@@ -1,5 +1,6 @@
 # === FICHIERS SENSIBLES ===
 mycreds.txt
+recent_files.json
 *.key
 *.json
 .env
