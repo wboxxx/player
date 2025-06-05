@@ -3368,6 +3368,9 @@ class VideoPlayer:
 
         if prev_start != zoom_start or prev_end != zoom_end:
             self.needs_refresh = True
+            self.timeline.delete("playhead")
+            self.playhead_id = None
+            self.update_playhead_by_time(self.playhead_time * 1000)
 
 
     
@@ -4580,17 +4583,13 @@ class VideoPlayer:
         if self.grid_times:
             last_time = self.grid_times[-1]
             if last_time + 0.5 * subdiv_duration < loop_end_s:
-                next_t = last_time + subdiv_duration
-                self.grid_times.append(next_t)
-
-                total_beats = len(self.grid_times) / subdivs_per_beat
-                bar = int(total_beats // beats_per_bar) + 1
-                beat = int(total_beats % beats_per_bar) + 1
-                sub = len(self.grid_times) % subdivs_per_beat
-                label = f"{beat}{label_seq[sub]}"
-                self.grid_labels.append(label)
-
-                Brint(f"[BRG PATCH] ➕ Subdiv extra ajoutée : t={next_t:.3f}s > loop_end")
+                index = len(self.grid_times)
+                label = label_seq[index % seq_len] if seq_len else str((index % subdivs_per_beat) + 1)
+                if not self.grid_labels or label != self.grid_labels[-1]:
+                    next_t = last_time + subdiv_duration
+                    self.grid_times.append(next_t)
+                    self.grid_labels.append(label)
+                    Brint(f"[BRG PATCH] ➕ Subdiv extra ajoutée : t={next_t:.3f}s > loop_end")
 
         self.grid_subdivs = list(enumerate(self.grid_times))
 
@@ -7037,8 +7036,9 @@ class VideoPlayer:
 
 
     def refresh_static_timeline_elements(self):
-        
-        
+        self.timeline.delete("playhead")
+        self.playhead_id = None
+
         if not self.needs_refresh:
             return
         self.timeline.delete("loop_marker")
