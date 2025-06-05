@@ -1,5 +1,6 @@
 # === FICHIERS SENSIBLES ===
 mycreds.txt
+recent_files.json
 *.key
 # Previously ignored all JSON files. Now we only ignore
 # sensitive ones tracked locally.
