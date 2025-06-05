@@ -3611,6 +3611,7 @@ class VideoPlayer:
         i = modes.index(self.subdivision_mode)
         self.subdivision_mode = modes[(i - 1) % len(modes)]
         pass#Brint(f"[RHYTHM] ⬅️ Mode subdivision : {self.subdivision_mode}")
+        self.console.config(text=f"⬅️ Subdivision mode: {self.subdivision_mode}")
         
         self.build_rhythm_grid()
         self.compute_rhythm_grid_infos() # Ensure precomputed_grid_infos is fresh for the new mode
@@ -3676,6 +3677,7 @@ class VideoPlayer:
         i = modes.index(self.subdivision_mode)
         self.subdivision_mode = modes[(i + 1) % len(modes)]
         pass#Brint(f"[RHYTHM] ➡️ Mode subdivision : {self.subdivision_mode}")
+        self.console.config(text=f"➡️ Subdivision mode: {self.subdivision_mode}")
         self.build_rhythm_grid()
         self.rebuild_loop_context()  # ← met à jour self.grid_subdivs ET chords si tu les relies dedans
 
@@ -6537,7 +6539,8 @@ class VideoPlayer:
         
         self.root.bind_all('<Key>', self.handle_screen_zoom_keypress)
         # self.root.bind("<Shift-Tab>", lambda e: self.cycle_subdivision_mode_backward())
-        self.root.bind("<Tab>", lambda e: self.cycle_subdivision_mode())
+        self.root.bind("<Shift-F1>", lambda e: self.cycle_subdivision_mode_backward())
+        self.root.bind("<Shift-F2>", lambda e: self.cycle_subdivision_mode())
         self.loop_menu_button.bind("<Button-1>", lambda e: self.update_loop_menu())
         # self.root.bind("<F4>", self.edit_current_chord_from_playhead)
         self.root.bind("<F4>", lambda e: self.open_chord_editor_all())
