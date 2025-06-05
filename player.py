@@ -19,6 +19,9 @@ from functools import partial
 
 from tkinter import Checkbutton
 import math
+from time_utils import seconds_to_hms, format_time
+from audio_utils import _util_extract_audio_segment, _util_get_tempo_and_beats_librosa
+from video_utils import extract_keyframes
 
 
 
@@ -27,14 +30,18 @@ import pstats
 
 
 # === Imports externes ===
-import vlc
+try:
+    import vlc
+except Exception:  # pragma: no cover - optional dependency
+    vlc = None
 import numpy as np
-import librosa
-import soundfile as sf
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
-import matplotlib.gridspec as gridspec
-import matplotlib.animation as animation
+try:
+    import matplotlib.pyplot as plt
+    import matplotlib.patches as patches
+    import matplotlib.gridspec as gridspec
+    import matplotlib.animation as animation
+except Exception:  # pragma: no cover - optional dependency
+    plt = patches = gridspec = animation = None
 try:
     import torch
 except ImportError:  # pragma: no cover - optional dependency
@@ -49,11 +56,16 @@ try:
 except Exception:  # pragma: no cover - optional dependency
     predict = None
     ICASSP_2022_MODEL_PATH = None
-import pygame
 import tkinter as tk
 from tkinter import filedialog, Frame, Label, Button, Canvas, StringVar, LEFT, X, W
-from tkinter import messagebox, simpledialog, Toplevel, Listbox, SINGLE
-from pydub import AudioSegment
+try:
+    import pygame
+except Exception:  # pragma: no cover - optional dependency
+    pygame = None
+try:
+    from pydub import AudioSegment
+except Exception:  # pragma: no cover - optional dependency
+    AudioSegment = None
 
 # --- tempo.py ---
 # --- tempo.py optimisé + debug ---
@@ -793,11 +805,16 @@ def detect_tempo_and_beats(audio_path, loop_start=35.0, loop_end=75.0):
 import tkinter as tk
 from tkinter import filedialog
 import numpy as np
-import librosa
-import os
-import librosa.display
-import matplotlib.pyplot as plt
-from scipy.signal import find_peaks
+try:
+    import librosa
+    import os
+    import librosa.display
+    import matplotlib.pyplot as plt
+    from scipy.signal import find_peaks
+except Exception:  # pragma: no cover - optional dependency
+    librosa = None
+    plt = None
+    find_peaks = None
 import subprocess
 import time
 
@@ -809,121 +826,6 @@ FRAME_LENGTH = 1024
 HOP_LENGTH = 256
 
 
-def seconds_to_hms(seconds):
-    return str(timedelta(seconds=float(seconds))).split(".")[0]
-
-def format_time(seconds, include_ms=True, include_tenths=False):
-    """Format seconds as H:M:S with optional milliseconds or tenths."""
-    if seconds is None or seconds < 0:
-        if include_ms:
-            return "--:--:--.-" if include_tenths else "--:--:--.---"
-        return "--:--:--"
-
-    h = int(seconds // 3600)
-    m = int((seconds % 3600) // 60)
-    s = int(seconds % 60)
-
-    if include_ms:
-        if include_tenths:
-            tenths = int((seconds - int(seconds)) * 10)
-            return f"{h}:{m:02}:{s:02}.{tenths}"
-        ms = int(round((seconds - int(seconds)) * 1000))
-        return f"{h}:{m:02}:{s:02}.{ms:03}"
-    return f"{h}:{m:02}:{s:02}"
-
-def _util_extract_audio_segment(
-    input_path,
-    output_path=None,
-    *,
-    start_sec=None,
-    duration_sec=None,
-    audio_codec="pcm_s16le",
-    sample_rate=44100,
-    channels=1,
-    overwrite=True,
-    use_temp_file=True,
-):
-    """Extract an audio segment via ffmpeg."""
-    if output_path is None:
-        if use_temp_file:
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-                output_path = tmp.name
-        else:
-            raise ValueError("output_path required if use_temp_file=False")
-
-    cmd = ["ffmpeg"]
-    if overwrite:
-        cmd.append("-y")
-    if start_sec is not None:
-        cmd += ["-ss", str(start_sec)]
-    if duration_sec is not None:
-        cmd += ["-t", str(duration_sec)]
-    cmd += ["-i", input_path, "-vn", "-acodec", audio_codec, "-ar", str(sample_rate), "-ac", str(channels), output_path]
-
-    try:
-        subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    except Exception:
-        return None
-
-    if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
-        return None
-
-    return output_path
-
-def _util_get_tempo_and_beats_librosa(y, sr):
-    """Return tempo and beat frames from audio using librosa."""
-    if y is None or len(y) == 0:
-        return 0.0, np.array([])
-    try:
-        tempo, beats = librosa.beat.beat_track(y=y, sr=sr)
-        return float(tempo), beats
-    except Exception:
-        return 0.0, np.array([])
-
-def extract_keyframes(
-    video_path,
-    start_time_sec=None,
-    duration_sec=None,
-    end_time_sec=None,
-):
-    """Extract keyframe timestamps from a video using ffprobe."""
-    cmd = [
-        "ffprobe",
-        "-v",
-        "error",
-        "-select_streams",
-        "v:0",
-        "-show_entries",
-        "frame=pkt_pts_time,pict_type",
-        "-of",
-        "csv=p=0",
-        video_path,
-    ]
-    try:
-        output = subprocess.check_output(cmd, stderr=subprocess.PIPE).decode()
-    except Exception:
-        return []
-    keyframes = []
-    for line in output.strip().splitlines():
-        try:
-            time_str, frame_type = line.split(",")
-        except ValueError:
-            continue
-        if frame_type.strip() == "I":
-            try:
-                t = float(time_str)
-            except ValueError:
-                continue
-            keyframes.append(t)
-
-    if start_time_sec is not None:
-        end = start_time_sec + duration_sec if duration_sec is not None else end_time_sec
-        if end is not None:
-            keyframes = [t for t in keyframes if start_time_sec <= t < end]
-        else:
-            keyframes = [t for t in keyframes if t >= start_time_sec]
-
-    return keyframes
 
 def detect_countins_with_rms(filepath, hop_length=256, strict=False, mode="default", verbose=True):
     threshold = 0.01 if strict else 0.03
@@ -1352,7 +1254,10 @@ try:
 except ImportError:  # pragma: no cover - optional dependency
     psutil = None
 from tkinter import simpledialog, Toplevel, Listbox, Button, Label, SINGLE
-import vlc
+try:
+    import vlc
+except Exception:  # pragma: no cover - optional dependency
+    vlc = None
 import os
 
 import time
@@ -1378,7 +1283,10 @@ except ImportError:  # pragma: no cover - optional dependency
 import sys
 import ctypes
 import tempfile
-import pygame
+try:
+    import pygame
+except Exception:  # pragma: no cover - optional dependency
+    pygame = None
 dbflag = False
 
 import subprocess
