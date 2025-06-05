@@ -10,6 +10,17 @@ It was developed with the help of AI tools (e.g., ChatGPT) and includes original
 - GUI with real-time feedback
 - Optional integration of MIDI and audio analysis
 
+## Getting Started
+
+1. Run `./setup_env.sh` to create a virtual environment and install Python
+   dependencies listed in `requirements.txt`.
+2. Activate the environment:
+   `source .venv/bin/activate`
+3. Launch the application with `python player.py`.
+
+The setup script reminds you to install system packages such as `ffmpeg` and
+`python3-tk` which are required for full functionality.
+
 ## AI Contribution Notice
 
 The code includes parts generated or assisted by AI. The unique value of the project resides in:
