@@ -6525,6 +6525,7 @@ class VideoPlayer:
         # self.root.bind('<Key-r>', lambda e: self.toggle_loop())
         self.root.bind('<Shift-T>', lambda e: self.toggle_autostep())
         self.root.bind('<Key-t>', lambda e: self.step_play())
+        self.root.bind('t', lambda e: self.tap_tempo())
         self.root.bind('<Shift-A>', lambda e: self.record_loop_marker("loop_start", auto_exit=True))
         self.root.bind('<Shift-B>', lambda e: self.record_loop_marker("loop_end", auto_exit=True))
         self.root.bind("<Shift-C>", self.clear_loop)
@@ -7842,7 +7843,6 @@ class VideoPlayer:
         self.apply_crop() 
 
     def update_loop(self):
-        self.root.bind('t', lambda e: self.tap_tempo())
 
         if self.grid_visible and getattr(self, "grid_needs_refresh", True):
             self.draw_rhythm_grid_canvas()
