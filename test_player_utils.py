@@ -8,7 +8,8 @@ from player import (
     format_time,
     _util_extract_audio_segment,
     _util_get_tempo_and_beats_librosa,
-    extract_keyframes
+    extract_keyframes,
+    VideoPlayer,
 )
 
 class TestFormatTime(unittest.TestCase):
@@ -242,6 +243,39 @@ class TestExtractKeyframes(unittest.TestCase):
         mock_check_output.return_value = ffprobe_output
         keyframes = extract_keyframes("dummy.mp4")
         self.assertEqual(keyframes, [1.0, 3.0]) # Should skip the malformed line
+
+
+class TestBuildRhythmGrid(unittest.TestCase):
+    class Dummy(VideoPlayer):
+        def __init__(self):
+            self.loop_start = 1
+            self.loop_end = 1001
+            self.tempo_bpm = 60
+            self.subdivision_mode = "binary8"
+            self.grid_times = []
+            self.grid_labels = []
+            self.grid_subdivs = []
+            self.seq = None
+
+        def get_current_syllable_sequence(self):
+            return self.seq if self.seq is not None else ["1", "&", "2", "&", "3", "&", "4", "&"]
+
+        def hms(self, ms):
+            return str(ms)
+
+    def test_label_from_sequence_index(self):
+        d = self.Dummy()
+        d.seq = ["1", "&", "2", "&", "3", "&", "4", "&"]
+        VideoPlayer.build_rhythm_grid(d)
+        self.assertEqual(d.grid_labels[-1], "2")
+        self.assertEqual(len(d.grid_labels), 3)
+
+    def test_no_duplicate_at_loop_end(self):
+        d = self.Dummy()
+        d.seq = ["da", "da"]
+        VideoPlayer.build_rhythm_grid(d)
+        self.assertEqual(d.grid_labels, ["da", "da"])
+        self.assertEqual(len(d.grid_times), 2)
 
 if __name__ == '__main__':
     unittest.main(argv=['first-arg-is-ignored'], exit=False)

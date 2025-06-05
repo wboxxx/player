@@ -2166,9 +2166,9 @@ class VideoPlayer:
 
             Brint(f"[AUTOZOOM] ✅ Zoom défini A+B : start={zoom_start}, end={zoom_end}, ratio={self.loop_zoom_ratio:.3f}")
 
-        if hasattr(self, "slider_zoomAB"):
-            Brint(f"[AUTOZOOM] 🎚️ slider_zoomAB.set({self.loop_zoom_ratio:.3f})")
-            self.slider_zoomAB.set(self.loop_zoom_ratio)
+        if hasattr(self, "zoom_slider"):
+            Brint(f"[AUTOZOOM] 🎚️ zoom_slider.set({self.loop_zoom_ratio:.3f})")
+            self.zoom_slider.set(self.loop_zoom_ratio)
 
         self.update_loop()
      
@@ -2304,16 +2304,9 @@ class VideoPlayer:
         grid_times_ms = [int(t * 1000) for t in grid_times_sec]
 
         # Reconstitue les temps des beats à partir des grid_subdivs
-        subdivisions_per_beat = {
-            "binary4": 1,
-            "binary8": 2,
-            "binary16": 4,
-            "ternary12": 3,
-            "ternary24": 6,
-            "ternary36": 9,
-            "ternary8": 3,
-            "ternary16": 6,
-        }.get(self.subdivision_mode, 2)
+
+        subdivisions_per_beat = self.get_subdivisions_per_beat()
+
 
         beats = []
         for i in range(0, len(grid_times_sec), subdivisions_per_beat):
@@ -2427,16 +2420,8 @@ class VideoPlayer:
             self.grid_subdivs = []
             return
 
-        subdivisions_per_beat = {
-            'binary4': 1,
-            'binary8': 2,
-            'binary16': 4,
-            'ternary12': 3,
-            'ternary24': 6,
-            'ternary36': 9,
-            'ternary8': 3,
-            'ternary16': 6,
-        }.get(self.subdivision_mode, 2)
+
+        subdivisions_per_beat = self.get_subdivisions_per_beat()
 
         interval_sec = 60.0 / self.tempo_bpm / subdivisions_per_beat
         n_subdivs = int(duration_sec / interval_sec)
@@ -2819,16 +2804,9 @@ class VideoPlayer:
         Brint(f"[PRECOMPUTE] 📏 canvas_width = {canvas_width}")
         Brint(f"[PRECOMPUTE] 🔍 zoom_start = {zoom_start:.1f} | zoom_end = {zoom_end:.1f} | zoom_range = {zoom_range:.1f}")
 
-        subdivisions_per_beat = {
-            'binary4': 1,
-            'binary8': 2,
-            'binary16': 4,
-            'ternary12': 3,
-            'ternary24': 6,
-            'ternary36': 9,
-            'ternary8': 3,
-            'ternary16': 6,
-        }.get(self.subdivision_mode, 2)
+
+        subdivisions_per_beat = self.get_subdivisions_per_beat()
+
 
         Brint(f"[PRECOMPUTE] 🧮 subdivisions_per_beat = {subdivisions_per_beat} (mode = {self.subdivision_mode})")
 
@@ -3191,7 +3169,7 @@ class VideoPlayer:
             self.zoom_menu.entryconfig(self.reset_zoom_menu_index, label="Reset Zoom")
 
 
-    def on_zoom_change(self, value):
+    def on_screen_zoom_change(self, value):
         try:
             self.zoom_loop_ratio = float(value)
             Brint(f"[ZOOM] 🔍 Zoom boucle réglé sur {self.zoom_loop_ratio:.2f} (AB = {self.zoom_loop_ratio*100:.0f}% de la timeline)")
@@ -3344,13 +3322,26 @@ class VideoPlayer:
 
     def reset_zoom_slider(self):
         self.zoom_slider.set(.8)  # Reset à 80%
-        self.on_zoom_change(.8)   # Applique immédiatement le changement
+        self.on_loop_zoom_change(.8)   # Applique immédiatement le changement
         Brint("[ZOOM] 🔄 Reset zoom boucle à 80%")
 
-    
-    def on_zoom_change(self, val):
+
+    def on_loop_zoom_change(self, val):
         self.loop_zoom_ratio = float(val)
         Brint(f"[ZOOM] 🔍 Zoom boucle réglé sur {self.loop_zoom_ratio:.2f} (AB = {int(self.loop_zoom_ratio*100)}% de la timeline)")
+
+        if self.loop_start is not None and self.loop_end is not None and self.duration:
+            loop_width_ms = max(10000.0, self.loop_end - self.loop_start)
+            center_ms = (self.loop_start + self.loop_end) / 2.0
+            desired_ms = loop_width_ms / self.loop_zoom_ratio
+            zoom_start = max(0.0, center_ms - desired_ms / 2.0)
+            zoom_end = min(self.duration, zoom_start + desired_ms)
+            self.zoom_context = {
+                "zoom_start": zoom_start,
+                "zoom_end": zoom_end,
+                "zoom_range": zoom_end - zoom_start,
+            }
+
         self.refresh_static_timeline_elements()
         self.draw_rhythm_grid_canvas()
 
@@ -3806,6 +3797,32 @@ class VideoPlayer:
 
 
         return levels
+
+    def get_subdivisions_per_beat(self, mode=None):
+        """Return the number of grid subdivisions representing one beat.
+
+        If *mode* is omitted, ``self.subdivision_mode`` is used. Unknown modes
+        default to the binary eighth note resolution (2 subdivisions per beat).
+        The helper understands both the internal subdivision modes (``binary8``,
+        ``binary16``, ``ternary8``, ``ternary16``) and the extended keys used in
+        :data:`RHYTHM_SYLLABLE_SETS` (``binary4``, ``ternary12`` …)."""
+
+        if mode is None:
+            mode = self.subdivision_mode
+
+        mapping = {
+            "binary4": 1,
+            "binary8": 2,
+            "binary16": 4,
+            "ternary8": 3,
+            "ternary16": 6,
+            "ternary12": 3,
+            "ternary24": 6,
+            "ternary36": 9,
+            "ternary32": 9,
+        }
+
+        return mapping.get(mode, 2)
 
 
     def snap_time_to_grid(self, time_ms, level):
@@ -4503,17 +4520,8 @@ class VideoPlayer:
         beats_per_bar = 4
         mode = self.subdivision_mode
 
-        mode_to_spb = {
-            "binary4": 1,
-            "binary8": 2,
-            "binary16": 4,
-            "ternary12": 3,
-            "ternary24": 6,
-            "ternary36": 9,
-            "ternary8": 3,
-            "ternary16": 6,
-        }
-        subdivs_per_beat = mode_to_spb.get(mode)
+
+        subdivs_per_beat = self.get_subdivisions_per_beat(mode)
         if subdivs_per_beat is None:
             Brint(f"[BRG RHYTHM] ❌ Mode subdivision inconnu : {mode}")
             return
@@ -4569,16 +4577,16 @@ class VideoPlayer:
             last_time = self.grid_times[-1]
             if last_time + 0.5 * subdiv_duration < loop_end_s:
                 next_t = last_time + subdiv_duration
-                self.grid_times.append(next_t)
 
-                total_beats = len(self.grid_times) / subdivs_per_beat
-                bar = int(total_beats // beats_per_bar) + 1
-                beat = int(total_beats % beats_per_bar) + 1
-                sub = len(self.grid_times) % subdivs_per_beat
-                label = f"{beat}{label_seq[sub]}"
-                self.grid_labels.append(label)
+                next_idx = len(self.grid_labels) % seq_len
+                label = label_seq[next_idx] if seq_len else str((next_idx % subdivs_per_beat) + 1)
 
-                Brint(f"[BRG PATCH] ➕ Subdiv extra ajoutée : t={next_t:.3f}s > loop_end")
+                if self.grid_labels and self.grid_labels[-1] == label:
+                    Brint("[BRG PATCH] ⚠️ Duplicate syllable avoided at loop end")
+                else:
+                    self.grid_times.append(next_t)
+                    self.grid_labels.append(label)
+                    Brint(f"[BRG PATCH] ➕ Subdiv extra ajoutée : t={next_t:.3f}s > loop_end")
 
         self.grid_subdivs = list(enumerate(self.grid_times))
 
@@ -6503,7 +6511,7 @@ class VideoPlayer:
         # === RHYTHM CONTROLS FRAME ===
         self.rhythm_controls_frame = Frame(self.controls_top)
         self.rhythm_controls_frame.pack(side='left', padx=5)
-        self.zoom_slider = Scale(self.rhythm_controls_frame, from_=0.1, to=1.0, resolution=0.05, orient='horizontal', label='ZoomAB', showvalue=False,  length=60, sliderlength=10, width=8, font=("Arial", 6), command=self.on_zoom_change)
+        self.zoom_slider = Scale(self.rhythm_controls_frame, from_=0.1, to=1.0, resolution=0.05, orient='horizontal', label='ZoomAB', showvalue=False,  length=60, sliderlength=10, width=8, font=("Arial", 6), command=self.on_loop_zoom_change)
         self.zoom_slider.bind("<Double-Button-1>", lambda e: self.reset_zoom_slider())
         self.zoom_slider.set(self.loop_zoom_ratio)
         self.zoom_slider.pack(side='left', padx=5)
@@ -6785,22 +6793,9 @@ class VideoPlayer:
         self.result_box.insert(tk.END, f"{'Timestamp':10} {'Temps':10} {'Musc':5} {'Notes détectées':40} {'Accord':8} {'Degré'}\n")
         total_steps = len(self.grid_labels)
         subdivision_mode = getattr(self, "subdivision_mode", None)
-        valid_modes = {
-            "binary4": 1,
-            "binary8": 2,
-            "binary16": 4,
-            "ternary12": 3,
-            "ternary24": 6,
-            "ternary36": 9,
-            "ternary8": 3,
-            "ternary16": 6,
-        }
 
-        if subdivision_mode not in valid_modes:
-            Brint(f"[ERROR] subdivision_mode invalide ou manquant : {subdivision_mode} → fallback sur 'binary8'")
-            subdivision_mode = "binary8"
+        subdivs_per_beat = self.get_subdivisions_per_beat(subdivision_mode)
 
-        subdivs_per_beat = valid_modes[subdivision_mode]
 
         steps_per_bar = 4 * subdivs_per_beat
         total_bars = (total_steps + steps_per_bar - 1) // steps_per_bar
@@ -8133,16 +8128,8 @@ class VideoPlayer:
             max_beats_left = int(x_beat1 // pixels_per_beat) + 1
             max_beats_right = int((canvas_width - x_beat1) // pixels_per_beat) + 1
 
-            subdivisions_per_beat = {
-                'binary4': 1,
-                'binary8': 2,
-                'binary16': 4,
-                'ternary12': 3,
-                'ternary24': 6,
-                'ternary36': 9,
-                'ternary8': 3,
-                'ternary16': 6,
-            }.get(self.subdivision_mode, 2)
+            subdivisions_per_beat = self.get_subdivisions_per_beat()
+
 
             pixels_per_subdiv = pixels_per_beat / subdivisions_per_beat
             mode = self.subdivision_mode
@@ -8487,22 +8474,9 @@ class VideoPlayer:
         canvas_height = canvas.winfo_height()
 
         subdivision_mode = getattr(self, "subdivision_mode", None)
-        valid_modes = {
-            "binary4": 1,
-            "binary8": 2,
-            "binary16": 4,
-            "ternary12": 3,
-            "ternary24": 6,
-            "ternary36": 9,
-            "ternary8": 3,
-            "ternary16": 6,
-        }
 
-        if subdivision_mode not in valid_modes:
-            Brint(f"[HARMONY ERROR] subdivision_mode invalide ou manquant : {subdivision_mode} → fallback sur 'binary8'")
-            subdivision_mode = "binary8"
+        subdivs_per_beat = self.get_subdivisions_per_beat(subdivision_mode)
 
-        subdivs_per_beat = valid_modes[subdivision_mode]
 
         max_notes_per_subdiv = 6  # ← à ajuster si besoin
         # line_height = canvas_height / (subdivs_per_beat * max_notes_per_subdiv + 1)
