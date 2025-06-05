@@ -6026,6 +6026,7 @@ class VideoPlayer:
         self.after_id = None
         self.is_paused = False
         self.playhead_anim_id = None
+        self.tempjump_after_id = None
         self.frame_update_interval = 30  # ms between playhead updates
 
 
@@ -7164,6 +7165,12 @@ class VideoPlayer:
     def draw_temp_jump_marker(self, ms):
         canvas = self.timeline
         canvas.delete("tempjump")
+        if self.tempjump_after_id is not None:
+            try:
+                self.root.after_cancel(self.tempjump_after_id)
+            except Exception:
+                pass
+            self.tempjump_after_id = None
         t_sec = ms / 1000.0
         zoom = self.get_zoom_context()
         zoom_start = zoom["zoom_start"]
@@ -7182,6 +7189,7 @@ class VideoPlayer:
 
         x = self.time_sec_to_canvas_x(t_sec)
         canvas.create_line(x, 0, x, 24, fill="#f0a", width=2, dash=(4, 4), tags="tempjump")
+        self.tempjump_after_id = self.root.after(1000, lambda: canvas.delete("tempjump"))
 
 
     def jump(self, delta_sec):
