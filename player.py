@@ -3370,7 +3370,8 @@ class VideoPlayer:
             self.needs_refresh = True
             self.timeline.delete("playhead")
             self.playhead_id = None
-            self.update_playhead_by_time(self.playhead_time * 1000)
+
+            self.update_playhead_by_time(self.playhead_time * 1000, skip_scroll_zoom=True)
 
 
     
@@ -6965,7 +6966,7 @@ class VideoPlayer:
 
 
 
-    def update_playhead_by_time(self, forced_time_ms=None):
+    def update_playhead_by_time(self, forced_time_ms=None, skip_scroll_zoom=False):
         Brint(f"[PH USE] 🧭 update_playhead_by_time() → temps utilisé = {forced_time_ms if forced_time_ms is not None else self.playhead_time * 1000:.1f} ms")
 
         if forced_time_ms is not None:
@@ -6988,7 +6989,8 @@ class VideoPlayer:
             self.root.after(100, lambda: self.safe_update_playhead(current_time_ms, source="update_playhead_by_time"))
             return
 
-        self.scroll_zoom_with_playhead(current_time_ms)
+        if not skip_scroll_zoom:
+            self.scroll_zoom_with_playhead(current_time_ms)
         zoom = self.get_zoom_context()
         zoom_range = zoom["zoom_range"]
         if zoom_range <= 0:
