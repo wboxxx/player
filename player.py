@@ -7749,7 +7749,9 @@ class VideoPlayer:
 
     def _playhead_animation_step(self):
         if self.player and self.player.is_playing():
-            self.update_playhead_by_time(self.player.get_time())
+            current_ms = self.player.get_time()
+            # Update the playhead position based on the current VLC time
+            self.safe_update_playhead(current_ms, source="animation_step")
             self.playhead_anim_id = self.root.after(self.frame_update_interval, self._playhead_animation_step)
         else:
             self.playhead_anim_id = None
@@ -7869,8 +7871,6 @@ class VideoPlayer:
                 # après calcul interpolated
                 Brint(f"[PH LOOP] 🎯 Interpolation = {interpolated:.3f}s (elapsed={elapsed_since_last_jump:.3f}s)")
 
-                self.safe_update_playhead(interpolated * 1000, source="Loop interpolation")
-
                 if elapsed_since_last_jump >= loop_duration_corrected:
                     self.safe_jump_to_time(self.loop_start, source="Jump B estim (all rates)")
                     self.last_loop_jump_time = time.perf_counter()
@@ -7888,9 +7888,9 @@ class VideoPlayer:
                                 if i in self.subdiv_last_hit_loop:
                                     del self.subdiv_last_hit_loop[i]
             else:
-                self.safe_update_playhead(player_now, source="VLC raw mode")
-                # dans le cas classique (pas de boucle)
-                Brint(f"[PH VLC] 🎯 Position brute VLC = {player_now} ms → set")
+                # No loop active; playhead position will be updated by
+                # _playhead_animation_step using player.get_time().
+                Brint(f"[PH VLC] 🎯 Position brute VLC = {player_now} ms")
 
             self.time_display.config(text=f"⏱ {self.hms(self.playhead_time * 1000)} / {self.hms(self.duration)}")
 
