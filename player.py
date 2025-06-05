@@ -3328,29 +3328,52 @@ class VideoPlayer:
 
     def on_loop_zoom_change(self, val):
         self.loop_zoom_ratio = float(val)
-        Brint(f"[ZOOM] 🔍 Zoom boucle réglé sur {self.loop_zoom_ratio:.2f} (AB = {int(self.loop_zoom_ratio*100)}% de la timeline)")
+
+        Brint(
+            f"[ZOOM] 🔍 Zoom boucle réglé sur {self.loop_zoom_ratio:.2f} (AB = {int(self.loop_zoom_ratio*100)}% de la timeline)"
+        )
 
         if self.loop_start is not None and self.loop_end is not None and self.duration:
-            loop_width_ms = max(10000.0, self.loop_end - self.loop_start)
-            center_ms = (self.loop_start + self.loop_end) / 2.0
-            desired_ms = loop_width_ms / self.loop_zoom_ratio
-            zoom_start = max(0.0, center_ms - desired_ms / 2.0)
-            zoom_end = min(self.duration, zoom_start + desired_ms)
-            self.zoom_context = {
-                "zoom_start": zoom_start,
-                "zoom_end": zoom_end,
-                "zoom_range": zoom_end - zoom_start,
-            }
+            self.scroll_zoom_with_playhead(self.playhead_time * 1000 if hasattr(self, "playhead_time") else self.loop_start)
+
 
         self.refresh_static_timeline_elements()
         self.draw_rhythm_grid_canvas()
+
+    def scroll_zoom_with_playhead(self, playhead_ms):
+        if self.loop_start is None or self.loop_end is None or self.duration is None:
+            return
+
+        loop_width = self.loop_end - self.loop_start
+        if loop_width <= 0:
+            return
+
+        desired_ms = max(2000.0, loop_width / self.loop_zoom_ratio)
+
+        if desired_ms >= loop_width:
+            center_ms = (self.loop_start + self.loop_end) / 2.0
+            zoom_start = center_ms - desired_ms / 2.0
+        else:
+            progress = (playhead_ms - self.loop_start) / loop_width
+            progress = min(max(progress, 0.0), 1.0)
+            offset_ratio = 0.2 + progress * 0.6
+            zoom_start = playhead_ms - offset_ratio * desired_ms
+
+        zoom_start = max(0.0, min(zoom_start, self.duration - desired_ms))
+        zoom_end = zoom_start + desired_ms
+
+        self.zoom_context = {
+            "zoom_start": zoom_start,
+            "zoom_end": zoom_end,
+            "zoom_range": desired_ms,
+        }
 
 
     
 
     def get_loop_zoom_range(self):
         if self.loop_start and self.loop_end:
-            loop_width_sec = max(10.0, (self.loop_end - self.loop_start) / 1000.0)
+            loop_width_sec = max(2.0, (self.loop_end - self.loop_start) / 1000.0)
             center_sec = (self.loop_start + self.loop_end) / 2000.0
             desired_sec = loop_width_sec / self.loop_zoom_ratio
             zoom_start = max(0, center_sec - desired_sec / 2.0)
@@ -6513,7 +6536,22 @@ class VideoPlayer:
         # === RHYTHM CONTROLS FRAME ===
         self.rhythm_controls_frame = Frame(self.controls_top)
         self.rhythm_controls_frame.pack(side='left', padx=5)
-        self.zoom_slider = Scale(self.rhythm_controls_frame, from_=0.1, to=1.0, resolution=0.05, orient='horizontal', label='ZoomAB', showvalue=False,  length=60, sliderlength=10, width=8, font=("Arial", 6), command=self.on_loop_zoom_change)
+
+        self.zoom_slider = Scale(
+            self.rhythm_controls_frame,
+            from_=0.1,
+            to=3.0,
+            resolution=0.05,
+            orient='horizontal',
+            label='ZoomAB',
+            showvalue=False,
+            length=60,
+            sliderlength=10,
+            width=8,
+            font=("Arial", 6),
+            command=self.on_loop_zoom_change,
+        )
+
         self.zoom_slider.bind("<Double-Button-1>", lambda e: self.reset_zoom_slider())
         self.zoom_slider.set(self.loop_zoom_ratio)
         self.zoom_slider.pack(side='left', padx=5)
@@ -6968,6 +7006,7 @@ class VideoPlayer:
             self.root.after(100, lambda: self.safe_update_playhead(current_time_ms, source="update_playhead_by_time"))
             return
 
+        self.scroll_zoom_with_playhead(current_time_ms)
         zoom = self.get_zoom_context()
         zoom_range = zoom["zoom_range"]
         if zoom_range <= 0:
