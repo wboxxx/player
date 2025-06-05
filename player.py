@@ -3370,6 +3370,7 @@ class VideoPlayer:
             self.needs_refresh = True
             self.timeline.delete("playhead")
             self.playhead_id = None
+
             self.update_playhead_by_time(self.playhead_time * 1000, skip_scroll_zoom=True)
 
 
