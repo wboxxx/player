@@ -2065,6 +2065,7 @@ class VideoPlayer:
             Brint(f"[AUTOZOOM] 🎚️ zoom_slider.set({self.loop_zoom_ratio:.3f})")
             self.zoom_slider.set(self.loop_zoom_ratio)
 
+        self.grid_needs_refresh = True
         self.update_loop()
      
 
@@ -2274,7 +2275,7 @@ class VideoPlayer:
     def rebuild_loop_context(self):
         Brint("[DEBUG rebuild_loop_context] 🔁 Reconstruction contexte boucle")
         self.build_rhythm_grid()
-        self.draw_rhythm_grid_canvas()
+        self.grid_needs_refresh = True
         self.compute_rhythm_grid_infos()
         self.grid_subdivs = [(i, t) for i, t in enumerate(self.grid_times)]
         self.current_loop.grid_times = self.grid_times
@@ -3241,7 +3242,7 @@ class VideoPlayer:
             self.scroll_zoom_with_playhead(self.playhead_time * 1000 if hasattr(self, "playhead_time") else self.loop_start)
 
         self.refresh_static_timeline_elements()
-        self.draw_rhythm_grid_canvas()
+        self.grid_needs_refresh = True
 
     def scroll_zoom_with_playhead(self, playhead_ms):
         if self.loop_start is None or self.loop_end is None or self.duration is None:
@@ -3595,7 +3596,7 @@ class VideoPlayer:
             Brint(f" - {self.hms(start * 1000)} | Pitch: {pitch} | Confidence: {conf:.2f}")
         
         self.refresh_note_display()
-        self.draw_rhythm_grid_canvas()
+        self.grid_needs_refresh = True
         self.draw_harmony_grid_overlay()
         if hasattr(self, "chord_editor_popup") and self.chord_editor_popup.winfo_exists():
             self.refresh_chord_editor()
@@ -4845,6 +4846,7 @@ class VideoPlayer:
                 Brint(f"[MODE BAR] Adjusted last_loop_jump_time to maintain playhead position: {self.last_loop_jump_time:.3f} (current_offset_real_seconds: {current_offset_real_seconds:.3f})")
 
             self.needs_refresh = True
+            self.grid_needs_refresh = True
             self.refresh_static_timeline_elements()
             self.maybe_adjust_zoom_if_out_of_frame() # Or auto_zoom_on_loop_markers(force=True)
             self.invalidate_jump_estimators()
@@ -5014,6 +5016,7 @@ class VideoPlayer:
         win.destroy()
         self.open_given_file(path)
         self.needs_refresh = True
+        self.grid_needs_refresh = True
         self.refresh_static_timeline_elements()
 
     def show_open_menu(self):
@@ -5163,6 +5166,7 @@ class VideoPlayer:
             self.set_selected_loop_name(default_name, source="load_saved_loops (fallback)")
 
         self.needs_refresh = True
+        self.grid_needs_refresh = True
         self.refresh_static_timeline_elements()
         # self.GlobXa, self.GlobXb = self.get_loop_zoom_range()
         if self.saved_loops:
@@ -6258,6 +6262,7 @@ class VideoPlayer:
         # self.GlobXa = None
         self.GlobXb = None
         self.needs_refresh = True
+        self.grid_needs_refresh = True
         self.cached_width = None
         self.awaiting_vlc_jump = False
         self.freeze_interpolation = False
@@ -7442,6 +7447,7 @@ class VideoPlayer:
             self.clear_edit_mode()
 
         self.needs_refresh = True
+        self.grid_needs_refresh = True
         self.refresh_static_timeline_elements()
         Brint(f"[RLM] ENDS➕ loop_start = {self.loop_start}, loop_end = {self.loop_end}")
         self.invalidate_loop_name_if_modified()
@@ -7838,8 +7844,9 @@ class VideoPlayer:
     def update_loop(self):
         self.root.bind('t', lambda e: self.tap_tempo())
 
-        if self.grid_visible:
+        if self.grid_visible and getattr(self, "grid_needs_refresh", True):
             self.draw_rhythm_grid_canvas()
+            self.grid_needs_refresh = False
 
         if self.player.get_media():
             dur = self.player.get_length()
