@@ -2989,20 +2989,17 @@ class VideoPlayer:
     
     
     def degree_from_chord(self, chord, key):
-        degrees = {
-            "C": ["I", "II", "III", "IV", "V", "VI", "VII"],
-            "G": ["I", "II", "III", "IV", "V", "VI", "VII"],
-            "D": ["I", "II", "III", "IV", "V", "VI", "VII"],
-            # TODO : compléter pour toutes les tonalités
-        }
-        # Simplification extrême pour l'exemple (à remplacer par une vraie logique)
-        if not chord:
-            return ""
-        # Retourne "?" si key inconnue
-        try:
-            return degrees[key][0]  # TEMP LOGIC : à remplacer par vraie analyse harmonique
-        except:
-            return "?"
+        """Return the scale degree for *chord* in *key*.
+
+        This previously relied on a hardcoded ``degrees`` mapping that only
+        handled the C, G and D keys.  It now delegates to the global
+        :func:`degree_from_chord` utility which computes the degree based on
+        the chromatic scale.  All major and minor keys are therefore
+        supported.
+        """
+
+        mode = getattr(self, "mode", "ionian") or "ionian"
+        return degree_from_chord(chord, key, mode)
 
     
     
