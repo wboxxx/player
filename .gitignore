@@ -1,7 +1,11 @@
 # === FICHIERS SENSIBLES ===
 mycreds.txt
 *.key
-*.json
+# Previously ignored all JSON files. Now we only ignore
+# sensitive ones tracked locally.
+credentials.json
+token.json
+recent_files.json
 .env
 
 # === PYTHON ===
