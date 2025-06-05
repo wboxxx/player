@@ -4540,16 +4540,16 @@ class VideoPlayer:
             last_time = self.grid_times[-1]
             if last_time + 0.5 * subdiv_duration < loop_end_s:
                 next_t = last_time + subdiv_duration
-                self.grid_times.append(next_t)
 
-                total_beats = len(self.grid_times) / subdivs_per_beat
-                bar = int(total_beats // beats_per_bar) + 1
-                beat = int(total_beats % beats_per_bar) + 1
-                sub = len(self.grid_times) % subdivs_per_beat
-                label = f"{beat}{label_seq[sub]}"
-                self.grid_labels.append(label)
+                next_idx = len(self.grid_labels) % seq_len
+                label = label_seq[next_idx] if seq_len else str((next_idx % subdivs_per_beat) + 1)
 
-                Brint(f"[BRG PATCH] ➕ Subdiv extra ajoutée : t={next_t:.3f}s > loop_end")
+                if self.grid_labels and self.grid_labels[-1] == label:
+                    Brint("[BRG PATCH] ⚠️ Duplicate syllable avoided at loop end")
+                else:
+                    self.grid_times.append(next_t)
+                    self.grid_labels.append(label)
+                    Brint(f"[BRG PATCH] ➕ Subdiv extra ajoutée : t={next_t:.3f}s > loop_end")
 
         self.grid_subdivs = list(enumerate(self.grid_times))
 
