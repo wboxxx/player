@@ -2152,9 +2152,9 @@ class VideoPlayer:
 
             Brint(f"[AUTOZOOM] ✅ Zoom défini A+B : start={zoom_start}, end={zoom_end}, ratio={self.loop_zoom_ratio:.3f}")
 
-        if hasattr(self, "slider_zoomAB"):
-            Brint(f"[AUTOZOOM] 🎚️ slider_zoomAB.set({self.loop_zoom_ratio:.3f})")
-            self.slider_zoomAB.set(self.loop_zoom_ratio)
+        if hasattr(self, "zoom_slider"):
+            Brint(f"[AUTOZOOM] 🎚️ zoom_slider.set({self.loop_zoom_ratio:.3f})")
+            self.zoom_slider.set(self.loop_zoom_ratio)
 
         self.update_loop()
      
@@ -3165,7 +3165,7 @@ class VideoPlayer:
             self.zoom_menu.entryconfig(self.reset_zoom_menu_index, label="Reset Zoom")
 
 
-    def on_zoom_change(self, value):
+    def on_screen_zoom_change(self, value):
         try:
             self.zoom_loop_ratio = float(value)
             Brint(f"[ZOOM] 🔍 Zoom boucle réglé sur {self.zoom_loop_ratio:.2f} (AB = {self.zoom_loop_ratio*100:.0f}% de la timeline)")
@@ -3318,13 +3318,26 @@ class VideoPlayer:
 
     def reset_zoom_slider(self):
         self.zoom_slider.set(.8)  # Reset à 80%
-        self.on_zoom_change(.8)   # Applique immédiatement le changement
+        self.on_loop_zoom_change(.8)   # Applique immédiatement le changement
         Brint("[ZOOM] 🔄 Reset zoom boucle à 80%")
 
-    
-    def on_zoom_change(self, val):
+
+    def on_loop_zoom_change(self, val):
         self.loop_zoom_ratio = float(val)
         Brint(f"[ZOOM] 🔍 Zoom boucle réglé sur {self.loop_zoom_ratio:.2f} (AB = {int(self.loop_zoom_ratio*100)}% de la timeline)")
+
+        if self.loop_start is not None and self.loop_end is not None and self.duration:
+            loop_width_ms = max(10000.0, self.loop_end - self.loop_start)
+            center_ms = (self.loop_start + self.loop_end) / 2.0
+            desired_ms = loop_width_ms / self.loop_zoom_ratio
+            zoom_start = max(0.0, center_ms - desired_ms / 2.0)
+            zoom_end = min(self.duration, zoom_start + desired_ms)
+            self.zoom_context = {
+                "zoom_start": zoom_start,
+                "zoom_end": zoom_end,
+                "zoom_range": zoom_end - zoom_start,
+            }
+
         self.refresh_static_timeline_elements()
         self.draw_rhythm_grid_canvas()
 
@@ -6474,7 +6487,7 @@ class VideoPlayer:
         # === RHYTHM CONTROLS FRAME ===
         self.rhythm_controls_frame = Frame(self.controls_top)
         self.rhythm_controls_frame.pack(side='left', padx=5)
-        self.zoom_slider = Scale(self.rhythm_controls_frame, from_=0.1, to=1.0, resolution=0.05, orient='horizontal', label='ZoomAB', showvalue=False,  length=60, sliderlength=10, width=8, font=("Arial", 6), command=self.on_zoom_change)
+        self.zoom_slider = Scale(self.rhythm_controls_frame, from_=0.1, to=1.0, resolution=0.05, orient='horizontal', label='ZoomAB', showvalue=False,  length=60, sliderlength=10, width=8, font=("Arial", 6), command=self.on_loop_zoom_change)
         self.zoom_slider.bind("<Double-Button-1>", lambda e: self.reset_zoom_slider())
         self.zoom_slider.set(self.loop_zoom_ratio)
         self.zoom_slider.pack(side='left', padx=5)
