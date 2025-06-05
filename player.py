@@ -100,18 +100,18 @@ DEBUG_FLAGS = {
     "EXPORT": False,
     "GRID": False,
     "HARMONY": False,
-    "HIT": True,
-    "JUMP": True,
+    "HIT": False,
+    "JUMP": False,
     "KEYBOARD": False,
-    "LOOP": True,
+    "LOOP": False,
     "MAPPING": False,
     "open_chord_editor_all": False,
     "PHANTOM" : False,
-    "PH" : True,
+    "PH" : False,
     "PLAYER": False,
     "PRECOMPUTE" : False,
     "RHYTHM": False,
-    "RLM" : True,
+    "RLM" : False,
     "SAVE": False,
     "SCORE": False,
     "SEGMENTS": False,
@@ -120,9 +120,8 @@ DEBUG_FLAGS = {
     "TEMPO": False,
     "TRACKER": False,
     "WARNING": False,
-    "ZOOM": False
-    ,
-    "BRINT" : True
+    "ZOOM": False,
+    "BRINT" : None
 
 
 }
@@ -7983,7 +7982,7 @@ class VideoPlayer:
 
 #fps
         if not self.is_paused:
-            self.after_id = self.root.after(400, self.update_loop)
+            self.after_id = self.root.after(30, self.update_loop)
 
 
     def on_timeline_click(self, e): self.handle_timeline_interaction(e.x)
