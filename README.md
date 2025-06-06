@@ -24,9 +24,9 @@ The setup script reminds you to install system packages such as `ffmpeg` and
 ## Stub Libraries for Testing
 
 For ease of testing, this repository ships with lightweight stub versions of
-several third-party libraries. You will find files such as `numpy.py`, the
-`librosa/` and `scipy/` directories, and `soundfile.py` in the project root.
-These files only implement the minimal functions required by the unit tests.
+several third-party libraries. You will find files such as `stubs/numpy_stub.py`, the
+`stubs/librosa/` and `stubs/scipy/` directories, and `stubs/soundfile.py` in the
+`stubs/` directory. These files only implement the minimal functions required by the unit tests.
 
 When Python imports modules with these names, the stubs take precedence over any
 installed packages. Running the full application with the real feature set may
