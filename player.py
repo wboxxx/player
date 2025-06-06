@@ -137,8 +137,8 @@ DEBUG_FLAGS = {
     "TEMPO": False,
     "TRACKER": False,
     "WARNING": False,
-    "ZOOM": False
-    ,
+    "ZOOM": False,
+    "PH_CANVAS": False,
     "BRINT" : None
 
 
@@ -4588,6 +4588,17 @@ class VideoPlayer:
             Brint(f"\n[STATS] x min = {self._debug_x_min}, x max = {self._debug_x_max}")
 
 
+    def _update_ph_canvas(self, x):
+        if not DEBUG_FLAGS.get("PH_CANVAS") or not self.ph_canvas:
+            return
+        if self.ph_playhead_id is None:
+            self.ph_canvas.delete("playhead")
+            self.ph_playhead_id = self.ph_canvas.create_line(x, 0, x, 24, fill="red", tags="playhead")
+        else:
+            self.ph_canvas.coords(self.ph_playhead_id, x, 0, x, 24)
+        self.ph_canvas.tag_raise(self.ph_playhead_id)
+
+
 
 
     def start_profiling_5s(self, event=None):
@@ -6178,6 +6189,15 @@ class VideoPlayer:
         self.timeline_frame.pack(side='bottom', fill='x')
         self.timeline = Canvas(self.timeline_frame, height=24, bg='grey')
         self.timeline.pack(fill='x')
+
+        # Optional debug canvas showing only the playhead
+        self.ph_canvas = None
+        self.ph_playhead_id = None
+        if DEBUG_FLAGS.get("PH_CANVAS"):
+            self.ph_window = tk.Toplevel(self.root)
+            self.ph_window.title("Playhead Debug")
+            self.ph_canvas = Canvas(self.ph_window, height=24, width=300, bg='black')
+            self.ph_canvas.pack(fill='x')
         # === TEMPO UI ===
         self.tempo_frame = Frame(self.controls_top)
         self.tempo_frame.pack(side='right', padx=10)
@@ -6941,6 +6961,7 @@ class VideoPlayer:
         else:
             self.timeline.coords(self.playhead_id, x, 0, x, 24)
         self.timeline.tag_raise(self.playhead_id)
+        self._update_ph_canvas(x)
 
         self.draw_count += 1
         self.GlobApos = x
@@ -6964,6 +6985,9 @@ class VideoPlayer:
     def refresh_static_timeline_elements(self):
         self.timeline.delete("playhead")
         self.playhead_id = None
+        if DEBUG_FLAGS.get("PH_CANVAS") and self.ph_canvas:
+            self.ph_canvas.delete("playhead")
+            self.ph_playhead_id = None
 
         if not self.needs_refresh:
             return
