@@ -2890,10 +2890,23 @@ class VideoPlayer:
     
     def degree_from_chord(self, chord, key):
         degrees = {
-            "C": ["I", "II", "III", "IV", "V", "VI", "VII"],
-            "G": ["I", "II", "III", "IV", "V", "VI", "VII"],
-            "D": ["I", "II", "III", "IV", "V", "VI", "VII"],
-            # TODO : compléter pour toutes les tonalités
+            "C":  ["I", "II", "III", "IV", "V", "VI", "VII"],
+            "C#": ["I", "II", "III", "IV", "V", "VI", "VII"],
+            "Db": ["I", "II", "III", "IV", "V", "VI", "VII"],
+            "D":  ["I", "II", "III", "IV", "V", "VI", "VII"],
+            "D#": ["I", "II", "III", "IV", "V", "VI", "VII"],
+            "Eb": ["I", "II", "III", "IV", "V", "VI", "VII"],
+            "E":  ["I", "II", "III", "IV", "V", "VI", "VII"],
+            "F":  ["I", "II", "III", "IV", "V", "VI", "VII"],
+            "F#": ["I", "II", "III", "IV", "V", "VI", "VII"],
+            "Gb": ["I", "II", "III", "IV", "V", "VI", "VII"],
+            "G":  ["I", "II", "III", "IV", "V", "VI", "VII"],
+            "G#": ["I", "II", "III", "IV", "V", "VI", "VII"],
+            "Ab": ["I", "II", "III", "IV", "V", "VI", "VII"],
+            "A":  ["I", "II", "III", "IV", "V", "VI", "VII"],
+            "A#": ["I", "II", "III", "IV", "V", "VI", "VII"],
+            "Bb": ["I", "II", "III", "IV", "V", "VI", "VII"],
+            "B":  ["I", "II", "III", "IV", "V", "VI", "VII"],
         }
         # Simplification extrême pour l'exemple (à remplacer par une vraie logique)
         if not chord:
