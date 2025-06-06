@@ -21,6 +21,27 @@ It was developed with the help of AI tools (e.g., ChatGPT) and includes original
 The setup script reminds you to install system packages such as `ffmpeg` and
 `python3-tk` which are required for full functionality.
 
+## Stub Libraries for Testing
+
+For ease of testing, this repository ships with lightweight stub versions of
+several third-party libraries. You will find files such as `numpy.py`, the
+`librosa/` and `scipy/` directories, and `soundfile.py` in the project root.
+These files only implement the minimal functions required by the unit tests.
+
+When Python imports modules with these names, the stubs take precedence over any
+installed packages. Running the full application with the real feature set may
+therefore require removing or renaming these stub files so that Python can load
+the actual libraries from your environment.
+
+To install the real dependencies, activate your virtual environment and run:
+
+```bash
+pip install numpy librosa soundfile scipy
+```
+
+Additional packages listed in the source (e.g. `matplotlib`, `pygame`, `torch`)
+may also be required depending on the features you want to use.
+
 ## AI Contribution Notice
 
 The code includes parts generated or assisted by AI. The unique value of the project resides in:
