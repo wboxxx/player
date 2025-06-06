@@ -10,6 +10,7 @@ from player import (
     _util_get_tempo_and_beats_librosa,
     extract_keyframes,
     VideoPlayer,
+    detect_countins_with_rms,
 )
 
 class TestFormatTime(unittest.TestCase):
@@ -276,6 +277,16 @@ class TestBuildRhythmGrid(unittest.TestCase):
         VideoPlayer.build_rhythm_grid(d)
         self.assertEqual(d.grid_labels, ["da", "da"])
         self.assertEqual(len(d.grid_times), 2)
+
+
+class TestDetectCountinsWithRms(unittest.TestCase):
+    @patch('player.find_peaks')
+    @patch('player.librosa.load')
+    def test_empty_audio_returns_empty_list(self, mock_load, mock_find_peaks):
+        mock_load.return_value = ([], 22050)
+        result = detect_countins_with_rms('dummy.wav', verbose=False)
+        self.assertEqual(result, [])
+        mock_find_peaks.assert_not_called()
 
 if __name__ == '__main__':
     unittest.main(argv=['first-arg-is-ignored'], exit=False)

@@ -839,7 +839,12 @@ def detect_countins_with_rms(filepath, hop_length=256, strict=False, mode="defau
     rms = librosa.feature.rms(y=y, frame_length=1024, hop_length=hop_length)[0]
     rms_times = librosa.frames_to_time(np.arange(len(rms)), sr=sr, hop_length=hop_length)
 
-    peaks, _ = find_peaks(onset_env, height=0.2 * np.max(onset_env), distance=int(0.4 * sr / hop_length))
+    if len(onset_env) == 0:
+        Brint("[WARNING] detect_countins_with_rms - empty onset_env")
+        return []
+
+    peak_height = 0.2 * np.max(onset_env)
+    peaks, _ = find_peaks(onset_env, height=peak_height, distance=int(0.4 * sr / hop_length))
     click_times = onset_times[peaks]
 
 
