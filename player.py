@@ -1,6 +1,6 @@
-
 # === Imports standards ===
 import os
+os.environ['PLAYER_USE_REAL_LIBS'] = '1'
 import sys
 import platform
 import subprocess
