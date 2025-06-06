@@ -3,7 +3,7 @@ import subprocess
 import tempfile
 from typing import Optional, Tuple
 
-from lib_switch import np, librosa
+from lib_switch import np, librosa, scipy, sf
 
 
 def _util_extract_audio_segment(
