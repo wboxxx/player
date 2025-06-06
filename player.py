@@ -6919,7 +6919,8 @@ class VideoPlayer:
             if dur and dur > 0:
                 self.duration = dur
             else:
-                return
+                # Duration still unknown – continue drawing using fallbacks
+                Brint("[PH WARN] duration not yet available; drawing with fallback values")
 
         if self.cached_width is None or time.time() - self.last_width_update > 1:
             self.cached_width = self.timeline.winfo_width()
