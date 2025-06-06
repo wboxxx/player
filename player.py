@@ -34,7 +34,7 @@ try:
     import vlc
 except Exception:  # pragma: no cover - optional dependency
     vlc = None
-import numpy as np
+from lib_switch import np, librosa, scipy, sf
 try:
     import matplotlib.pyplot as plt
     import matplotlib.patches as patches
@@ -69,10 +69,8 @@ except Exception:  # pragma: no cover - optional dependency
 
 # --- tempo.py ---
 # --- tempo.py optimisé + debug ---
-import numpy as np
 np.complex = complex  # Pour compatibilité avec librosa
 
-import librosa
 import subprocess
 import tempfile
 import os
@@ -804,9 +802,8 @@ def detect_tempo_and_beats(audio_path, loop_start=35.0, loop_end=75.0):
 # --- scanfile.py ---
 import tkinter as tk
 from tkinter import filedialog
-import numpy as np
+from lib_switch import np, librosa, scipy
 try:
-    import librosa
     import os
     import librosa.display
     import matplotlib.pyplot as plt
@@ -992,19 +989,8 @@ def open_vlc_at(filepath, seconds):
 import subprocess
 import tempfile
 import os
-import librosa
-import numpy as np
-import librosa
-import numpy as np
+from lib_switch import np, librosa
 import subprocess
-import tempfile
-import os
-
-import librosa
-import numpy as np
-import subprocess
-import tempfile
-import os
 try:
     import ffmpeg
 except ImportError:  # pragma: no cover - optional dependency
@@ -1261,9 +1247,7 @@ except Exception:  # pragma: no cover - optional dependency
 import os
 
 import time
-import numpy as np
-import librosa
-import soundfile as sf
+from lib_switch import np, librosa, sf
 try:
     from basic_pitch.inference import predict
     from basic_pitch import ICASSP_2022_MODEL_PATH
@@ -1296,7 +1280,7 @@ def hms_to_seconds(hms):
     return sum(t * 60**i for i, t in enumerate(reversed(parts)))
 
 
-import soundfile as sf
+from lib_switch import sf
 
 import subprocess
 import os
