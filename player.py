@@ -6894,7 +6894,12 @@ class VideoPlayer:
 
         self.update_count += 1
         if not self.duration or self.duration <= 0:
-            return
+            # Try to fetch the duration again in case VLC hadn't returned it yet
+            dur = self.player.get_length() if hasattr(self, "player") else 0
+            if dur and dur > 0:
+                self.duration = dur
+            else:
+                return
 
         if self.cached_width is None or time.time() - self.last_width_update > 1:
             self.cached_width = self.timeline.winfo_width()
