@@ -802,7 +802,7 @@ def detect_tempo_and_beats(audio_path, loop_start=35.0, loop_end=75.0):
 # --- scanfile.py ---
 import tkinter as tk
 from tkinter import filedialog
-from lib_switch import np, librosa, scipy
+from lib_switch import np, librosa, scipy, sf
 try:
     import os
     import librosa.display
@@ -989,7 +989,7 @@ def open_vlc_at(filepath, seconds):
 import subprocess
 import tempfile
 import os
-from lib_switch import np, librosa
+from lib_switch import np, librosa, scipy, sf
 import subprocess
 try:
     import ffmpeg
@@ -1247,7 +1247,7 @@ except Exception:  # pragma: no cover - optional dependency
 import os
 
 import time
-from lib_switch import np, librosa, sf
+from lib_switch import np, librosa, scipy, sf
 try:
     from basic_pitch.inference import predict
     from basic_pitch import ICASSP_2022_MODEL_PATH
@@ -1280,7 +1280,7 @@ def hms_to_seconds(hms):
     return sum(t * 60**i for i, t in enumerate(reversed(parts)))
 
 
-from lib_switch import sf
+from lib_switch import np, librosa, scipy, sf
 
 import subprocess
 import os
