@@ -1,0 +1,23 @@
+{
+  "loops": [
+    {
+      "name": "bcbsm-006_hi",
+      "loop_start": 9017,
+      "loop_end": 11167,
+      "key": "C",
+      "mode": "ionian",
+      "chords": [
+        {
+          "chord": "C",
+          "root": "C",
+          "degree": "I",
+          "beat_position": 0,
+          "beat_end": 4,
+          "autopad": true
+        }
+      ],
+      "master_note_list": [],
+      "tempo_bpm": 60
+    }
+  ]
+}
