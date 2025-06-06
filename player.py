@@ -34,7 +34,7 @@ try:
     import vlc
 except Exception:  # pragma: no cover - optional dependency
     vlc = None
-import numpy as np
+from stubs import numpy_stub as np
 try:
     import matplotlib.pyplot as plt
     import matplotlib.patches as patches
@@ -69,7 +69,7 @@ except Exception:  # pragma: no cover - optional dependency
 
 # --- tempo.py ---
 # --- tempo.py optimisé + debug ---
-import numpy as np
+from stubs import numpy_stub as np
 np.complex = complex  # Pour compatibilité avec librosa
 
 import librosa
@@ -804,7 +804,7 @@ def detect_tempo_and_beats(audio_path, loop_start=35.0, loop_end=75.0):
 # --- scanfile.py ---
 import tkinter as tk
 from tkinter import filedialog
-import numpy as np
+from stubs import numpy_stub as np
 try:
     import librosa
     import os
@@ -993,15 +993,15 @@ import subprocess
 import tempfile
 import os
 import librosa
-import numpy as np
+from stubs import numpy_stub as np
 import librosa
-import numpy as np
+from stubs import numpy_stub as np
 import subprocess
 import tempfile
 import os
 
 import librosa
-import numpy as np
+from stubs import numpy_stub as np
 import subprocess
 import tempfile
 import os
@@ -1261,7 +1261,7 @@ except Exception:  # pragma: no cover - optional dependency
 import os
 
 import time
-import numpy as np
+from stubs import numpy_stub as np
 import librosa
 import soundfile as sf
 try:

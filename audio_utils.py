@@ -3,7 +3,7 @@ import subprocess
 import tempfile
 from typing import Optional, Tuple
 
-import numpy as np
+from stubs import numpy_stub as np
 import librosa
 
 
