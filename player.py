@@ -28,6 +28,12 @@ from video_utils import extract_keyframes
 import cProfile
 import pstats
 
+# Ensure that modules located alongside this file can be imported even when the
+# application is launched from a different working directory. This makes
+# `lib_switch` and other helper modules available regardless of the current
+# directory.
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 
 # === Imports externes ===
 try:
