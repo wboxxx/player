@@ -277,5 +277,17 @@ class TestBuildRhythmGrid(unittest.TestCase):
         self.assertEqual(d.grid_labels, ["da", "da"])
         self.assertEqual(len(d.grid_times), 2)
 
+
+class TestDegreeFromChordMapping(unittest.TestCase):
+    class Dummy(VideoPlayer):
+        def __init__(self):
+            pass
+
+    def test_all_major_keys_present(self):
+        vp = self.Dummy()
+        keys = ["C", "C#", "Db", "D", "D#", "Eb", "E", "F", "F#", "Gb", "G", "G#", "Ab", "A", "A#", "Bb", "B"]
+        for k in keys:
+            self.assertNotEqual(vp.degree_from_chord(k, k), "?")
+
 if __name__ == '__main__':
     unittest.main(argv=['first-arg-is-ignored'], exit=False)
