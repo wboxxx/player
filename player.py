@@ -3118,8 +3118,15 @@ class VideoPlayer:
             
             return
         self.playhead_time = target_ms / 1000.0
-        Brint(f"[PH SET] {source} → playhead_time = {self.playhead_time:.3f}s ({int(target_ms)} ms)")
-        self.update_playhead_by_time(target_ms)
+        Brint(
+            f"[PH SET] {source} → playhead_time = {self.playhead_time:.3f}s ({int(target_ms)} ms)"
+        )
+
+        # Only draw the playhead immediately when the animation loop is not
+        # running. When playing, `_playhead_animation_step` handles updates to
+        # avoid competing draw calls.
+        if self.playhead_anim_id is None:
+            self.update_playhead_by_time(target_ms)
 
     
     def build_loop_data(self, name):
@@ -6928,7 +6935,11 @@ class VideoPlayer:
             self._draw_count_same_x = 1
 
         if self.playhead_id is None:
-            self.playhead_id = self.timeline.create_line(x, 0, x, 24, fill="red", tags="playhead")
+            # Ensure no stale playhead lines remain on the canvas.
+            self.timeline.delete("playhead")
+            self.playhead_id = self.timeline.create_line(
+                x, 0, x, 24, fill="red", tags="playhead"
+            )
         else:
             self.timeline.coords(self.playhead_id, x, 0, x, 24)
         self.timeline.tag_raise(self.playhead_id)
