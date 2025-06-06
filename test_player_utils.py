@@ -1,6 +1,6 @@
 import unittest
 from unittest.mock import patch, mock_open, MagicMock
-import numpy as np
+from lib_switch import np
 import os # For os.path.exists checks in _util_extract_audio_segment tests
 
 # Assuming player.py is in the same directory or accessible via PYTHONPATH
