@@ -1,6 +1,5 @@
 # === Imports standards ===
 import os
-os.environ['PLAYER_USE_REAL_LIBS'] = '1'
 import sys
 import platform
 import subprocess
@@ -19,35 +18,22 @@ from functools import partial
 
 from tkinter import Checkbutton
 import math
-from time_utils import seconds_to_hms, format_time
-from audio_utils import _util_extract_audio_segment, _util_get_tempo_and_beats_librosa
-from video_utils import extract_keyframes
 
 
 
 import cProfile
 import pstats
 
-# Ensure that modules located alongside this file can be imported even when the
-# application is launched from a different working directory. This makes
-# `lib_switch` and other helper modules available regardless of the current
-# directory.
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-
 
 # === Imports externes ===
-try:
-    import vlc
-except Exception:  # pragma: no cover - optional dependency
-    vlc = None
-from lib_switch import np, librosa, scipy, sf
-try:
-    import matplotlib.pyplot as plt
-    import matplotlib.patches as patches
-    import matplotlib.gridspec as gridspec
-    import matplotlib.animation as animation
-except Exception:  # pragma: no cover - optional dependency
-    plt = patches = gridspec = animation = None
+import vlc
+import numpy as np
+import librosa
+import soundfile as sf
+import matplotlib.pyplot as plt
+import matplotlib.patches as patches
+import matplotlib.gridspec as gridspec
+import matplotlib.animation as animation
 try:
     import torch
 except ImportError:  # pragma: no cover - optional dependency
@@ -62,21 +48,18 @@ try:
 except Exception:  # pragma: no cover - optional dependency
     predict = None
     ICASSP_2022_MODEL_PATH = None
+import pygame
 import tkinter as tk
 from tkinter import filedialog, Frame, Label, Button, Canvas, StringVar, LEFT, X, W
-try:
-    import pygame
-except Exception:  # pragma: no cover - optional dependency
-    pygame = None
-try:
-    from pydub import AudioSegment
-except Exception:  # pragma: no cover - optional dependency
-    AudioSegment = None
+from tkinter import messagebox, simpledialog, Toplevel, Listbox, SINGLE
+from pydub import AudioSegment
 
 # --- tempo.py ---
 # --- tempo.py optimisé + debug ---
+import numpy as np
 np.complex = complex  # Pour compatibilité avec librosa
 
+import librosa
 import subprocess
 import tempfile
 import os
@@ -117,18 +100,18 @@ DEBUG_FLAGS = {
     "EXPORT": False,
     "GRID": False,
     "HARMONY": False,
-    "HIT": False,
-    "JUMP": False,
+    "HIT": True,
+    "JUMP": True,
     "KEYBOARD": False,
-    "LOOP": False,
+    "LOOP": True,
     "MAPPING": False,
     "open_chord_editor_all": False,
     "PHANTOM" : False,
-    "PH" : False,
+    "PH" : True,
     "PLAYER": False,
     "PRECOMPUTE" : False,
     "RHYTHM": False,
-    "RLM" : False,
+    "RLM" : True,
     "SAVE": False,
     "SCORE": False,
     "SEGMENTS": False,
@@ -137,9 +120,9 @@ DEBUG_FLAGS = {
     "TEMPO": False,
     "TRACKER": False,
     "WARNING": False,
-    "ZOOM": False,
-    "PH_CANVAS": False,
-    "BRINT" : None
+    "ZOOM": False
+    ,
+    "BRINT" : True
 
 
 }
@@ -313,9 +296,23 @@ RHYTHM_SYLLABLE_SETS = {
 MODE_TO_SYLLABLE_KEY = {
     "binary8": "binary8",
     "binary16": "binary16",
+    "binary4": "binary4",
+    "ternary12": "ternary12",
+    "ternary24": "ternary24",
+    "ternary36": "ternary36",
     "ternary8": "ternary12",
     "ternary16": "ternary24",
 }
+
+# Order for cycling through all subdivision modes
+ALL_SUBDIVISION_MODES = [
+    "binary4",
+    "binary8",
+    "binary16",
+    "ternary12",
+    "ternary24",
+    "ternary36",
+]
 
 def extract_tonic_from_chord(chord_name):
     """
@@ -808,16 +805,12 @@ def detect_tempo_and_beats(audio_path, loop_start=35.0, loop_end=75.0):
 # --- scanfile.py ---
 import tkinter as tk
 from tkinter import filedialog
-from lib_switch import np, librosa, scipy, sf
-try:
-    import os
-    import librosa.display
-    import matplotlib.pyplot as plt
-    from scipy.signal import find_peaks
-except Exception:  # pragma: no cover - optional dependency
-    librosa = None
-    plt = None
-    find_peaks = None
+import numpy as np
+import librosa
+import os
+import librosa.display
+import matplotlib.pyplot as plt
+from scipy.signal import find_peaks
 import subprocess
 import time
 
@@ -829,6 +822,121 @@ FRAME_LENGTH = 1024
 HOP_LENGTH = 256
 
 
+def seconds_to_hms(seconds):
+    return str(timedelta(seconds=float(seconds))).split(".")[0]
+
+def format_time(seconds, include_ms=True, include_tenths=False):
+    """Format seconds as H:M:S with optional milliseconds or tenths."""
+    if seconds is None or seconds < 0:
+        if include_ms:
+            return "--:--:--.-" if include_tenths else "--:--:--.---"
+        return "--:--:--"
+
+    h = int(seconds // 3600)
+    m = int((seconds % 3600) // 60)
+    s = int(seconds % 60)
+
+    if include_ms:
+        if include_tenths:
+            tenths = int((seconds - int(seconds)) * 10)
+            return f"{h}:{m:02}:{s:02}.{tenths}"
+        ms = int(round((seconds - int(seconds)) * 1000))
+        return f"{h}:{m:02}:{s:02}.{ms:03}"
+    return f"{h}:{m:02}:{s:02}"
+
+def _util_extract_audio_segment(
+    input_path,
+    output_path=None,
+    *,
+    start_sec=None,
+    duration_sec=None,
+    audio_codec="pcm_s16le",
+    sample_rate=44100,
+    channels=1,
+    overwrite=True,
+    use_temp_file=True,
+):
+    """Extract an audio segment via ffmpeg."""
+    if output_path is None:
+        if use_temp_file:
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+                output_path = tmp.name
+        else:
+            raise ValueError("output_path required if use_temp_file=False")
+
+    cmd = ["ffmpeg"]
+    if overwrite:
+        cmd.append("-y")
+    if start_sec is not None:
+        cmd += ["-ss", str(start_sec)]
+    if duration_sec is not None:
+        cmd += ["-t", str(duration_sec)]
+    cmd += ["-i", input_path, "-vn", "-acodec", audio_codec, "-ar", str(sample_rate), "-ac", str(channels), output_path]
+
+    try:
+        subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except Exception:
+        return None
+
+    if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
+        return None
+
+    return output_path
+
+def _util_get_tempo_and_beats_librosa(y, sr):
+    """Return tempo and beat frames from audio using librosa."""
+    if y is None or len(y) == 0:
+        return 0.0, np.array([])
+    try:
+        tempo, beats = librosa.beat.beat_track(y=y, sr=sr)
+        return float(tempo), beats
+    except Exception:
+        return 0.0, np.array([])
+
+def extract_keyframes(
+    video_path,
+    start_time_sec=None,
+    duration_sec=None,
+    end_time_sec=None,
+):
+    """Extract keyframe timestamps from a video using ffprobe."""
+    cmd = [
+        "ffprobe",
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "frame=pkt_pts_time,pict_type",
+        "-of",
+        "csv=p=0",
+        video_path,
+    ]
+    try:
+        output = subprocess.check_output(cmd, stderr=subprocess.PIPE).decode()
+    except Exception:
+        return []
+    keyframes = []
+    for line in output.strip().splitlines():
+        try:
+            time_str, frame_type = line.split(",")
+        except ValueError:
+            continue
+        if frame_type.strip() == "I":
+            try:
+                t = float(time_str)
+            except ValueError:
+                continue
+            keyframes.append(t)
+
+    if start_time_sec is not None:
+        end = start_time_sec + duration_sec if duration_sec is not None else end_time_sec
+        if end is not None:
+            keyframes = [t for t in keyframes if start_time_sec <= t < end]
+        else:
+            keyframes = [t for t in keyframes if t >= start_time_sec]
+
+    return keyframes
 
 def detect_countins_with_rms(filepath, hop_length=256, strict=False, mode="default", verbose=True):
     threshold = 0.01 if strict else 0.03
@@ -995,8 +1103,19 @@ def open_vlc_at(filepath, seconds):
 import subprocess
 import tempfile
 import os
-from lib_switch import np, librosa, scipy, sf
+import librosa
+import numpy as np
+import librosa
+import numpy as np
 import subprocess
+import tempfile
+import os
+
+import librosa
+import numpy as np
+import subprocess
+import tempfile
+import os
 try:
     import ffmpeg
 except ImportError:  # pragma: no cover - optional dependency
@@ -1246,14 +1365,13 @@ try:
 except ImportError:  # pragma: no cover - optional dependency
     psutil = None
 from tkinter import simpledialog, Toplevel, Listbox, Button, Label, SINGLE
-try:
-    import vlc
-except Exception:  # pragma: no cover - optional dependency
-    vlc = None
+import vlc
 import os
 
 import time
-from lib_switch import np, librosa, scipy, sf
+import numpy as np
+import librosa
+import soundfile as sf
 try:
     from basic_pitch.inference import predict
     from basic_pitch import ICASSP_2022_MODEL_PATH
@@ -1273,10 +1391,7 @@ except ImportError:  # pragma: no cover - optional dependency
 import sys
 import ctypes
 import tempfile
-try:
-    import pygame
-except Exception:  # pragma: no cover - optional dependency
-    pygame = None
+import pygame
 dbflag = False
 
 import subprocess
@@ -1286,7 +1401,7 @@ def hms_to_seconds(hms):
     return sum(t * 60**i for i, t in enumerate(reversed(parts)))
 
 
-from lib_switch import np, librosa, scipy, sf
+import soundfile as sf
 
 import subprocess
 import os
@@ -2055,7 +2170,6 @@ class VideoPlayer:
             Brint(f"[AUTOZOOM] 🎚️ zoom_slider.set({self.loop_zoom_ratio:.3f})")
             self.zoom_slider.set(self.loop_zoom_ratio)
 
-        self.grid_needs_refresh = True
         self.update_loop()
      
 
@@ -2190,12 +2304,9 @@ class VideoPlayer:
         grid_times_ms = [int(t * 1000) for t in grid_times_sec]
 
         # Reconstitue les temps des beats à partir des grid_subdivs
-        subdivisions_per_beat = {
-            "binary8": 2,
-            "binary16": 4,
-            "ternary8": 3,
-            "ternary16": 6
-        }.get(self.subdivision_mode, 2)
+
+        subdivisions_per_beat = self.get_subdivisions_per_beat()
+
 
         beats = []
         for i in range(0, len(grid_times_sec), subdivisions_per_beat):
@@ -2265,7 +2376,7 @@ class VideoPlayer:
     def rebuild_loop_context(self):
         Brint("[DEBUG rebuild_loop_context] 🔁 Reconstruction contexte boucle")
         self.build_rhythm_grid()
-        self.grid_needs_refresh = True
+        self.draw_rhythm_grid_canvas()
         self.compute_rhythm_grid_infos()
         self.grid_subdivs = [(i, t) for i, t in enumerate(self.grid_times)]
         self.current_loop.grid_times = self.grid_times
@@ -2296,11 +2407,7 @@ class VideoPlayer:
         caller = inspect.stack()[1].function
         Brint(f"[TRACE GRID] 🧩 Assigné par '{caller}' {f'→ {source}' if source else ''}")
 
-        if (
-            not hasattr(self, "loop_start") or self.loop_start is None or
-            not hasattr(self, "loop_end") or self.loop_end is None or
-            self.tempo_bpm is None
-        ):
+        if not hasattr(self, "loop_start") or not hasattr(self, "loop_end") or self.tempo_bpm is None:
             Brint("[TRACE GRID ERROR] ❌ loop_start, loop_end ou tempo_bpm manquant — grille non générée")
             self.grid_subdivs = []
             return
@@ -2313,12 +2420,8 @@ class VideoPlayer:
             self.grid_subdivs = []
             return
 
-        subdivisions_per_beat = {
-            'binary8': 2,
-            'binary16': 4,
-            'ternary8': 3,
-            'ternary16': 6
-        }.get(self.subdivision_mode, 2)
+
+        subdivisions_per_beat = self.get_subdivisions_per_beat()
 
         interval_sec = 60.0 / self.tempo_bpm / subdivisions_per_beat
         n_subdivs = int(duration_sec / interval_sec)
@@ -2429,11 +2532,9 @@ class VideoPlayer:
             loop_start = 0
             loop_end = self.player.get_length()
             self.loop_zoom_ratio = 1.0
-            Brint(
-                f"[INFO Time2X] Pas de loop active, fallback à toute la durée ({loop_end} ms) avec zoom_ratio=1.0"
-            )
+            Brint(f"[INFO Time2X] Pas de loop active, fallback à toute la durée ({loop_end} ms) avec zoom_ratio=1.0")
 
-        loop_range = loop_end - loop_start
+        loop_width = loop_end - loop_start
         zoom = self.get_zoom_context()
         zoom_start = zoom["zoom_start"]
         zoom_range = zoom["zoom_range"]
@@ -2447,22 +2548,9 @@ class VideoPlayer:
             print(f"[WARNING] zoom_range invalide ({zoom_range}), fallback 1000")
             zoom_range = 1000
 
-        ratio = (t_ms - zoom_start) / zoom_range
+        x = round((t_ms - zoom_start) / zoom_range * canvas_width)
 
-        if zoom_range < loop_range:
-            x = 0.2 * canvas_width + ratio * 0.6 * canvas_width
-        else:
-            x = ratio * canvas_width
-
-        x = round(max(0, min(canvas_width, x)))
-
-        print(
-            f"[time_sec_to_canvas_x] t={t_ms} zoom_range={zoom_range} loop_range={loop_range} ratio={ratio} x={x}"
-        )
-
-        Brint(
-            f"[DEBUG time_sec_to_canvas_x] t_sec={t_sec:.3f}s | t_ms={t_ms:.1f} | zoom_start={zoom_start} | zoom_range={zoom_range} | loop_range={loop_range} | canvas_width={canvas_width} | ratio={ratio:.3f} → x={x}"
-        )
+        Brint(f"[DEBUG time_sec_to_canvas_x] t_sec={t_sec:.3f}s | t_ms={t_ms:.1f} | zoom_start={zoom_start} | zoom_range={zoom_range} | canvas_width={canvas_width} → x={x}")
         return x
 
     def zoom_pref_path_for_current_media(self):
@@ -2716,12 +2804,9 @@ class VideoPlayer:
         Brint(f"[PRECOMPUTE] 📏 canvas_width = {canvas_width}")
         Brint(f"[PRECOMPUTE] 🔍 zoom_start = {zoom_start:.1f} | zoom_end = {zoom_end:.1f} | zoom_range = {zoom_range:.1f}")
 
-        subdivisions_per_beat = {
-            'binary8': 2,
-            'binary16': 4,
-            'ternary8': 3,
-            'ternary16': 6
-        }.get(self.subdivision_mode, 2)
+
+        subdivisions_per_beat = self.get_subdivisions_per_beat()
+
 
         Brint(f"[PRECOMPUTE] 🧮 subdivisions_per_beat = {subdivisions_per_beat} (mode = {self.subdivision_mode})")
 
@@ -2905,23 +2990,10 @@ class VideoPlayer:
     
     def degree_from_chord(self, chord, key):
         degrees = {
-            "C":  ["I", "II", "III", "IV", "V", "VI", "VII"],
-            "C#": ["I", "II", "III", "IV", "V", "VI", "VII"],
-            "Db": ["I", "II", "III", "IV", "V", "VI", "VII"],
-            "D":  ["I", "II", "III", "IV", "V", "VI", "VII"],
-            "D#": ["I", "II", "III", "IV", "V", "VI", "VII"],
-            "Eb": ["I", "II", "III", "IV", "V", "VI", "VII"],
-            "E":  ["I", "II", "III", "IV", "V", "VI", "VII"],
-            "F":  ["I", "II", "III", "IV", "V", "VI", "VII"],
-            "F#": ["I", "II", "III", "IV", "V", "VI", "VII"],
-            "Gb": ["I", "II", "III", "IV", "V", "VI", "VII"],
-            "G":  ["I", "II", "III", "IV", "V", "VI", "VII"],
-            "G#": ["I", "II", "III", "IV", "V", "VI", "VII"],
-            "Ab": ["I", "II", "III", "IV", "V", "VI", "VII"],
-            "A":  ["I", "II", "III", "IV", "V", "VI", "VII"],
-            "A#": ["I", "II", "III", "IV", "V", "VI", "VII"],
-            "Bb": ["I", "II", "III", "IV", "V", "VI", "VII"],
-            "B":  ["I", "II", "III", "IV", "V", "VI", "VII"],
+            "C": ["I", "II", "III", "IV", "V", "VI", "VII"],
+            "G": ["I", "II", "III", "IV", "V", "VI", "VII"],
+            "D": ["I", "II", "III", "IV", "V", "VI", "VII"],
+            # TODO : compléter pour toutes les tonalités
         }
         # Simplification extrême pour l'exemple (à remplacer par une vraie logique)
         if not chord:
@@ -3140,15 +3212,8 @@ class VideoPlayer:
             
             return
         self.playhead_time = target_ms / 1000.0
-        Brint(
-            f"[PH SET] {source} → playhead_time = {self.playhead_time:.3f}s ({int(target_ms)} ms)"
-        )
-
-        # Only draw the playhead immediately when the animation loop is not
-        # running. When playing, `_playhead_animation_step` handles updates to
-        # avoid competing draw calls.
-        if self.playhead_anim_id is None:
-            self.update_playhead_by_time(target_ms)
+        Brint(f"[PH SET] {source} → playhead_time = {self.playhead_time:.3f}s ({int(target_ms)} ms)")
+        self.update_playhead_by_time(target_ms)
 
     
     def build_loop_data(self, name):
@@ -3263,60 +3328,29 @@ class VideoPlayer:
 
     def on_loop_zoom_change(self, val):
         self.loop_zoom_ratio = float(val)
-        Brint(
-            f"[ZOOM] 🔍 Zoom boucle réglé sur {self.loop_zoom_ratio:.2f} (AB = {int(self.loop_zoom_ratio*100)}% de la timeline)"
-        )
+        Brint(f"[ZOOM] 🔍 Zoom boucle réglé sur {self.loop_zoom_ratio:.2f} (AB = {int(self.loop_zoom_ratio*100)}% de la timeline)")
 
         if self.loop_start is not None and self.loop_end is not None and self.duration:
-            self.scroll_zoom_with_playhead(self.playhead_time * 1000 if hasattr(self, "playhead_time") else self.loop_start)
+            loop_width_ms = max(10000.0, self.loop_end - self.loop_start)
+            center_ms = (self.loop_start + self.loop_end) / 2.0
+            desired_ms = loop_width_ms / self.loop_zoom_ratio
+            zoom_start = max(0.0, center_ms - desired_ms / 2.0)
+            zoom_end = min(self.duration, zoom_start + desired_ms)
+            self.zoom_context = {
+                "zoom_start": zoom_start,
+                "zoom_end": zoom_end,
+                "zoom_range": zoom_end - zoom_start,
+            }
 
         self.refresh_static_timeline_elements()
-        self.grid_needs_refresh = True
-
-    def scroll_zoom_with_playhead(self, playhead_ms):
-        if self.loop_start is None or self.loop_end is None or self.duration is None:
-            return
-
-        loop_width = self.loop_end - self.loop_start
-        if loop_width <= 0:
-            return
-
-        desired_ms = max(2000.0, loop_width / self.loop_zoom_ratio)
-
-        if desired_ms >= loop_width:
-            center_ms = (self.loop_start + self.loop_end) / 2.0
-            zoom_start = center_ms - desired_ms / 2.0
-        else:
-            progress = (playhead_ms - self.loop_start) / loop_width
-            progress = min(max(progress, 0.0), 1.0)
-            offset_ratio = 0.2 + progress * 0.6
-            zoom_start = playhead_ms - offset_ratio * desired_ms
-
-        zoom_start = max(0.0, min(zoom_start, self.duration - desired_ms))
-        zoom_end = zoom_start + desired_ms
-
-        prev_start = getattr(self, "zoom_context", {}).get("zoom_start")
-        prev_end = getattr(self, "zoom_context", {}).get("zoom_end")
-
-        self.zoom_context = {
-            "zoom_start": zoom_start,
-            "zoom_end": zoom_end,
-            "zoom_range": desired_ms,
-        }
-
-        if prev_start != zoom_start or prev_end != zoom_end:
-            self.needs_refresh = True
-            self.timeline.delete("playhead")
-            self.playhead_id = None
-
-            self.update_playhead_by_time(self.playhead_time * 1000, skip_scroll_zoom=True)
+        self.draw_rhythm_grid_canvas()
 
 
     
 
     def get_loop_zoom_range(self):
         if self.loop_start and self.loop_end:
-            loop_width_sec = max(2.0, (self.loop_end - self.loop_start) / 1000.0)
+            loop_width_sec = max(10.0, (self.loop_end - self.loop_start) / 1000.0)
             center_sec = (self.loop_start + self.loop_end) / 2000.0
             desired_sec = loop_width_sec / self.loop_zoom_ratio
             zoom_start = max(0, center_sec - desired_sec / 2.0)
@@ -3573,10 +3607,11 @@ class VideoPlayer:
     def cycle_subdivision_mode_backward(self):
         Brint(f"[DEBUG CYCLE] Avant changement → {len(self.current_loop.chords)} accords")
 
-        modes = ["ternary8", "ternary16", "binary8", "binary16"]
+        modes = ALL_SUBDIVISION_MODES
         i = modes.index(self.subdivision_mode)
         self.subdivision_mode = modes[(i - 1) % len(modes)]
         pass#Brint(f"[RHYTHM] ⬅️ Mode subdivision : {self.subdivision_mode}")
+        self.console.config(text=f"⬅️ Subdivision mode: {self.subdivision_mode}")
         
         self.build_rhythm_grid()
         self.compute_rhythm_grid_infos() # Ensure precomputed_grid_infos is fresh for the new mode
@@ -3625,7 +3660,7 @@ class VideoPlayer:
             Brint(f" - {self.hms(start * 1000)} | Pitch: {pitch} | Confidence: {conf:.2f}")
         
         self.refresh_note_display()
-        self.grid_needs_refresh = True
+        self.draw_rhythm_grid_canvas()
         self.draw_harmony_grid_overlay()
         if hasattr(self, "chord_editor_popup") and self.chord_editor_popup.winfo_exists():
             self.refresh_chord_editor()
@@ -3638,10 +3673,11 @@ class VideoPlayer:
 
 
     def cycle_subdivision_mode(self):
-        modes = ["ternary8", "ternary16", "binary8", "binary16"]
+        modes = ALL_SUBDIVISION_MODES
         i = modes.index(self.subdivision_mode)
         self.subdivision_mode = modes[(i + 1) % len(modes)]
         pass#Brint(f"[RHYTHM] ➡️ Mode subdivision : {self.subdivision_mode}")
+        self.console.config(text=f"➡️ Subdivision mode: {self.subdivision_mode}")
         self.build_rhythm_grid()
         self.rebuild_loop_context()  # ← met à jour self.grid_subdivs ET chords si tu les relies dedans
 
@@ -3763,6 +3799,32 @@ class VideoPlayer:
 
 
         return levels
+
+    def get_subdivisions_per_beat(self, mode=None):
+        """Return the number of grid subdivisions representing one beat.
+
+        If *mode* is omitted, ``self.subdivision_mode`` is used. Unknown modes
+        default to the binary eighth note resolution (2 subdivisions per beat).
+        The helper understands both the internal subdivision modes (``binary8``,
+        ``binary16``, ``ternary8``, ``ternary16``) and the extended keys used in
+        :data:`RHYTHM_SYLLABLE_SETS` (``binary4``, ``ternary12`` …)."""
+
+        if mode is None:
+            mode = self.subdivision_mode
+
+        mapping = {
+            "binary4": 1,
+            "binary8": 2,
+            "binary16": 4,
+            "ternary8": 3,
+            "ternary16": 6,
+            "ternary12": 3,
+            "ternary24": 6,
+            "ternary36": 9,
+            "ternary32": 9,
+        }
+
+        return mapping.get(mode, 2)
 
 
     def snap_time_to_grid(self, time_ms, level):
@@ -4448,7 +4510,7 @@ class VideoPlayer:
         Reconstruit self.grid_times et self.grid_labels selon:
         - self.tempo_bpm
         - self.loop_start / loop_end (en ms)
-        - self.subdivision_mode: 'ternary8', 'ternary16', 'binary8', 'binary16'
+        - self.subdivision_mode: one of ALL_SUBDIVISION_MODES
         """
         if not self.loop_start or not self.loop_end or not self.tempo_bpm:
             Brint("[BRG RHYTHM] ❌ Impossible de générer la grille : boucle ou tempo manquant")
@@ -4460,15 +4522,9 @@ class VideoPlayer:
         beats_per_bar = 4
         mode = self.subdivision_mode
 
-        if mode == "binary8":
-            subdivs_per_beat = 2
-        elif mode == "ternary8":
-            subdivs_per_beat = 3
-        elif mode == "binary16":
-            subdivs_per_beat = 4
-        elif mode == "ternary16":
-            subdivs_per_beat = 6
-        else:
+
+        subdivs_per_beat = self.get_subdivisions_per_beat(mode)
+        if subdivs_per_beat is None:
             Brint(f"[BRG RHYTHM] ❌ Mode subdivision inconnu : {mode}")
             return
 
@@ -4522,10 +4578,14 @@ class VideoPlayer:
         if self.grid_times:
             last_time = self.grid_times[-1]
             if last_time + 0.5 * subdiv_duration < loop_end_s:
-                index = len(self.grid_times)
-                label = label_seq[index % seq_len] if seq_len else str((index % subdivs_per_beat) + 1)
-                if not self.grid_labels or label != self.grid_labels[-1]:
-                    next_t = last_time + subdiv_duration
+                next_t = last_time + subdiv_duration
+
+                next_idx = len(self.grid_labels) % seq_len
+                label = label_seq[next_idx] if seq_len else str((next_idx % subdivs_per_beat) + 1)
+
+                if self.grid_labels and self.grid_labels[-1] == label:
+                    Brint("[BRG PATCH] ⚠️ Duplicate syllable avoided at loop end")
+                else:
                     self.grid_times.append(next_t)
                     self.grid_labels.append(label)
                     Brint(f"[BRG PATCH] ➕ Subdiv extra ajoutée : t={next_t:.3f}s > loop_end")
@@ -4614,17 +4674,6 @@ class VideoPlayer:
                 status += "❄️frozen "
             Brint(f" - t={t}ms | x={x} | mode={mode} {status}")
             Brint(f"\n[STATS] x min = {self._debug_x_min}, x max = {self._debug_x_max}")
-
-
-    def _update_ph_canvas(self, x):
-        if not DEBUG_FLAGS.get("PH_CANVAS") or not self.ph_canvas:
-            return
-        if self.ph_playhead_id is None:
-            self.ph_canvas.delete("playhead")
-            self.ph_playhead_id = self.ph_canvas.create_line(x, 0, x, 24, fill="red", tags="playhead")
-        else:
-            self.ph_canvas.coords(self.ph_playhead_id, x, 0, x, 24)
-        self.ph_canvas.tag_raise(self.ph_playhead_id)
 
 
 
@@ -4886,7 +4935,6 @@ class VideoPlayer:
                 Brint(f"[MODE BAR] Adjusted last_loop_jump_time to maintain playhead position: {self.last_loop_jump_time:.3f} (current_offset_real_seconds: {current_offset_real_seconds:.3f})")
 
             self.needs_refresh = True
-            self.grid_needs_refresh = True
             self.refresh_static_timeline_elements()
             self.maybe_adjust_zoom_if_out_of_frame() # Or auto_zoom_on_loop_markers(force=True)
             self.invalidate_jump_estimators()
@@ -5029,7 +5077,6 @@ class VideoPlayer:
         self.safe_update_playhead(0, source="open_given_file")
 
         self.player.play()
-        self.start_playhead_animation()
         self.root.after(1000, self.reset_force_playhead_time)
 
         if hasattr(self, "player"):
@@ -5056,7 +5103,6 @@ class VideoPlayer:
         win.destroy()
         self.open_given_file(path)
         self.needs_refresh = True
-        self.grid_needs_refresh = True
         self.refresh_static_timeline_elements()
 
     def show_open_menu(self):
@@ -5206,7 +5252,6 @@ class VideoPlayer:
             self.set_selected_loop_name(default_name, source="load_saved_loops (fallback)")
 
         self.needs_refresh = True
-        self.grid_needs_refresh = True
         self.refresh_static_timeline_elements()
         # self.GlobXa, self.GlobXb = self.get_loop_zoom_range()
         if self.saved_loops:
@@ -6069,9 +6114,6 @@ class VideoPlayer:
         self._last_playhead_x = None
         self.after_id = None
         self.is_paused = False
-        self.playhead_anim_id = None
-        self.tempjump_after_id = None
-        self.frame_update_interval = 30  # ms between playhead updates
 
 
         
@@ -6112,7 +6154,7 @@ class VideoPlayer:
         
         import json
         #RHYTHMe grille
-        self.subdivision_mode = "ternary8"  # valeurs possibles : 'ternary8', 'ternary16', 'binary8', 'binary16'
+        self.subdivision_mode = "ternary12"  # valeurs possibles : see ALL_SUBDIVISION_MODES
         # index of current syllable set for each mode
         self.syllable_set_idx = {key: 0 for key in RHYTHM_SYLLABLE_SETS}
         self._grid_bounce_x = None
@@ -6217,15 +6259,6 @@ class VideoPlayer:
         self.timeline_frame.pack(side='bottom', fill='x')
         self.timeline = Canvas(self.timeline_frame, height=24, bg='grey')
         self.timeline.pack(fill='x')
-
-        # Optional debug canvas showing only the playhead
-        self.ph_canvas = None
-        self.ph_playhead_id = None
-        if DEBUG_FLAGS.get("PH_CANVAS"):
-            self.ph_window = tk.Toplevel(self.root)
-            self.ph_window.title("Playhead Debug")
-            self.ph_canvas = Canvas(self.ph_window, height=24, width=300, bg='black')
-            self.ph_canvas.pack(fill='x')
         # === TEMPO UI ===
         self.tempo_frame = Frame(self.controls_top)
         self.tempo_frame.pack(side='right', padx=10)
@@ -6311,7 +6344,6 @@ class VideoPlayer:
         # self.GlobXa = None
         self.GlobXb = None
         self.needs_refresh = True
-        self.grid_needs_refresh = True
         self.cached_width = None
         self.awaiting_vlc_jump = False
         self.freeze_interpolation = False
@@ -6481,20 +6513,7 @@ class VideoPlayer:
         # === RHYTHM CONTROLS FRAME ===
         self.rhythm_controls_frame = Frame(self.controls_top)
         self.rhythm_controls_frame.pack(side='left', padx=5)
-        self.zoom_slider = Scale(
-            self.rhythm_controls_frame,
-            from_=0.1,
-            to=3.0,
-            resolution=0.05,
-            orient='horizontal',
-            label='ZoomAB',
-            showvalue=False,
-            length=60,
-            sliderlength=10,
-            width=8,
-            font=("Arial", 6),
-            command=self.on_loop_zoom_change,
-        )
+        self.zoom_slider = Scale(self.rhythm_controls_frame, from_=0.1, to=1.0, resolution=0.05, orient='horizontal', label='ZoomAB', showvalue=False,  length=60, sliderlength=10, width=8, font=("Arial", 6), command=self.on_loop_zoom_change)
         self.zoom_slider.bind("<Double-Button-1>", lambda e: self.reset_zoom_slider())
         self.zoom_slider.set(self.loop_zoom_ratio)
         self.zoom_slider.pack(side='left', padx=5)
@@ -6520,7 +6539,8 @@ class VideoPlayer:
         
         self.root.bind_all('<Key>', self.handle_screen_zoom_keypress)
         # self.root.bind("<Shift-Tab>", lambda e: self.cycle_subdivision_mode_backward())
-        self.root.bind("<Tab>", lambda e: self.cycle_subdivision_mode())
+        self.root.bind("<Shift-F1>", lambda e: self.cycle_subdivision_mode_backward())
+        self.root.bind("<Shift-F2>", lambda e: self.cycle_subdivision_mode())
         self.loop_menu_button.bind("<Button-1>", lambda e: self.update_loop_menu())
         # self.root.bind("<F4>", self.edit_current_chord_from_playhead)
         self.root.bind("<F4>", lambda e: self.open_chord_editor_all())
@@ -6574,7 +6594,6 @@ class VideoPlayer:
         # self.root.bind('<Key-r>', lambda e: self.toggle_loop())
         self.root.bind('<Shift-T>', lambda e: self.toggle_autostep())
         self.root.bind('<Key-t>', lambda e: self.step_play())
-        self.root.bind('t', lambda e: self.tap_tempo())
         self.root.bind('<Shift-A>', lambda e: self.record_loop_marker("loop_start", auto_exit=True))
         self.root.bind('<Shift-B>', lambda e: self.record_loop_marker("loop_end", auto_exit=True))
         self.root.bind("<Shift-C>", self.clear_loop)
@@ -6777,18 +6796,9 @@ class VideoPlayer:
         self.result_box.insert(tk.END, f"{'Timestamp':10} {'Temps':10} {'Musc':5} {'Notes détectées':40} {'Accord':8} {'Degré'}\n")
         total_steps = len(self.grid_labels)
         subdivision_mode = getattr(self, "subdivision_mode", None)
-        valid_modes = {
-            "binary8": 2,
-            "binary16": 4,
-            "ternary8": 3,
-            "ternary16": 6
-        }
 
-        if subdivision_mode not in valid_modes:
-            Brint(f"[ERROR] subdivision_mode invalide ou manquant : {subdivision_mode} → fallback sur 'binary8'")
-            subdivision_mode = "binary8"
+        subdivs_per_beat = self.get_subdivisions_per_beat(subdivision_mode)
 
-        subdivs_per_beat = valid_modes[subdivision_mode]
 
         steps_per_bar = 4 * subdivs_per_beat
         total_bars = (total_steps + steps_per_bar - 1) // steps_per_bar
@@ -6833,10 +6843,15 @@ class VideoPlayer:
                 musical = str(beat_in_bar + 1) if pos_in_beat == 0 else "n"
             elif self.subdivision_mode == "binary16":
                 musical = str(beat_in_bar + 1) if pos_in_beat == 0 else ["y", "&", "a", "n"][(pos_in_beat - 1) % 4]
-            elif self.subdivision_mode == "ternary8":
+            elif self.subdivision_mode in ("ternary8", "ternary12"):
                 musical = [str(beat_in_bar + 1), "T", "L"][pos_in_beat]
-            elif self.subdivision_mode == "ternary16":
+            elif self.subdivision_mode in ("ternary16", "ternary24"):
                 musical = str(beat_in_bar + 1) if pos_in_beat == 0 else ["t", "l", "n", "t", "l"][pos_in_beat - 1]
+            elif self.subdivision_mode == "binary4":
+                musical = str(beat_in_bar + 1)
+            elif self.subdivision_mode == "ternary36":
+                musical = str(beat_in_bar + 1) if pos_in_beat == 0 else [
+                    "1", "2", "3", "4", "5", "6", "7", "8", "9"][pos_in_beat - 1]
             else:
                 musical = "-"
 
@@ -6930,7 +6945,7 @@ class VideoPlayer:
 
 
 
-    def update_playhead_by_time(self, forced_time_ms=None, skip_scroll_zoom=False):
+    def update_playhead_by_time(self, forced_time_ms=None):
         Brint(f"[PH USE] 🧭 update_playhead_by_time() → temps utilisé = {forced_time_ms if forced_time_ms is not None else self.playhead_time * 1000:.1f} ms")
 
         if forced_time_ms is not None:
@@ -6938,17 +6953,12 @@ class VideoPlayer:
         else:
             current_time_ms = self.playhead_time * 1000
 
-
+        if not self.player.is_playing():
+            return
 
         self.update_count += 1
         if not self.duration or self.duration <= 0:
-            # Try to fetch the duration again in case VLC hadn't returned it yet
-            dur = self.player.get_length() if hasattr(self, "player") else 0
-            if dur and dur > 0:
-                self.duration = dur
-            else:
-                # Duration still unknown – continue drawing using fallbacks
-                Brint("[PH WARN] duration not yet available; drawing with fallback values")
+            return
 
         if self.cached_width is None or time.time() - self.last_width_update > 1:
             self.cached_width = self.timeline.winfo_width()
@@ -6958,8 +6968,6 @@ class VideoPlayer:
             self.root.after(100, lambda: self.safe_update_playhead(current_time_ms, source="update_playhead_by_time"))
             return
 
-        if not skip_scroll_zoom:
-            self.scroll_zoom_with_playhead(current_time_ms)
         zoom = self.get_zoom_context()
         zoom_range = zoom["zoom_range"]
         if zoom_range <= 0:
@@ -6982,15 +6990,10 @@ class VideoPlayer:
             self._draw_count_same_x = 1
 
         if self.playhead_id is None:
-            # Ensure no stale playhead lines remain on the canvas.
-            self.timeline.delete("playhead")
-            self.playhead_id = self.timeline.create_line(
-                x, 0, x, 24, fill="red", tags="playhead"
-            )
+            self.playhead_id = self.timeline.create_line(x, 0, x, 24, fill="red", tags="playhead")
         else:
             self.timeline.coords(self.playhead_id, x, 0, x, 24)
         self.timeline.tag_raise(self.playhead_id)
-        self._update_ph_canvas(x)
 
         self.draw_count += 1
         self.GlobApos = x
@@ -7004,20 +7007,13 @@ class VideoPlayer:
             self.draw_count = 0
             self.last_stat_time = now
 
-        if self.needs_refresh:
-            self.refresh_static_timeline_elements()
-
         self.playhead_canvas_x = self.time_sec_to_canvas_x(current_time_ms / 1000.0) if zoom_range > 0 else -9999
 
 
 
     def refresh_static_timeline_elements(self):
-        self.timeline.delete("playhead")
-        self.playhead_id = None
-        if DEBUG_FLAGS.get("PH_CANVAS") and self.ph_canvas:
-            self.ph_canvas.delete("playhead")
-            self.ph_playhead_id = None
-
+        
+        
         if not self.needs_refresh:
             return
         self.timeline.delete("loop_marker")
@@ -7233,12 +7229,6 @@ class VideoPlayer:
     def draw_temp_jump_marker(self, ms):
         canvas = self.timeline
         canvas.delete("tempjump")
-        if self.tempjump_after_id is not None:
-            try:
-                self.root.after_cancel(self.tempjump_after_id)
-            except Exception:
-                pass
-            self.tempjump_after_id = None
         t_sec = ms / 1000.0
         zoom = self.get_zoom_context()
         zoom_start = zoom["zoom_start"]
@@ -7257,7 +7247,6 @@ class VideoPlayer:
 
         x = self.time_sec_to_canvas_x(t_sec)
         canvas.create_line(x, 0, x, 24, fill="#f0a", width=2, dash=(4, 4), tags="tempjump")
-        self.tempjump_after_id = self.root.after(1000, lambda: canvas.delete("tempjump"))
 
 
     def jump(self, delta_sec):
@@ -7510,7 +7499,6 @@ class VideoPlayer:
             self.clear_edit_mode()
 
         self.needs_refresh = True
-        self.grid_needs_refresh = True
         self.refresh_static_timeline_elements()
         Brint(f"[RLM] ENDS➕ loop_start = {self.loop_start}, loop_end = {self.loop_end}")
         self.invalidate_loop_name_if_modified()
@@ -7795,7 +7783,6 @@ class VideoPlayer:
             vlc_time = self.player.get_time()
             self.playhead_time = vlc_time / 1000.0
             self.player.pause()
-            self.stop_playhead_animation()
             self.console.config(text="⏸ Pause")
             Brint(f"[PH PAUSE] ⏸ Pause → VLC time = {vlc_time} ms → playhead_time = {self.playhead_time:.3f}s")
 
@@ -7809,26 +7796,7 @@ class VideoPlayer:
                 Brint("[PH PAUSE] ❓ Reprise → playhead_time manquant")
             self.player.play()
             self.console.config(text="▶️ Lecture")
-            self.start_playhead_animation()
             self.update_loop()
-
-    def start_playhead_animation(self):
-        if self.playhead_anim_id is None:
-            self._playhead_animation_step()
-
-    def _playhead_animation_step(self):
-        if self.player and self.player.is_playing():
-            current_ms = self.player.get_time()
-            # Update the playhead position based on the current VLC time
-            self.safe_update_playhead(current_ms, source="animation_step")
-            self.playhead_anim_id = self.root.after(self.frame_update_interval, self._playhead_animation_step)
-        else:
-            self.playhead_anim_id = None
-
-    def stop_playhead_animation(self):
-        if self.playhead_anim_id is not None:
-            self.root.after_cancel(self.playhead_anim_id)
-            self.playhead_anim_id = None
 
  
  
@@ -7887,7 +7855,6 @@ class VideoPlayer:
         self.safe_update_playhead(0, source="faststart_remux")
 
         self.player.play()
-        self.start_playhead_animation()
         # self.root.after(1000, self.reset_force_playhead_time)
 
         if hasattr(self, "player"):
@@ -7907,10 +7874,10 @@ class VideoPlayer:
         self.apply_crop() 
 
     def update_loop(self):
+        self.root.bind('t', lambda e: self.tap_tempo())
 
-        if self.grid_visible and getattr(self, "grid_needs_refresh", True):
+        if self.grid_visible:
             self.draw_rhythm_grid_canvas()
-            self.grid_needs_refresh = False
 
         if self.player.get_media():
             dur = self.player.get_length()
@@ -7918,11 +7885,6 @@ class VideoPlayer:
             player_rate = self.player.get_rate()
             if player_rate <= 0:
                 player_rate = 1.0
-
-            if is_playing:
-                self.start_playhead_animation()
-            else:
-                self.stop_playhead_animation()
 
             player_now = self.player.get_time()
             self.duration = dur
@@ -7939,6 +7901,8 @@ class VideoPlayer:
                 interpolated = self.loop_start / 1000.0 + wrapped_elapsed * player_rate
                 # après calcul interpolated
                 Brint(f"[PH LOOP] 🎯 Interpolation = {interpolated:.3f}s (elapsed={elapsed_since_last_jump:.3f}s)")
+
+                self.safe_update_playhead(interpolated * 1000, source="Loop interpolation")
 
                 if elapsed_since_last_jump >= loop_duration_corrected:
                     self.safe_jump_to_time(self.loop_start, source="Jump B estim (all rates)")
@@ -7957,9 +7921,9 @@ class VideoPlayer:
                                 if i in self.subdiv_last_hit_loop:
                                     del self.subdiv_last_hit_loop[i]
             else:
-                # No loop active; playhead position will be updated by
-                # _playhead_animation_step using player.get_time().
-                Brint(f"[PH VLC] 🎯 Position brute VLC = {player_now} ms")
+                self.safe_update_playhead(player_now, source="VLC raw mode")
+                # dans le cas classique (pas de boucle)
+                Brint(f"[PH VLC] 🎯 Position brute VLC = {player_now} ms → set")
 
             self.time_display.config(text=f"⏱ {self.hms(self.playhead_time * 1000)} / {self.hms(self.duration)}")
 
@@ -7980,7 +7944,7 @@ class VideoPlayer:
 
 #fps
         if not self.is_paused:
-            self.after_id = self.root.after(30, self.update_loop)
+            self.after_id = self.root.after(400, self.update_loop)
 
 
     def on_timeline_click(self, e): self.handle_timeline_interaction(e.x)
@@ -8167,12 +8131,8 @@ class VideoPlayer:
             max_beats_left = int(x_beat1 // pixels_per_beat) + 1
             max_beats_right = int((canvas_width - x_beat1) // pixels_per_beat) + 1
 
-            subdivisions_per_beat = {
-                'binary8': 2,
-                'binary16': 4,
-                'ternary8': 3,
-                'ternary16': 6
-            }.get(self.subdivision_mode, 2)
+            subdivisions_per_beat = self.get_subdivisions_per_beat()
+
 
             pixels_per_subdiv = pixels_per_beat / subdivisions_per_beat
             mode = self.subdivision_mode
@@ -8517,18 +8477,9 @@ class VideoPlayer:
         canvas_height = canvas.winfo_height()
 
         subdivision_mode = getattr(self, "subdivision_mode", None)
-        valid_modes = {
-            "binary8": 2,
-            "binary16": 4,
-            "ternary8": 3,
-            "ternary16": 6
-        }
 
-        if subdivision_mode not in valid_modes:
-            Brint(f"[HARMONY ERROR] subdivision_mode invalide ou manquant : {subdivision_mode} → fallback sur 'binary8'")
-            subdivision_mode = "binary8"
+        subdivs_per_beat = self.get_subdivisions_per_beat(subdivision_mode)
 
-        subdivs_per_beat = valid_modes[subdivision_mode]
 
         max_notes_per_subdiv = 6  # ← à ajuster si besoin
         # line_height = canvas_height / (subdivs_per_beat * max_notes_per_subdiv + 1)
