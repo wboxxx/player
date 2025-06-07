@@ -7778,7 +7778,10 @@ class VideoPlayer:
             Brint("[CLEAR LOOP] 🎵 Accords de la boucle supprimés")
 
 
-        self.reset_zoom_slider()
+        # Ensure zoom shows the entire file when clearing the loop
+        if hasattr(self, "zoom_slider"):
+            self.zoom_slider.set(1.0)
+        self.loop_zoom_ratio = 1.0
 
         if hasattr(self, "player"):
             self.player.audio_set_mute(False)
