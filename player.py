@@ -2344,7 +2344,9 @@ class VideoPlayer:
         Sinon, fallback dynamique basé sur loop + zoom_ratio.
         """
         if hasattr(self, "zoom_context") and self.zoom_context:
-            return self.zoom_context
+            base_zoom = dict(self.zoom_context)
+        else:
+            base_zoom = None
 
         loop_start = self.loop_start or 0
         loop_end = self.loop_end or self.duration or 10000  # fallback sécurité
@@ -2365,12 +2367,32 @@ class VideoPlayer:
             zoom_end = video_duration
             zoom_start = max(0, zoom_end - zoom_width)
 
-        return {
+        zoom_dict = {
             "zoom_start": zoom_start,
             "zoom_end": zoom_end,
             "zoom_width": zoom_width,
             "zoom_range": zoom_width  # alias
         }
+
+        if base_zoom is not None:
+            zoom_dict.update(base_zoom)
+
+        if (
+            base_zoom is not None
+            and self.loop_start is not None
+            and self.loop_end is not None
+            and base_zoom.get("zoom_range", 0) < (self.loop_end - self.loop_start)
+            and getattr(self, "playhead_time", None) is not None
+        ):
+            playhead_ms = self.playhead_time * 1000.0
+            loop_range = self.loop_end - self.loop_start
+            progress = (playhead_ms - self.loop_start) / loop_range
+            progress = max(0.0, min(1.0, progress))
+            offset = progress * (loop_range - base_zoom["zoom_range"])
+            zoom_dict["zoom_start"] = self.loop_start + offset
+            zoom_dict["zoom_end"] = zoom_dict["zoom_start"] + base_zoom["zoom_range"]
+
+        return zoom_dict
 
 
     def rebuild_loop_context(self):
@@ -2998,10 +3020,11 @@ class VideoPlayer:
     
     def degree_from_chord(self, chord, key):
         degrees = {
-            "C": ["I", "II", "III", "IV", "V", "VI", "VII"],
-            "G": ["I", "II", "III", "IV", "V", "VI", "VII"],
-            "D": ["I", "II", "III", "IV", "V", "VI", "VII"],
-            # TODO : compléter pour toutes les tonalités
+            key: ["I", "II", "III", "IV", "V", "VI", "VII"]
+            for key in [
+                "C", "C#", "Db", "D", "D#", "Eb", "E", "F", "F#", "Gb",
+                "G", "G#", "Ab", "A", "A#", "Bb", "B"
+            ]
         }
         # Simplification extrême pour l'exemple (à remplacer par une vraie logique)
         if not chord:
