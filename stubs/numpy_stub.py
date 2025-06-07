@@ -11,6 +11,8 @@ class ndarray(list):
     pass
 
 float32 = float
+uint8 = int
+inf = float('inf')
 
 
 def array(obj):
@@ -54,6 +56,11 @@ def abs(x):
 def where(condition):
     return ([i for i, v in enumerate(condition) if v],)
 
+def vectorize(func):
+    def wrapper(seq):
+        return [func(x) for x in seq]
+    return wrapper
+
 class RandomModule:
     def rand(self, n):
         return [_random.random() for _ in range(int(n))]
@@ -67,4 +74,15 @@ class TestingModule:
 
 class testing:
     assert_array_equal = staticmethod(TestingModule.assert_array_equal)
+
+
+# Added for compatibility with libraries expecting numpy's warning classes
+class VisibleDeprecationWarning(Warning):
+    pass
+
+
+class linalg:
+    @staticmethod
+    def inv(x):
+        return x
 
