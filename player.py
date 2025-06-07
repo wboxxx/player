@@ -7042,7 +7042,7 @@ class VideoPlayer:
         self.GlobApos = x
 
         now = time.time()
-        if now - self.last_stat_time > 0.25:
+        if now - self.last_stat_time > 0.03:
             ratio = (self.draw_count / self.update_count) if self.update_count else 0
             self.needs_refresh = True
             self.refresh_static_timeline_elements()
