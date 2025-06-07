@@ -2688,10 +2688,28 @@ class VideoPlayer:
 
 
 
-    def try_auto_load_recent_file(self):
+    def try_auto_load_recent_file(self, index=0, path=None):
         try:
             with open("recent_files.json", "r", encoding="utf-8") as f:
                 data = json.load(f)
+
+            if path:
+                if not os.path.exists(path):
+                    Brint(f"[AUTOLOAD] ❌ Média introuvable : {path}")
+                    return
+
+                self.open_given_file(path)
+                self.current_path = path
+                Brint(f"[AUTOLOAD] ✅ Média ouvert : {path}")
+
+                if data.get("auto_load_last_loop"):
+                    loop_name = data.get("last_loops", {}).get(path)
+                    if loop_name:
+                        self.root.after(500, lambda: self.set_loop_by_name(loop_name))
+                        Brint(f"[AUTOLOAD] ⏳ Boucle à restaurer : {loop_name}")
+                    else:
+                        Brint("[AUTOLOAD] ℹ️ Aucune boucle à restaurer pour ce média")
+                return
 
             if not data.get("auto_load_last_file"):
                 Brint("[AUTOLOAD] ⏩ Autoload désactivé")
@@ -2702,7 +2720,11 @@ class VideoPlayer:
                 Brint("[AUTOLOAD] ❌ Aucun chemin récent")
                 return
 
-            media_path = paths[0]
+            if index >= len(paths) or index < 0:
+                Brint(f"[AUTOLOAD] ❌ Index {index} hors limite")
+                return
+
+            media_path = paths[index]
             if not os.path.exists(media_path):
                 Brint(f"[AUTOLOAD] ❌ Média introuvable : {media_path}")
                 return
@@ -6153,7 +6175,7 @@ class VideoPlayer:
     
     
 
-    def __init__(self, root):
+    def __init__(self, root, autoload_index=0, autoload_path=None):
           #new timestamps on hits
         self.user_hit_timestamps = []
         self.impact_strikes = []
@@ -6657,8 +6679,8 @@ class VideoPlayer:
         self.root.bind('<Shift-P>', lambda e: self.stop_ram_loop())
 
         # Charger le zoom précédent si existant
-        # self.load_screen_zoom_prefs() 
-        self.try_auto_load_recent_file()
+        # self.load_screen_zoom_prefs()
+        self.try_auto_load_recent_file(autoload_index, autoload_path)
     
     def replay_from_A(self):
         if self.loop_start:
@@ -8840,8 +8862,24 @@ class VideoPlayer:
 
 
 if __name__ == "__main__":
+    index = 0
+    path = None
+    if len(sys.argv) > 1:
+        arg = sys.argv[1]
+        if arg.isdigit():
+            index = int(arg)
+        elif os.path.exists(arg):
+            path = arg
+        else:
+            try:
+                index = int(arg)
+                Brint(f"[AUTOLOAD] ⚠️ Chemin '{arg}' introuvable, traité comme index {index}")
+            except ValueError:
+                Brint(f"[AUTOLOAD] ⚠️ Argument '{arg}' ignoré (ni index ni chemin valide)")
+                index = 0
+
     root = tk.Tk()
-    app = VideoPlayer(root)
+    app = VideoPlayer(root, autoload_index=index, autoload_path=path)
 
     def run_for_5s():
         start = time.time()

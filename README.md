@@ -17,6 +17,8 @@ It was developed with the help of AI tools (e.g., ChatGPT) and includes original
 2. Activate the environment:
    `source .venv/bin/activate`
 3. Launch the application with `python player.py`.
+   You can optionally pass a number to load a recent file by index or a full
+   file path to open that media directly.
 
 The setup script reminds you to install system packages such as `ffmpeg` and
 `python3-tk` which are required for full functionality.
