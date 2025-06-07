@@ -2034,6 +2034,10 @@ class VideoPlayer:
         loop_duration = self.loop_end - self.loop_start
         zoom_range = self.get_zoom_context()["zoom_range"]
 
+        if z_range < loop_duration:
+            Brint("[ZOOM CHECK] ➖ Zoom inférieur à la boucle, aucune réinitialisation")
+            return
+
         if loop_duration > 0 and zoom_range > 0:
             ratio = zoom_range / loop_duration
             Brint(f"[ZOOM CHECK] 📏 Ratio zoom/loop = {ratio:.2f}")
