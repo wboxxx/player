@@ -6489,6 +6489,10 @@ class VideoPlayer:
         self.loop_menu_button.config(menu=self.loop_menu)
         self.loop_menu_button.pack(side=LEFT, padx=5)
         ToolTip(self.loop_menu_button, "Actions liées aux boucles et à leur analyse")
+        self.interp_var = tk.BooleanVar(value=True)
+        self.interp_chk = Checkbutton(self.controls_top, text="Interp", variable=self.interp_var)
+        self.interp_chk.pack(side=LEFT)
+        ToolTip(self.interp_chk, "Interpolation A/B")
         # === BOUTONS A / B ===
         self.btn_edit_A = Button(self.controls_top, text="A", command=lambda: self.set_edit_mode("loop_start"), width=3)
         self.btn_edit_A.pack(side=LEFT)
@@ -7983,31 +7987,46 @@ class VideoPlayer:
                     self.last_loop_jump_time = time.perf_counter()
                     Brint(f"[INIT LOOP] loop_duration_s = {self.loop_duration_s:.3f}s")
 
-                elapsed_since_last_jump = time.perf_counter() - self.last_loop_jump_time
-                loop_duration_corrected = self.loop_duration_s / player_rate
-                wrapped_elapsed = elapsed_since_last_jump % loop_duration_corrected
-                interpolated = self.loop_start / 1000.0 + wrapped_elapsed * player_rate
-                # après calcul interpolated
-                Brint(f"[PH LOOP] 🎯 Interpolation = {interpolated:.3f}s (elapsed={elapsed_since_last_jump:.3f}s)")
+                if self.interp_var.get():
+                    elapsed_since_last_jump = time.perf_counter() - self.last_loop_jump_time
+                    loop_duration_corrected = self.loop_duration_s / player_rate
+                    wrapped_elapsed = elapsed_since_last_jump % loop_duration_corrected
+                    interpolated = self.loop_start / 1000.0 + wrapped_elapsed * player_rate
+                    Brint(f"[PH LOOP] 🎯 Interpolation = {interpolated:.3f}s (elapsed={elapsed_since_last_jump:.3f}s)")
+                    self.safe_update_playhead(interpolated * 1000, source="Loop interpolation")
 
-                self.safe_update_playhead(interpolated * 1000, source="Loop interpolation")
-
-                if elapsed_since_last_jump >= loop_duration_corrected:
-                    self.safe_jump_to_time(self.loop_start, source="Jump B estim (all rates)")
-                    self.last_loop_jump_time = time.perf_counter()
-
-                    self.loop_pass_count += 1
-                    Brint(f"[LOOP PASS] Boucle AB passée {self.loop_pass_count} fois")
-                    self.evaluate_subdivision_states()
-                    self.last_playhead_time = self.playhead_time
-                    for i in list(self.subdivision_counters.keys()):
-                        last_hit_loop = self.subdiv_last_hit_loop.get(i, -1)
-                        if 0 < self.subdivision_counters[i] < 3:
-                            if last_hit_loop <= self.loop_pass_count - 2:
-                                Brint(f"[DECAY] Subdiv {i} remise à zéro (dernier hit = loop {last_hit_loop}, loop courante = {self.loop_pass_count})")
-                                self.subdivision_counters[i] = 0
-                                if i in self.subdiv_last_hit_loop:
-                                    del self.subdiv_last_hit_loop[i]
+                    if elapsed_since_last_jump >= loop_duration_corrected:
+                        self.safe_jump_to_time(self.loop_start, source="Jump B estim (all rates)")
+                        self.last_loop_jump_time = time.perf_counter()
+                        self.loop_pass_count += 1
+                        Brint(f"[LOOP PASS] Boucle AB passée {self.loop_pass_count} fois")
+                        self.evaluate_subdivision_states()
+                        self.last_playhead_time = self.playhead_time
+                        for i in list(self.subdivision_counters.keys()):
+                            last_hit_loop = self.subdiv_last_hit_loop.get(i, -1)
+                            if 0 < self.subdivision_counters[i] < 3:
+                                if last_hit_loop <= self.loop_pass_count - 2:
+                                    Brint(f"[DECAY] Subdiv {i} remise à zéro (dernier hit = loop {last_hit_loop}, loop courante = {self.loop_pass_count})")
+                                    self.subdivision_counters[i] = 0
+                                    if i in self.subdiv_last_hit_loop:
+                                        del self.subdiv_last_hit_loop[i]
+                else:
+                    self.safe_update_playhead(player_now, source="VLC loop raw")
+                    if player_now >= self.loop_end:
+                        self.safe_jump_to_time(self.loop_start, source="Jump B raw")
+                        self.last_loop_jump_time = time.perf_counter()
+                        self.loop_pass_count += 1
+                        Brint(f"[LOOP PASS] Boucle AB passée {self.loop_pass_count} fois (raw)")
+                        self.evaluate_subdivision_states()
+                        self.last_playhead_time = self.playhead_time
+                        for i in list(self.subdivision_counters.keys()):
+                            last_hit_loop = self.subdiv_last_hit_loop.get(i, -1)
+                            if 0 < self.subdivision_counters[i] < 3:
+                                if last_hit_loop <= self.loop_pass_count - 2:
+                                    Brint(f"[DECAY] Subdiv {i} remise à zéro (dernier hit = loop {last_hit_loop}, loop courante = {self.loop_pass_count})")
+                                    self.subdivision_counters[i] = 0
+                                    if i in self.subdiv_last_hit_loop:
+                                        del self.subdiv_last_hit_loop[i]
             else:
                 self.safe_update_playhead(player_now, source="VLC raw mode")
                 # dans le cas classique (pas de boucle)
