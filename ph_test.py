@@ -19,6 +19,7 @@ scipy_signal.butter = lambda *a, **k: []
 scipy_signal.sosfilt = lambda sos, y: y
 sys.modules['scipy.signal'] = scipy_signal
 sys.modules['soundfile'] = sf
+sys.modules['vlc'] = types.ModuleType('vlc')
 
 mpl = types.ModuleType('matplotlib')
 pyplot = types.ModuleType('matplotlib.pyplot')

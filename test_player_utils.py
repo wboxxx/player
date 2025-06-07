@@ -1,7 +1,21 @@
 import unittest
 from unittest.mock import patch, mock_open, MagicMock
 from lib_switch import np, librosa, scipy, sf
-import os # For os.path.exists checks in _util_extract_audio_segment tests
+import os  # For os.path.exists checks in _util_extract_audio_segment tests
+import sys
+import types
+
+# Provide dummy external modules for player import
+sys.modules.setdefault('vlc', MagicMock())
+sys.modules.setdefault('matplotlib', types.ModuleType('matplotlib'))
+sys.modules.setdefault('matplotlib.pyplot', MagicMock())
+sys.modules.setdefault('matplotlib.patches', types.ModuleType('matplotlib.patches'))
+sys.modules.setdefault('matplotlib.gridspec', types.ModuleType('matplotlib.gridspec'))
+sys.modules.setdefault('matplotlib.animation', types.ModuleType('matplotlib.animation'))
+sys.modules.setdefault('pygame', types.ModuleType('pygame'))
+sys.modules.setdefault('pygame.mixer', types.ModuleType('pygame.mixer'))
+sys.modules.setdefault('pydub', types.ModuleType('pydub'))
+sys.modules['pydub'].AudioSegment = MagicMock()
 
 # Assuming player.py is in the same directory or accessible via PYTHONPATH
 from player import (
@@ -288,6 +302,35 @@ class TestDegreeFromChordMapping(unittest.TestCase):
         keys = ["C", "C#", "Db", "D", "D#", "Eb", "E", "F", "F#", "Gb", "G", "G#", "Ab", "A", "A#", "Bb", "B"]
         for k in keys:
             self.assertNotEqual(vp.degree_from_chord(k, k), "?")
+
+
+class TestZoomScroll(unittest.TestCase):
+    class Dummy(VideoPlayer):
+        def __init__(self):
+            self.loop_start = 0
+            self.loop_end = 10000
+            self.loop_zoom_ratio = 2.0
+            self.playhead_time = 0.0
+            self.player = MagicMock()
+            self.player.get_length.return_value = 10000
+            self.zoom_context = {
+                "zoom_start": 0,
+                "zoom_end": 5000,
+                "zoom_range": 5000,
+            }
+
+    def test_scroll_reaches_B(self):
+        d = self.Dummy()
+        d.playhead_time = 10.0
+        ctx = d.get_zoom_context()
+        self.assertEqual(ctx["zoom_end"], d.loop_end)
+
+    def test_midway_scroll(self):
+        d = self.Dummy()
+        d.playhead_time = 5.0
+        ctx = d.get_zoom_context()
+        self.assertEqual(ctx["zoom_start"], 2500)
+        self.assertEqual(ctx["zoom_end"], 7500)
 
 if __name__ == '__main__':
     unittest.main(argv=['first-arg-is-ignored'], exit=False)
