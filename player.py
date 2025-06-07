@@ -2429,9 +2429,11 @@ class VideoPlayer:
             loop_start = 0
             loop_end = self.player.get_length()
             self.loop_zoom_ratio = 1.0
-            Brint(f"[INFO Time2X] Pas de loop active, fallback à toute la durée ({loop_end} ms) avec zoom_ratio=1.0")
+            Brint(
+                f"[INFO Time2X] Pas de loop active, fallback à toute la durée ({loop_end} ms) avec zoom_ratio=1.0"
+            )
 
-        loop_width = loop_end - loop_start
+        loop_range = loop_end - loop_start
         zoom = self.get_zoom_context()
         zoom_start = zoom["zoom_start"]
         zoom_range = zoom["zoom_range"]
@@ -2445,9 +2447,22 @@ class VideoPlayer:
             print(f"[WARNING] zoom_range invalide ({zoom_range}), fallback 1000")
             zoom_range = 1000
 
-        x = round((t_ms - zoom_start) / zoom_range * canvas_width)
+        ratio = (t_ms - zoom_start) / zoom_range
 
-        Brint(f"[DEBUG time_sec_to_canvas_x] t_sec={t_sec:.3f}s | t_ms={t_ms:.1f} | zoom_start={zoom_start} | zoom_range={zoom_range} | canvas_width={canvas_width} → x={x}")
+        if zoom_range < loop_range:
+            x = 0.2 * canvas_width + ratio * 0.6 * canvas_width
+        else:
+            x = ratio * canvas_width
+
+        x = round(max(0, min(canvas_width, x)))
+
+        print(
+            f"[time_sec_to_canvas_x] t={t_ms} zoom_range={zoom_range} loop_range={loop_range} ratio={ratio} x={x}"
+        )
+
+        Brint(
+            f"[DEBUG time_sec_to_canvas_x] t_sec={t_sec:.3f}s | t_ms={t_ms:.1f} | zoom_start={zoom_start} | zoom_range={zoom_range} | loop_range={loop_range} | canvas_width={canvas_width} | ratio={ratio:.3f} → x={x}"
+        )
         return x
 
     def zoom_pref_path_for_current_media(self):
