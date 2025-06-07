@@ -121,9 +121,10 @@ DEBUG_FLAGS = {
     "TEMPO": False,
     "TRACKER": False,
     "WARNING": False,
-    "ZOOM": False
-    ,
-    "BRINT" : None
+    "ZOOM": False,
+    "TIME2X": False,
+    "BRINT": True
+
 
 
 }
@@ -170,6 +171,10 @@ TOKEN_FILE = "token.json"
 
 #debug
 DEBUG_MAX_INDEX = 3
+
+# Interval in milliseconds between successive calls to `update_loop`.
+# Lower values produce smoother playback at the cost of CPU usage.
+UPDATE_LOOP_INTERVAL_MS = 50
 
 
 # ===== Harmony Utils =====
@@ -2568,11 +2573,13 @@ class VideoPlayer:
 
         canvas_width = getattr(self, "cached_canvas_width", self.grid_canvas.winfo_width())
         if canvas_width <= 1:
-            Brint(f"[WARNING] canvas_width trop petit ({canvas_width}), fallback 100")
+
+            Brint(f"[WARNING TIME2X] canvas_width trop petit ({canvas_width}), fallback 100")
             canvas_width = 100
 
         if zoom_range <= 0:
-            Brint(f"[WARNING] zoom_range invalide ({zoom_range}), fallback 1000")
+            Brint(f"[WARNING TIME2X] zoom_range invalide ({zoom_range}), fallback 1000")
+
             zoom_range = 1000
 
         ratio = (t_ms - zoom_start) / zoom_range
@@ -2581,9 +2588,10 @@ class VideoPlayer:
         else:
             x = ratio * canvas_width
 
-        # The raw canvas position may lie outside the visible range when zoomed.
-        # Return this unclamped value so callers can decide how to handle it.
-        Brint(t_sec, zoom_range, loop_range, ratio, x)
+
+        x = max(0, min(canvas_width, x))
+        Brint(f"[TIME2X] t_sec={t_sec:.3f}s zoom_range={zoom_range} loop_range={loop_range} ratio={ratio:.3f} -> x={x}")
+
         x = round(x)
 
         Brint(f"[DEBUG time_sec_to_canvas_x] t_sec={t_sec:.3f}s | t_ms={t_ms:.1f} | zoom_start={zoom_start} | zoom_range={zoom_range} | canvas_width={canvas_width} → x={x}")
@@ -5126,7 +5134,7 @@ class VideoPlayer:
             self.player.audio_set_mute(False)
 
         self.safe_update_playhead(0, source="open_given_file2")
-        self.root.after(100, self.update_loop)
+        self.root.after(UPDATE_LOOP_INTERVAL_MS, self.update_loop)
         self.console.config(text=f"▶️ Playing: {os.path.basename(path)}")
         import threading
         threading.Thread(target=self._run_beat1_detection_from_scanfile, daemon=True).start()
@@ -6396,7 +6404,7 @@ class VideoPlayer:
 
         
         # === DEMARRAGE ===
-        self.root.after(100, self.update_loop)
+        self.root.after(UPDATE_LOOP_INTERVAL_MS, self.update_loop)
         self.safe_update_playhead(0, source="INIT")
         self.force_playhead_time = False
         self.last_jump_target_ms = 0
@@ -7914,7 +7922,7 @@ class VideoPlayer:
         if dbflag : pass #Brint(f"[DEBUG] open_file(): get_length() = {self.player.get_length()} ms")
 
         self.safe_update_playhead(0, source="faststart_remux2")  # 👈 Affiche playhead immédiatement
-        self.root.after(100, self.update_loop)
+        self.root.after(UPDATE_LOOP_INTERVAL_MS, self.update_loop)
         self.console.config(text=f"▶️ Playing: {os.path.basename(path)}")
         import threading
     # threading.Thread(target=self.load_jamtrack_zones, args=(self.current_path,), daemon=True).start()
@@ -7995,7 +8003,7 @@ class VideoPlayer:
 
 #fps
         if not self.is_paused:
-            self.after_id = self.root.after(400, self.update_loop)
+            self.after_id = self.root.after(UPDATE_LOOP_INTERVAL_MS, self.update_loop)
 
 
     def on_timeline_click(self, e): self.handle_timeline_interaction(e.x)
