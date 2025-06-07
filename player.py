@@ -7995,7 +7995,7 @@ class VideoPlayer:
 
 #fps
         if not self.is_paused:
-            self.after_id = self.root.after(400, self.update_loop)
+            self.after_id = self.root.after(30, self.update_loop)
 
 
     def on_timeline_click(self, e): self.handle_timeline_interaction(e.x)
