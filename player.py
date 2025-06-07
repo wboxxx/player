@@ -7833,6 +7833,7 @@ class VideoPlayer:
                 self.after_id = None
             vlc_time = self.player.get_time()
             self.playhead_time = vlc_time / 1000.0
+            self.pause_start_time = time.perf_counter()
             self.player.pause()
             self.console.config(text="⏸ Pause")
             Brint(f"[PH PAUSE] ⏸ Pause → VLC time = {vlc_time} ms → playhead_time = {self.playhead_time:.3f}s")
@@ -7845,6 +7846,11 @@ class VideoPlayer:
                 self.safe_jump_to_time(int(self.playhead_time * 1000), source="toggle_pause")
             else:
                 Brint("[PH PAUSE] ❓ Reprise → playhead_time manquant")
+            if hasattr(self, "pause_start_time") and self.pause_start_time is not None:
+                pause_duration = time.perf_counter() - self.pause_start_time
+                if hasattr(self, "last_loop_jump_time"):
+                    self.last_loop_jump_time += pause_duration
+                self.pause_start_time = None
             self.player.play()
             self.console.config(text="▶️ Lecture")
             self.update_loop()
