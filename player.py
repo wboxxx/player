@@ -4955,7 +4955,9 @@ class VideoPlayer:
                 Brint(f"[MODE BAR] Loop became invalid or undefined, self.loop_duration_s set to None")
 
             # Check if we need to jump the player to loop_start
-            playhead_must_jump_to_A = (self.playhead_time * 1000) > self.loop_end
+            playhead_must_jump_to_A = False
+            if self.playhead_time is not None:
+                playhead_must_jump_to_A = (self.playhead_time * 1000) > self.loop_end
 
             if playhead_must_jump_to_A:
                 self.last_loop_jump_time = time.perf_counter() # Standard reset for a jump to A
@@ -4966,16 +4968,23 @@ class VideoPlayer:
                 # Maintain current relative playhead position by adjusting last_loop_jump_time
                 # This prevents visual jump to A if audio is not jumping to A.
                 current_playback_rate = self.player.get_rate() or 1.0
-                if current_playback_rate == 0: current_playback_rate = 1.0 # Avoid division by zero
+                if current_playback_rate == 0:
+                    current_playback_rate = 1.0  # Avoid division by zero
 
-                # playhead_time is in seconds, loop_start is in ms
-                current_offset_from_A_media_seconds = self.playhead_time - (self.loop_start / 1000.0)
+                if self.playhead_time is not None:
+                    # playhead_time is in seconds, loop_start is in ms
+                    current_offset_from_A_media_seconds = self.playhead_time - (self.loop_start / 1000.0)
 
-                # How much unscaled (real) time has passed for the playhead to reach its current position from A
-                current_offset_real_seconds = current_offset_from_A_media_seconds / current_playback_rate
+                    # How much unscaled (real) time has passed for the playhead to reach its current position from A
+                    current_offset_real_seconds = current_offset_from_A_media_seconds / current_playback_rate
 
-                self.last_loop_jump_time = time.perf_counter() - current_offset_real_seconds
-                Brint(f"[MODE BAR] Adjusted last_loop_jump_time to maintain playhead position: {self.last_loop_jump_time:.3f} (current_offset_real_seconds: {current_offset_real_seconds:.3f})")
+                    self.last_loop_jump_time = time.perf_counter() - current_offset_real_seconds
+                    Brint(
+                        f"[MODE BAR] Adjusted last_loop_jump_time to maintain playhead position: {self.last_loop_jump_time:.3f} (current_offset_real_seconds: {current_offset_real_seconds:.3f})"
+                    )
+                else:
+                    self.last_loop_jump_time = time.perf_counter()
+                    Brint("[MODE BAR] Playhead time undefined; last_loop_jump_time reset.")
 
             self.needs_refresh = True
             self.refresh_static_timeline_elements()
