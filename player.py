@@ -2850,10 +2850,7 @@ class VideoPlayer:
         playhead_x = getattr(self, 'playhead_canvas_x', -9999)
 
         for idx, (i, t_subdiv_sec) in enumerate(self.grid_subdivs):
-            subdiv_duration_s = 60.0 / self.tempo_bpm / subdivisions_per_beat
-            pixels_per_subdiv = 1000 * subdiv_duration_s * canvas_width / zoom_range
-            x_loop_start = self.time_sec_to_canvas_x(self.loop_start / 1000.0)
-            x = x_loop_start + idx * pixels_per_subdiv
+            x = self.time_sec_to_canvas_x(t_subdiv_sec)
 
             state = self.subdivision_state.get(i, 0)
             is_playhead = abs(x - playhead_x) < 1
@@ -8482,14 +8479,7 @@ class VideoPlayer:
             if count == 0:
                 continue  # On ne dessine que si frappes
 
-            # x_pos = self.time_sec_to_canvas_x(t_subdiv_sec )
-            subdiv_duration_s = 60.0 / self.tempo_bpm / self.get_subdivisions_per_beat()
-            canvas_width = self.grid_canvas.winfo_width()
-            zoom = self.get_zoom_context()
-            zoom_range = zoom["zoom_range"]
-            pixels_per_subdiv = 1000 * subdiv_duration_s * canvas_width / zoom_range
-            x_loop_start = self.time_sec_to_canvas_x(self.loop_start / 1000.0)
-            x_pos = x_loop_start + i * pixels_per_subdiv
+            x_pos = self.time_sec_to_canvas_x(t_subdiv_sec)
             label = self.grid_labels[i] if i < len(self.grid_labels) else "?"
             color = "#FF0000" if count > 3 else "#FF8800"
             width = 4 + count * 2

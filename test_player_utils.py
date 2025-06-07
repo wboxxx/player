@@ -367,5 +367,28 @@ class TestTogglePauseLoopTiming(unittest.TestCase):
         vp.player.play.assert_called_once()
         vp.update_loop.assert_called_once()
 
+
+class TestGridZoomScaling(unittest.TestCase):
+    class Dummy(VideoPlayer):
+        def __init__(self):
+            self.loop_start = 0
+            self.loop_end = 8000
+            self.tempo_bpm = 60
+            self.subdivision_mode = "binary4"
+            self.grid_canvas = MagicMock()
+            self.grid_canvas.winfo_width.return_value = 1000
+            self.player = MagicMock()
+            self.player.get_length.return_value = 8000
+            self.loop_zoom_ratio = 2.0
+            self.zoom_context = {"zoom_start": 0, "zoom_end": 4000, "zoom_range": 4000}
+            self.subdivision_state = {}
+
+    def test_subdivision_positions_scaled_with_zoom(self):
+        d = self.Dummy()
+        VideoPlayer.build_rhythm_grid(d)
+        infos = d.compute_rhythm_grid_infos()
+        self.assertAlmostEqual(infos[0]["x"], 200)
+        self.assertAlmostEqual(infos[1]["x"], 350)
+
 if __name__ == '__main__':
     unittest.main(argv=['first-arg-is-ignored'], exit=False)
