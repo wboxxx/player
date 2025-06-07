@@ -7048,6 +7048,14 @@ class VideoPlayer:
 
         self.playhead_canvas_x = self.time_sec_to_canvas_x(current_time_ms / 1000.0) if zoom_range > 0 else -9999
 
+        # -- New behavior: auto-adjust zoom as playhead moves --
+        old_zoom = self.get_zoom_context()
+        self.maybe_adjust_zoom_if_out_of_frame()
+        new_zoom = self.get_zoom_context()
+        if old_zoom != new_zoom:
+            self.needs_refresh = True
+        self.refresh_static_timeline_elements()
+
 
 
     def refresh_static_timeline_elements(self):
