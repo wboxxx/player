@@ -1,3 +1,4 @@
+#start
 # === Imports standards ===
 import os
 import sys
@@ -123,6 +124,7 @@ DEBUG_FLAGS = {
     "ZOOM": False,
     "TIME2X": False,
     "BRINT": True
+
 
 
 }
@@ -2037,6 +2039,10 @@ class VideoPlayer:
         loop_duration = self.loop_end - self.loop_start
         zoom_range = self.get_zoom_context()["zoom_range"]
 
+        if z_range < loop_duration:
+            Brint("[ZOOM CHECK] ➖ Zoom inférieur à la boucle, aucune réinitialisation")
+            return
+
         if loop_duration > 0 and zoom_range > 0:
             ratio = zoom_range / loop_duration
             Brint(f"[ZOOM CHECK] 📏 Ratio zoom/loop = {ratio:.2f}")
@@ -2546,7 +2552,7 @@ class VideoPlayer:
 
     def time_sec_to_canvas_x(self, t_sec):
         import traceback
-        # print(f"[DEBUG time_sec_to_canvas_x] → Appel avec t_sec={t_sec}")
+        # Brint(f"[DEBUG time_sec_to_canvas_x] → Appel avec t_sec={t_sec}")
         # traceback.print_stack(limit=5)
 
         t_ms = t_sec * 1000
@@ -2567,11 +2573,13 @@ class VideoPlayer:
 
         canvas_width = getattr(self, "cached_canvas_width", self.grid_canvas.winfo_width())
         if canvas_width <= 1:
+
             Brint(f"[WARNING TIME2X] canvas_width trop petit ({canvas_width}), fallback 100")
             canvas_width = 100
 
         if zoom_range <= 0:
             Brint(f"[WARNING TIME2X] zoom_range invalide ({zoom_range}), fallback 1000")
+
             zoom_range = 1000
 
         ratio = (t_ms - zoom_start) / zoom_range
@@ -2580,8 +2588,10 @@ class VideoPlayer:
         else:
             x = ratio * canvas_width
 
+
         x = max(0, min(canvas_width, x))
         Brint(f"[TIME2X] t_sec={t_sec:.3f}s zoom_range={zoom_range} loop_range={loop_range} ratio={ratio:.3f} -> x={x}")
+
         x = round(x)
 
         Brint(f"[DEBUG time_sec_to_canvas_x] t_sec={t_sec:.3f}s | t_ms={t_ms:.1f} | zoom_start={zoom_start} | zoom_range={zoom_range} | canvas_width={canvas_width} → x={x}")
@@ -3226,7 +3236,7 @@ class VideoPlayer:
     def set_forced_jump(self, value, source="UNKNOWN"):
         old_value = getattr(self, 'in_forced_jump', False)
         if old_value == value:
-            pass#LOOPJUMPprint(f"[FORCED JUMP TRACKER] {source} a ignoré changement inutile : déjà {value}")
+            pass#LOOPJUMPBrint(f"[FORCED JUMP TRACKER] {source} a ignoré changement inutile : déjà {value}")
         else:
             self.in_forced_jump = value
             Brint(f"[FORCED JUMP TRACKER] {source} change in_forced_jump: {old_value} → {value}")
@@ -4729,10 +4739,10 @@ class VideoPlayer:
                 self.safe_update_playhead(self.player.get_time(), source="run_for_5s")
                 time.sleep(0.015)
 
-        Brint("🟡 Profiling pendant 5 secondes...")
-        cProfile.runctx("run_for_5s()", globals(), locals(), filename="perf5s.stats")
-        Brint("✅ Profil terminé → perf5s.stats")
-        pstats.Stats("perf5s.stats").sort_stats("cumtime").print_stats(30)
+        # Brint("🟡 Profiling pendant 5 secondes...")
+        # cProfile.runctx("run_for_5s()", globals(), locals(), filename="perf5s.stats")
+        # Brint("✅ Profil terminé → perf5s.stats")
+        # pstats.Stats("perf5s.stats").sort_stats("cumtime").print_stats(30)
 
 
 
@@ -7050,6 +7060,14 @@ class VideoPlayer:
 
         self.playhead_canvas_x = self.time_sec_to_canvas_x(current_time_ms / 1000.0) if zoom_range > 0 else -9999
 
+        # -- New behavior: auto-adjust zoom as playhead moves --
+        old_zoom = self.get_zoom_context()
+        self.maybe_adjust_zoom_if_out_of_frame()
+        new_zoom = self.get_zoom_context()
+        if old_zoom != new_zoom:
+            self.needs_refresh = True
+        self.refresh_static_timeline_elements()
+
 
 
     def refresh_static_timeline_elements(self):
@@ -7103,12 +7121,12 @@ class VideoPlayer:
             self.timeline.create_text(x_label, 6, text=loop["name"], anchor='w', fill="cyan", tags=tags)
             self.timeline.tag_bind(tag, "<Button-1>", lambda e, i=idx: self.load_saved_loop(i))
 
-        if self.loop_start:
+        if self.loop_start and zoom_start <= self.loop_start <= zoom_end:
             xa = self.time_sec_to_canvas_x(self.loop_start / 1000)
             self.timeline.create_line(xa, 0, xa, 24, fill="green", tags="loop_marker")
             self.timeline.create_text(xa + 10, 18, text=f"A: {self.hms(self.loop_start)}", anchor='w', fill="white", tags="loop_marker")
 
-        if self.loop_end:
+        if self.loop_end and zoom_start <= self.loop_end <= zoom_end:
             xb = self.time_sec_to_canvas_x(self.loop_end / 1000)
             self.timeline.create_line(xb, 0, xb, 24, fill="orange", tags="loop_marker")
             self.timeline.create_text(xb + 10, 18, text=f"B: {self.hms(self.loop_end)}", anchor='w', fill="white", tags="loop_marker")
@@ -7394,7 +7412,7 @@ class VideoPlayer:
     def record_loop_marker(self, mode, milliseconds=None, auto_exit=True):
         # 🛠️ Fallback logique si la boucle est inactive (A == B == 0)
         if self.loop_start == 0 and self.loop_end == 0:
-            print("[RLM] ⚠️ Loop inactive, on fallback B = durée totale du média")
+            Brint("[RLM] ⚠️ Loop inactive, on fallback B = durée totale du média")
             self.loop_end = self.player.get_length()
 
         Brint(f"[RLM] STARTS➕ loop_start = {self.loop_start}, loop_end = {self.loop_end}")
@@ -7782,9 +7800,9 @@ class VideoPlayer:
 
         # 🔍 Durée via player.get_length()
         full_duration = self.player.get_length()
-        print(f"[CLEAR LOOP] Durée vidéo détectée : {full_duration} ms")
+        Brint(f"[CLEAR LOOP] Durée vidéo détectée : {full_duration} ms")
         if not full_duration or full_duration <= 0:
-            print("[CLEAR LOOP WARNING] Durée invalide, fallback 1000 ms")
+            Brint("[CLEAR LOOP WARNING] Durée invalide, fallback 1000 ms")
             full_duration = 1000
 
         if not hasattr(self, "zoom_context"):
