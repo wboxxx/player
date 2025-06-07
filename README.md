@@ -60,3 +60,42 @@ If you reuse this work, please respect the license and give proper attribution.
 ## License
 
 MIT — See `LICENSE` file for details.
+
+## loop scroll
+🎛️ Zoom and Scroll Logic in the Zoom Window
+
+🟢 Phase 1: Standard Zoom — Centered on the Loop
+
+As long as the zoom level is moderate:
+	•	The zoom window stays fixed, centered on the middle of the loop (between A and B).
+	•	The visible range (zoom_range) gets progressively smaller as the user zooms in.
+	•	This continues until the zoom_range becomes approximately loop_duration / 0.9 — that is, about 111% of the loop duration.
+	•	During this phase, the view is stable: no scrolling, no playhead repositioning.
+
+🟡 Phase 2: Scroll Mode — Interpolated View Following the Playhead
+
+Once the zoom goes beyond that threshold, we enter dynamic scroll mode:
+	•	The zoom window starts to move horizontally within the loop range.
+	•	It is not centered on the playhead.
+	•	Instead, the playhead position on the canvas is interpolated:
+	•	At the start (when the playhead is at A), it’s shown at 5% of the canvas width.
+	•	At the end (when the playhead reaches B), it’s at 95%.
+	•	This creates a smooth visual scroll.
+	•	The actual zoom window length is fixed or clamped to a minimum duration (e.g., 4 seconds), which is smaller than the loop duration.
+
+🔁 Example: Playhead Scroll Over an 8s Loop
+	•	Suppose the loop is 8 seconds long.
+	•	When the scroll begins, the playhead is at A, shown at 5% of canvas width.
+	•	Over time, as the playhead moves toward B, its x-position increases gradually to 95%.
+	•	Visually:
+	•	The playhead traverses 8 seconds,
+	•	But only moves across 90% of the canvas.
+	•	→ Its visual speed is reduced by ~50%.
+
+🧠 Visual Synchronization of Layers
+
+While this interpolated scroll is happening:
+	•	All time-synced visual layers — waveform (RMS power), rhythmic grid, etc. — must:
+	•	Scroll accordingly, so they stay aligned with the playhead’s real-time position.
+	•	Update dynamically to maintain visual accuracy and rhythmic alignment.
+
