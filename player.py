@@ -5124,8 +5124,14 @@ class VideoPlayer:
         Brint(f"✅ Script {os.path.basename(script_path)} uploadé comme {target_name}")
         self.log_to_console(f"✅ Script {os.path.basename(script_path)} uploadé comme {target_name}")
 
-    def open_given_file(self, path):
+    def open_given_file(self, path, spawn_new_instance=False):
         """Charge un fichier donné directement, sans repasser par le file dialog."""
+        if spawn_new_instance:
+            import subprocess, sys, os
+            subprocess.Popen([sys.executable, os.path.abspath(__file__), path])
+            self.root.destroy()
+            sys.exit(0)
+            return
         self.current_path = path
         self.root.after(1000, self.load_screen_zoom_prefs)
 
@@ -7892,12 +7898,18 @@ class VideoPlayer:
 
  
  
-    def open_file(self):
+    def open_file(self, spawn_new_instance=False):
         self.needs_refresh = True
         self.refresh_static_timeline_elements()
 
         path = filedialog.askopenfilename()
         if not path:
+            return
+        if spawn_new_instance:
+            import subprocess, sys, os
+            subprocess.Popen([sys.executable, os.path.abspath(__file__), path])
+            self.root.destroy()
+            sys.exit(0)
             return
         self.current_path = path
         self.root.after(1000, self.load_screen_zoom_prefs)
