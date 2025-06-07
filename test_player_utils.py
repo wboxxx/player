@@ -332,5 +332,40 @@ class TestZoomScroll(unittest.TestCase):
         self.assertEqual(ctx["zoom_start"], 2500)
         self.assertEqual(ctx["zoom_end"], 7500)
 
+
+class TestTogglePauseLoopTiming(unittest.TestCase):
+    def _create_player(self):
+        vp = VideoPlayer.__new__(VideoPlayer)
+        vp.root = MagicMock()
+        vp.root.after_cancel = MagicMock()
+        vp.console = MagicMock()
+        vp.player = MagicMock()
+        vp.player.get_time.return_value = 2000
+        vp.player.pause = MagicMock()
+        vp.player.play = MagicMock()
+        vp.after_id = "id"
+        vp.playhead_time = None
+        vp.loop_start = 0
+        vp.loop_end = 4000
+        vp.loop_duration_s = 4.0
+        vp.last_loop_jump_time = 50.0
+        vp.update_loop = MagicMock()
+        return vp
+
+    @patch('player.time.perf_counter', side_effect=[100.0, 110.0])
+    @patch.object(VideoPlayer, 'safe_jump_to_time')
+    def test_pause_resume_adjusts_last_loop_jump(self, mock_jump, mock_perf):
+        vp = self._create_player()
+        vp.toggle_pause()
+        self.assertTrue(vp.is_paused)
+        self.assertEqual(vp.pause_start_time, 100.0)
+
+        vp.toggle_pause()
+        self.assertFalse(vp.is_paused)
+        self.assertAlmostEqual(vp.last_loop_jump_time, 60.0)
+        mock_jump.assert_called_once_with(int(vp.playhead_time * 1000), source="toggle_pause")
+        vp.player.play.assert_called_once()
+        vp.update_loop.assert_called_once()
+
 if __name__ == '__main__':
     unittest.main(argv=['first-arg-is-ignored'], exit=False)
