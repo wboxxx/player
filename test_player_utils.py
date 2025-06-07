@@ -25,6 +25,7 @@ from player import (
     extract_keyframes,
     VideoPlayer,
 )
+import player
 
 class TestFormatTime(unittest.TestCase):
     def test_zero_seconds(self):
@@ -389,6 +390,19 @@ class TestGridZoomScaling(unittest.TestCase):
         infos = d.compute_rhythm_grid_infos()
         self.assertAlmostEqual(infos[0]["x"], 200)
         self.assertAlmostEqual(infos[1]["x"], 350)
+
+
+class TestSpawnNewInstance(unittest.TestCase):
+    @patch('player.subprocess.Popen')
+    @patch('player.sys.exit')
+    def test_open_given_file_spawns(self, mock_exit, mock_popen):
+        vp = VideoPlayer.__new__(VideoPlayer)
+        vp.root = MagicMock()
+        VideoPlayer.open_given_file(vp, 'sample.mp4', spawn_new_instance=True)
+        expected = [sys.executable, os.path.abspath(player.__file__), 'sample.mp4']
+        mock_popen.assert_called_once_with(expected)
+        vp.root.destroy.assert_called_once()
+        mock_exit.assert_called_once_with(0)
 
 if __name__ == '__main__':
     unittest.main(argv=['first-arg-is-ignored'], exit=False)
