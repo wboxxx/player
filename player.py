@@ -2386,7 +2386,7 @@ class VideoPlayer:
             base_zoom is not None
             and self.loop_start is not None
             and self.loop_end is not None
-            and base_zoom.get("zoom_range", 0) < (self.loop_end - self.loop_start)
+            and base_zoom.get("zoom_range", 0) < (self.loop_end - self.loop_start) / 0.9
             and getattr(self, "playhead_time", None) is not None
         ):
             playhead_ms = self.playhead_time * 1000.0
@@ -2577,7 +2577,7 @@ class VideoPlayer:
 
         ratio = (t_ms - zoom_start) / zoom_range
         if zoom_range < loop_range:
-            x = 0.2 * canvas_width + ratio * 0.6 * canvas_width
+            x = 0.05 * canvas_width + ratio * 0.90 * canvas_width
         else:
             x = ratio * canvas_width
 

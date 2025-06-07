@@ -388,8 +388,8 @@ class TestGridZoomScaling(unittest.TestCase):
         d = self.Dummy()
         VideoPlayer.build_rhythm_grid(d)
         infos = d.compute_rhythm_grid_infos()
-        self.assertAlmostEqual(infos[0]["x"], 200)
-        self.assertAlmostEqual(infos[1]["x"], 350)
+        self.assertAlmostEqual(infos[0]["x"], 50)
+        self.assertAlmostEqual(infos[1]["x"], 275)
 
 
 class TestSpawnNewInstance(unittest.TestCase):
