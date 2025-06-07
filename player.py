@@ -7899,6 +7899,9 @@ class VideoPlayer:
  
  
     def open_file(self, spawn_new_instance=False):
+        if getattr(self, "after_id", None):
+            self.root.after_cancel(self.after_id)
+            self.after_id = None
         self.needs_refresh = True
         self.refresh_static_timeline_elements()
 

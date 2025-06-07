@@ -404,5 +404,40 @@ class TestSpawnNewInstance(unittest.TestCase):
         vp.root.destroy.assert_called_once()
         mock_exit.assert_called_once_with(0)
 
+
+class TestOpenFileAfterCancel(unittest.TestCase):
+    def _create_player(self):
+        vp = VideoPlayer.__new__(VideoPlayer)
+        vp.root = MagicMock()
+        vp.root.after_cancel = MagicMock()
+        vp.root.after = MagicMock()
+        vp.refresh_static_timeline_elements = MagicMock()
+        vp.canvas = MagicMock()
+        vp.canvas.winfo_id.return_value = 1
+        vp.console = MagicMock()
+        vp.instance = MagicMock()
+        vp.instance.media_new.return_value = MagicMock()
+        vp.player = MagicMock()
+        vp.load_saved_loops = MagicMock()
+        vp.apply_crop = MagicMock()
+        vp.safe_update_playhead = MagicMock()
+        vp.update_loop = MagicMock()
+        vp._compute_audio_power_data = MagicMock()
+        vp.after_id = None
+        return vp
+
+    @patch('player.filedialog.askopenfilename', side_effect=['f1.mp4', 'f2.mp4'])
+    @patch('player.subprocess.Popen')
+    @patch('player.sys.exit')
+    @patch('threading.Thread')
+    def test_cancel_previous_after(self, mock_thread, mock_exit, mock_popen, mock_dialog):
+        vp = self._create_player()
+        vp.root.destroy = MagicMock()
+        VideoPlayer.open_file(vp, spawn_new_instance=True)
+        vp.after_id = 'cb1'
+        VideoPlayer.open_file(vp, spawn_new_instance=True)
+        vp.root.after_cancel.assert_called_once_with('cb1')
+        self.assertIsNone(vp.after_id)
+
 if __name__ == '__main__':
     unittest.main(argv=['first-arg-is-ignored'], exit=False)
