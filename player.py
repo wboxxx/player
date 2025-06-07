@@ -3339,9 +3339,9 @@ class VideoPlayer:
         Brint(f"[ZOOM] 🔍 Zoom boucle réglé sur {self.loop_zoom_ratio:.2f} (AB = {int(self.loop_zoom_ratio*100)}% de la timeline)")
 
         if self.loop_start is not None and self.loop_end is not None and self.duration:
-            loop_width_ms = max(10000.0, self.loop_end - self.loop_start)
+            loop_width_ms = max(0.0, self.loop_end - self.loop_start)
             center_ms = (self.loop_start + self.loop_end) / 2.0
-            desired_ms = loop_width_ms / self.loop_zoom_ratio
+            desired_ms = max(4000.0, loop_width_ms * self.loop_zoom_ratio)
             zoom_start = max(0.0, center_ms - desired_ms / 2.0)
             zoom_end = min(self.duration, zoom_start + desired_ms)
             self.zoom_context = {
@@ -3358,9 +3358,9 @@ class VideoPlayer:
 
     def get_loop_zoom_range(self):
         if self.loop_start and self.loop_end:
-            loop_width_sec = max(10.0, (self.loop_end - self.loop_start) / 1000.0)
+            loop_width_sec = max(0.0, (self.loop_end - self.loop_start) / 1000.0)
             center_sec = (self.loop_start + self.loop_end) / 2000.0
-            desired_sec = loop_width_sec / self.loop_zoom_ratio
+            desired_sec = max(4.0, loop_width_sec * self.loop_zoom_ratio)
             zoom_start = max(0, center_sec - desired_sec / 2.0)
             zoom_end = min(self.duration / 1000.0, center_sec + desired_sec / 2.0)
             return zoom_start, zoom_end
