@@ -6,12 +6,37 @@ from stubs import numpy_stub as np
 from stubs import librosa
 from stubs import scipy
 from stubs import soundfile as sf
+import types
 
 sys.modules['numpy'] = np
+sys.modules['numpy.linalg'] = np.linalg
 sys.modules['librosa'] = librosa
+sys.modules['librosa.display'] = types.ModuleType('librosa.display')
 sys.modules['scipy'] = scipy
-sys.modules['scipy.signal'] = scipy.signal
+scipy_signal = types.ModuleType('scipy.signal')
+scipy_signal.find_peaks = lambda *a, **k: ([], {})
+scipy_signal.butter = lambda *a, **k: []
+scipy_signal.sosfilt = lambda sos, y: y
+sys.modules['scipy.signal'] = scipy_signal
 sys.modules['soundfile'] = sf
+
+mpl = types.ModuleType('matplotlib')
+pyplot = types.ModuleType('matplotlib.pyplot')
+pyplot.plot = lambda *a, **k: None
+pyplot.subplots = lambda *a, **k: (None, None)
+sys.modules['matplotlib'] = mpl
+sys.modules['matplotlib.pyplot'] = pyplot
+sys.modules['matplotlib.patches'] = types.ModuleType('matplotlib.patches')
+sys.modules['matplotlib.gridspec'] = types.ModuleType('matplotlib.gridspec')
+sys.modules['matplotlib.animation'] = types.ModuleType('matplotlib.animation')
+sys.modules['pygame'] = types.ModuleType('pygame')
+pygame_mixer = types.ModuleType('pygame.mixer')
+pygame_mixer.get_init = lambda: False
+pygame_mixer.quit = lambda: None
+pygame_mixer.music = type('music', (), {'stop': lambda: None, 'load': lambda x: None})()
+sys.modules['pygame.mixer'] = pygame_mixer
+sys.modules['pydub'] = types.ModuleType('pydub')
+sys.modules['pydub'].AudioSegment = type('AudioSegment', (), {'from_file': lambda *a, **k: None})
 
 # Désactive forçage des vraies libs
 os.environ['PLAYER_USE_REAL_LIBS'] = '0'
@@ -43,7 +68,11 @@ class DummyPlayer(player.VideoPlayer):
     def __init__(self):
         self.timeline = DummyCanvas()
         self.root = DummyRoot()
-        self.player = type("P", (), {"get_length": lambda self: 10000})()
+        self.player = type("P", (), {
+            "get_length": lambda self: 10000,
+            "is_playing": lambda self: True,
+            "get_time": lambda self: 0,
+        })()
         self.duration = 10000  # 10 secondes
         self.cached_width = 300
         self.last_width_update = time.time()

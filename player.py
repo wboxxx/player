@@ -3339,9 +3339,12 @@ class VideoPlayer:
         Brint(f"[ZOOM] 🔍 Zoom boucle réglé sur {self.loop_zoom_ratio:.2f} (AB = {int(self.loop_zoom_ratio*100)}% de la timeline)")
 
         if self.loop_start is not None and self.loop_end is not None and self.duration:
-            loop_width_ms = max(10000.0, self.loop_end - self.loop_start)
+            loop_width_ms = max(4000.0, self.loop_end - self.loop_start)
             center_ms = (self.loop_start + self.loop_end) / 2.0
             desired_ms = loop_width_ms / self.loop_zoom_ratio
+            if self.loop_zoom_ratio > 1.0:
+                desired_ms = max(4000.0, desired_ms)
+                desired_ms = min(desired_ms, loop_width_ms)
             zoom_start = max(0.0, center_ms - desired_ms / 2.0)
             zoom_end = min(self.duration, zoom_start + desired_ms)
             self.zoom_context = {
@@ -3358,9 +3361,12 @@ class VideoPlayer:
 
     def get_loop_zoom_range(self):
         if self.loop_start and self.loop_end:
-            loop_width_sec = max(10.0, (self.loop_end - self.loop_start) / 1000.0)
+            loop_width_sec = max(4.0, (self.loop_end - self.loop_start) / 1000.0)
             center_sec = (self.loop_start + self.loop_end) / 2000.0
             desired_sec = loop_width_sec / self.loop_zoom_ratio
+            if self.loop_zoom_ratio > 1.0:
+                desired_sec = max(4.0, desired_sec)
+                desired_sec = min(desired_sec, loop_width_sec)
             zoom_start = max(0, center_sec - desired_sec / 2.0)
             zoom_end = min(self.duration / 1000.0, center_sec + desired_sec / 2.0)
             return zoom_start, zoom_end
@@ -6521,7 +6527,7 @@ class VideoPlayer:
         # === RHYTHM CONTROLS FRAME ===
         self.rhythm_controls_frame = Frame(self.controls_top)
         self.rhythm_controls_frame.pack(side='left', padx=5)
-        self.zoom_slider = Scale(self.rhythm_controls_frame, from_=0.1, to=1.0, resolution=0.05, orient='horizontal', label='ZoomAB', showvalue=False,  length=60, sliderlength=10, width=8, font=("Arial", 6), command=self.on_loop_zoom_change)
+        self.zoom_slider = Scale(self.rhythm_controls_frame, from_=0.1, to=3.0, resolution=0.05, orient='horizontal', label='ZoomAB', showvalue=False,  length=60, sliderlength=10, width=8, font=("Arial", 6), command=self.on_loop_zoom_change)
         self.zoom_slider.bind("<Double-Button-1>", lambda e: self.reset_zoom_slider())
         self.zoom_slider.set(self.loop_zoom_ratio)
         self.zoom_slider.pack(side='left', padx=5)
