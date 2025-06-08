@@ -2330,13 +2330,15 @@ class VideoPlayer:
         if base_zoom is not None:
             zoom_dict.update(base_zoom)
 
-        if (
+        dynamic_condition = (
             base_zoom is not None
             and self.loop_start is not None
             and self.loop_end is not None
             and base_zoom.get("zoom_range", 0) < (self.loop_end - self.loop_start) / 0.9
             and getattr(self, "playhead_time", None) is not None
-        ):
+        )
+
+        if dynamic_condition:
             playhead_ms = self.playhead_time * 1000.0
             loop_range = self.loop_end - self.loop_start
             progress = (playhead_ms - self.loop_start) / loop_range
@@ -2352,6 +2354,22 @@ class VideoPlayer:
             if zoom_dict["zoom_end"] > video_duration:
                 zoom_dict["zoom_end"] = video_duration
                 zoom_dict["zoom_start"] = max(0, video_duration - base_zoom["zoom_range"])
+        elif (
+            base_zoom is not None
+            and self.loop_start is not None
+            and self.loop_end is not None
+            and getattr(self, "playhead_time", None) is not None
+        ):
+            center_ms = (self.loop_start + self.loop_end) // 2
+            start = center_ms - base_zoom["zoom_range"] // 2
+            if start < 0:
+                start = 0
+            end = start + base_zoom["zoom_range"]
+            if end > video_duration:
+                end = video_duration
+                start = max(0, video_duration - base_zoom["zoom_range"])
+            zoom_dict["zoom_start"] = start
+            zoom_dict["zoom_end"] = end
 
         return zoom_dict
 

@@ -482,6 +482,23 @@ class TestZoomContextDynamicScroll(unittest.TestCase):
         zoom = VideoPlayer.get_zoom_context(vp)
         self.assertGreater(zoom["zoom_start"], 0)
 
+class TestZoomContextCentering(unittest.TestCase):
+    def test_zoom_recenters_when_no_scroll(self):
+        vp = VideoPlayer.__new__(VideoPlayer)
+        vp.loop_start = 1000
+        vp.loop_end = 5000
+        vp.loop_zoom_ratio = 0.8
+        vp.zoom_context = {"zoom_start": 1000, "zoom_end": 6000, "zoom_range": 5000}
+        vp.playhead_time = 0.0
+        vp.player = MagicMock()
+        vp.player.get_length.return_value = 6000
+
+        zoom = VideoPlayer.get_zoom_context(vp)
+        expected_start = 3000 - 2500
+        expected_end = expected_start + 5000
+        self.assertEqual(zoom["zoom_start"], expected_start)
+        self.assertEqual(zoom["zoom_end"], expected_end)
+
 
 if __name__ == '__main__':
     unittest.main(argv=['first-arg-is-ignored'], exit=False)
