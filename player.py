@@ -139,7 +139,8 @@ DEBUG_FLAGS = {
     "SEGMENTS": False,
     "SPAM": False,
     "SYNC": False,
-    "TEMPO": False,
+    "TEMPO": False,    
+    "TBD": False,
     "TRACKER": False,
     "WARNING": False,
     "ZOOM": False
