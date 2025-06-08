@@ -2089,11 +2089,10 @@ class VideoPlayer:
             
             if zoom_range >= loop_len:
                 # When the zoom window is wider than the loop, center the loop
-                # to keep A and B equidistant from the edges.
                 zoom_start = int(self.loop_start - (zoom_range - loop_len) / 2)
             else:
-                # Standard case: A at 5% and B at 95% of the visible range.
-                zoom_start = self.loop_start - int(0.05 * zoom_range)
+                # Dynamic scroll mode starts directly at A
+                zoom_start = self.loop_start
             zoom_end = zoom_start + zoom_range
 
             Brint(f"[AUTOZOOM] 📐 Calcul initial : zoom_start={zoom_start}, zoom_end={zoom_end}, zoom_range={zoom_range}")
@@ -2334,7 +2333,7 @@ class VideoPlayer:
             base_zoom is not None
             and self.loop_start is not None
             and self.loop_end is not None
-            and base_zoom.get("zoom_range", 0) < (self.loop_end - self.loop_start) / 0.9
+            and base_zoom.get("zoom_range", 0) < (self.loop_end - self.loop_start)
             and getattr(self, "playhead_time", None) is not None
         )
 
@@ -2343,9 +2342,8 @@ class VideoPlayer:
             loop_range = self.loop_end - self.loop_start
             progress = (playhead_ms - self.loop_start) / loop_range
             progress = max(0.0, min(1.0, progress))
-            # Correct direction: offset is based on the 5%-95% window movement
             base_range = base_zoom["zoom_range"]
-            offset = progress * (loop_range - 0.9 * base_range)
+            offset = progress * (loop_range - base_range)
             zoom_start = base_zoom.get("zoom_start", self.loop_start) + offset
             if zoom_start < 0:
                 zoom_start = 0

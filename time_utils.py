@@ -37,7 +37,7 @@ def compute_scroll_speed(T_loop, T_zoom, canvas_width):
     if T_loop <= 0 or T_zoom <= 0 or canvas_width <= 0:
         return 0.0
 
-    v_frac = (T_loop - 0.9 * T_zoom) / (T_loop * T_zoom)
+    v_frac = (T_loop - T_zoom) / (T_loop * T_zoom)
 
     # Clamp negative speed to 0 to avoid scrolling in the wrong direction when
     # the zoom window is wider than the loop duration.
