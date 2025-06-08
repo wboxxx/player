@@ -3391,7 +3391,7 @@ class VideoPlayer:
 
     def open_debug_flags_window(self):
         """Open a window with checkboxes to toggle DEBUG_FLAGS."""
-        if hasattr(self, 'debug_window') and self.debug_window.winfo_exists():
+        if getattr(self, 'debug_window', None) and self.debug_window.winfo_exists():
             self.debug_window.lift()
             return
 
