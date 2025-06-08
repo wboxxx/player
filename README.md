@@ -76,11 +76,11 @@ main shortcuts and what they do:
 | `.` | Reset syllabic grid hits |
 | `Shift+F1` | Cycle subdivision mode backward |
 | `Shift+F2` | Cycle subdivision mode forward |
-| `F4` | Open chord editor for the whole loop |
+| `F4` | Toggle state window |
 | `F1` | Cycle syllable set backward |
 | `F2` | Cycle syllable set forward |
 | `F3` | Open debug flags window |
-| `F8` | Toggle state window |
+| `F8` | Open chord editor for the whole loop |
 | `F9` | Dump playhead debug log |
 | `F10` | Start 5 s profiling capture |
 | `Space` | Play/Pause |
