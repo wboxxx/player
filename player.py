@@ -4871,7 +4871,11 @@ class VideoPlayer:
             "loop_pass_count": getattr(self, "loop_pass_count", 0),
         }
         for name, lbl in self._debug_labels.items():
-            lbl.config(text=f"{name}: {values.get(name)}")
+            try:
+                if lbl.winfo_exists():
+                    lbl.config(text=f"{name}: {values.get(name)}")
+            except tk.TclError:
+                continue
         self.state_window.after(100, self.update_state_window)
 
     def step_once(self):
