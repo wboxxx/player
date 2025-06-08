@@ -61,6 +61,58 @@ If you reuse this work, please respect the license and give proper attribution.
 
 MIT — See `LICENSE` file for details.
 
+## Keyboard Shortcuts
+
+The player can be controlled entirely from the keyboard. Below is a list of the
+main shortcuts and what they do:
+
+| Key | Action |
+| --- | --- |
+| `Shift+Tab` | Cycle note display mode |
+| `Ctrl+S` | Quick save the current loop |
+| `Ctrl+P` | Toggle "mode bar" playback |
+| `*` | Increase bars in mode bar |
+| `/` | Decrease bars in mode bar |
+| `.` | Reset syllabic grid hits |
+| `Shift+F1` | Cycle subdivision mode backward |
+| `Shift+F2` | Cycle subdivision mode forward |
+| `F4` | Open chord editor for the whole loop |
+| `F1` | Cycle syllable set backward |
+| `F2` | Cycle syllable set forward |
+| `F3` | Open debug flags window |
+| `F8` | Toggle state window |
+| `F9` | Dump playhead debug log |
+| `F10` | Start 5 s profiling capture |
+| `Space` | Play/Pause |
+| `Left` / `Right` | Move playhead one beat |
+| `Shift+Left` / `Shift+Right` | Move playhead one eighth |
+| `Ctrl+Left` / `Ctrl+Right` | Move playhead one bar |
+| `Ctrl+Shift+Left` / `Ctrl+Shift+Right` | Move playhead one sixteenth |
+| `Alt+Ctrl+Shift+Left` / `Alt+Ctrl+Shift+Right` | Move playhead one sixty‑fourth |
+| `r` | Replay from marker A |
+| `q` | Cycle chord harmony mode |
+| `Shift+Q` | Cycle note harmony mode |
+| `+` / `-` | Zoom in/out when the zoom menu is active |
+| `+` / `-` on keypad | Adjust playback speed |
+| `Up` / `Down` | Adjust volume |
+| `a` | Edit loop start marker |
+| `b` | Edit loop end marker |
+| `Ctrl+Enter` | Reset playback speed |
+| `s` | Stop and return to A |
+| `Shift+A` | Jump to marker A / record loop start |
+| `Shift+B` | Record loop end |
+| `Shift+C` | Clear current loop |
+| `l` | Analyse loop (heat‑map) |
+| `h` | Load hotspot candidates |
+| `m` | Place a marker |
+| `Shift+M` | Remove last marker |
+| `Esc` | Exit edit mode |
+| `c` | Center view on playhead |
+| `Shift+O` | Start RAM loop |
+| `Shift+P` | Stop RAM loop |
+| `t` | Step play / tap tempo |
+
+
 ## loop scroll
 🎛️ Zoom and Scroll Logic in the Zoom Window
 
