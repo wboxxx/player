@@ -7184,8 +7184,10 @@ class VideoPlayer:
             zoom_range = zoom_end - zoom_start
 
         t_sec = current_time_ms / 1000.0
-        x = self.time_sec_to_canvas_x(t_sec)
-        Brint(f"[PH DRAW] ⏱ x = {x}px pour t = {t_sec:.3f}s")
+        x_raw = self.time_sec_to_canvas_x(t_sec)
+        Brint(f"[PH DRAW] ⏱ x = {x_raw}px pour t = {t_sec:.3f}s")
+
+        x = max(0, min(x_raw, width))
 
 
         if self._last_playhead_x is not None and x < self._last_playhead_x:
@@ -7214,7 +7216,10 @@ class VideoPlayer:
             self.draw_count = 0
             self.last_stat_time = now
 
-        self.playhead_canvas_x = self.time_sec_to_canvas_x(current_time_ms / 1000.0) if zoom_range > 0 else -9999
+        if 0 <= x_raw <= width:
+            self.playhead_canvas_x = x_raw
+        else:
+            self.playhead_canvas_x = -9999
 
         # -- New behavior: auto-adjust zoom as playhead moves --
         old_zoom = self.get_zoom_context()
