@@ -3393,12 +3393,12 @@ class VideoPlayer:
 
     def open_debug_flags_window(self):
         """Open a window with checkboxes to toggle DEBUG_FLAGS."""
-        if getattr(self, 'debug_window', None) and self.debug_window.winfo_exists():
-            self.debug_window.lift()
+        if getattr(self, 'debug_flags_window', None) and self.debug_flags_window.winfo_exists():
+            self.debug_flags_window.lift()
             return
 
-        self.debug_window = tk.Toplevel(self.root)
-        self.debug_window.title('Debug Flags')
+        self.debug_flags_window = tk.Toplevel(self.root)
+        self.debug_flags_window.title('Debug Flags')
 
         # Special handling for global BRINT flag with tri-state control
         options = ['None', 'False', 'True']
@@ -3412,8 +3412,8 @@ class VideoPlayer:
             else:
                 DEBUG_FLAGS['BRINT'] = False
 
-        tk.Label(self.debug_window, text='BRINT').pack(anchor='w')
-        tk.OptionMenu(self.debug_window, var_brint, *options, command=update_brint).pack(anchor='w')
+        tk.Label(self.debug_flags_window, text='BRINT').pack(anchor='w')
+        tk.OptionMenu(self.debug_flags_window, var_brint, *options, command=update_brint).pack(anchor='w')
 
         # Boolean flags
         self.debug_vars = {}
@@ -3424,7 +3424,7 @@ class VideoPlayer:
             def toggle(f=flag, v=var):
                 DEBUG_FLAGS[f] = v.get()
 
-            chk = tk.Checkbutton(self.debug_window, text=flag, variable=var, command=toggle)
+            chk = tk.Checkbutton(self.debug_flags_window, text=flag, variable=var, command=toggle)
             chk.pack(anchor='w')
 
     def reset_zoom_slider(self):
@@ -4820,12 +4820,13 @@ class VideoPlayer:
 
     # --- Debug state window -------------------------------------------------
     def toggle_state_window(self, event=None):
-        if self.debug_window and self.debug_window.winfo_exists():
-            self.debug_window.destroy()
+        if self.state_window and self.state_window.winfo_exists():
+            self.state_window.destroy()
+            self.state_window = None
             return
 
-        self.debug_window = tk.Toplevel(self.root)
-        self.debug_window.title("State Monitor")
+        self.state_window = tk.Toplevel(self.root)
+        self.state_window.title("State Monitor")
 
         vars_to_show = [
             "playhead_time", "duration", "loop_start", "loop_end",
@@ -4834,28 +4835,28 @@ class VideoPlayer:
         ]
         self._debug_labels = {}
         for name in vars_to_show:
-            lbl = tk.Label(self.debug_window, text="")
+            lbl = tk.Label(self.state_window, text="")
             lbl.pack(anchor="w")
             self._debug_labels[name] = lbl
 
         tk.Checkbutton(
-            self.debug_window,
+            self.state_window,
             text="Pause each update",
             variable=self.pause_each_update,
         ).pack(anchor="w")
         tk.Button(
-            self.debug_window,
+            self.state_window,
             text="Step",
             command=self.step_once,
         ).pack(anchor="w")
 
-        tk.Label(self.debug_window, text="Update delay (ms)").pack(anchor="w")
-        tk.Entry(self.debug_window, textvariable=self.update_delay_ms_var, width=6).pack(anchor="w")
+        tk.Label(self.state_window, text="Update delay (ms)").pack(anchor="w")
+        tk.Entry(self.state_window, textvariable=self.update_delay_ms_var, width=6).pack(anchor="w")
 
         self.update_state_window()
 
     def update_state_window(self):
-        if not (self.debug_window and self.debug_window.winfo_exists()):
+        if not (self.state_window and self.state_window.winfo_exists()):
             return
         zoom = self.get_zoom_context()
         values = {
@@ -4870,9 +4871,10 @@ class VideoPlayer:
             "loop_duration_s": getattr(self, "loop_duration_s", None),
             "loop_pass_count": getattr(self, "loop_pass_count", 0),
         }
-        for name, lbl in self._debug_labels.items():
-            lbl.config(text=f"{name}: {values.get(name)}")
-        self.debug_window.after(100, self.update_state_window)
+        for name, lbl in list(self._debug_labels.items()):
+            if lbl.winfo_exists():
+                lbl.config(text=f"{name}: {values.get(name)}")
+        self.state_window.after(100, self.update_state_window)
 
     def step_once(self):
         self.is_paused = False
@@ -6312,7 +6314,8 @@ class VideoPlayer:
         # debug helpers
         self.pause_each_update = tk.BooleanVar(value=False)
         self.update_delay_ms_var = tk.IntVar(value=30)
-        self.debug_window = None
+        self.debug_flags_window = None
+        self.state_window = None
         self._debug_labels = {}
 
         #new timestamps on hits
