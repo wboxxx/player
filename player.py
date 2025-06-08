@@ -87,6 +87,17 @@ import tempfile
 import os
 import scipy.signal
 
+# Utility functions split into separate modules
+import audio_utils as _audio_utils
+_audio_utils.os = os
+_audio_utils.subprocess = subprocess
+_audio_utils.tempfile = tempfile
+from audio_utils import _util_extract_audio_segment, _util_get_tempo_and_beats_librosa
+
+import video_utils as _video_utils
+_video_utils.subprocess = subprocess
+from video_utils import extract_keyframes
+
 # import gdrive_uploader
 import os
 import tempfile
@@ -865,99 +876,6 @@ def format_time(seconds, include_ms=True, include_tenths=False):
         return f"{h}:{m:02}:{s:02}.{ms:03}"
     return f"{h}:{m:02}:{s:02}"
 
-def _util_extract_audio_segment(
-    input_path,
-    output_path=None,
-    *,
-    start_sec=None,
-    duration_sec=None,
-    audio_codec="pcm_s16le",
-    sample_rate=44100,
-    channels=1,
-    overwrite=True,
-    use_temp_file=True,
-):
-    """Extract an audio segment via ffmpeg."""
-    if output_path is None:
-        if use_temp_file:
-            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-                output_path = tmp.name
-        else:
-            raise ValueError("output_path required if use_temp_file=False")
-
-    cmd = ["ffmpeg"]
-    if overwrite:
-        cmd.append("-y")
-    if start_sec is not None:
-        cmd += ["-ss", str(start_sec)]
-    if duration_sec is not None:
-        cmd += ["-t", str(duration_sec)]
-    cmd += ["-i", input_path, "-vn", "-acodec", audio_codec, "-ar", str(sample_rate), "-ac", str(channels), output_path]
-
-    try:
-        subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    except Exception:
-        return None
-
-    if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
-        return None
-
-    return output_path
-
-def _util_get_tempo_and_beats_librosa(y, sr):
-    """Return tempo and beat frames from audio using librosa."""
-    if y is None or len(y) == 0:
-        return 0.0, np.array([])
-    try:
-        tempo, beats = librosa.beat.beat_track(y=y, sr=sr)
-        return float(tempo), beats
-    except Exception:
-        return 0.0, np.array([])
-
-def extract_keyframes(
-    video_path,
-    start_time_sec=None,
-    duration_sec=None,
-    end_time_sec=None,
-):
-    """Extract keyframe timestamps from a video using ffprobe."""
-    cmd = [
-        "ffprobe",
-        "-v",
-        "error",
-        "-select_streams",
-        "v:0",
-        "-show_entries",
-        "frame=pkt_pts_time,pict_type",
-        "-of",
-        "csv=p=0",
-        video_path,
-    ]
-    try:
-        output = subprocess.check_output(cmd, stderr=subprocess.PIPE).decode()
-    except Exception:
-        return []
-    keyframes = []
-    for line in output.strip().splitlines():
-        try:
-            time_str, frame_type = line.split(",")
-        except ValueError:
-            continue
-        if frame_type.strip() == "I":
-            try:
-                t = float(time_str)
-            except ValueError:
-                continue
-            keyframes.append(t)
-
-    if start_time_sec is not None:
-        end = start_time_sec + duration_sec if duration_sec is not None else end_time_sec
-        if end is not None:
-            keyframes = [t for t in keyframes if start_time_sec <= t < end]
-        else:
-            keyframes = [t for t in keyframes if t >= start_time_sec]
-
-    return keyframes
 
 def detect_countins_with_rms(filepath, hop_length=256, strict=False, mode="default", verbose=True):
     threshold = 0.01 if strict else 0.03
