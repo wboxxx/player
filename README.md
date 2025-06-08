@@ -132,6 +132,7 @@ Once the zoom goes beyond that threshold, we enter dynamic scroll mode:
 	•	Instead, the playhead position on the canvas is interpolated:
 	•	At the start (when the playhead is at A), it’s shown at 5% of the canvas width.
 	•	At the end (when the playhead reaches B), it’s at 95%.
+        •       Interpolation pauses during the B→A jump and resumes once playback restarts.
 	•	This creates a smooth visual scroll.
 	•	The actual zoom window length is fixed or clamped to a minimum duration (e.g., 4 seconds), which is smaller than the loop duration.
 

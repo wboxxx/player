@@ -8149,7 +8149,11 @@ class VideoPlayer:
                     self.last_loop_jump_time = time.perf_counter()
                     Brint(f"[INIT LOOP] loop_duration_s = {self.loop_duration_s:.3f}s")
 
-                if self.interp_var.get():
+                if self.freeze_interpolation:
+                    self.safe_update_playhead(player_now, source="VLC loop raw")
+                    if abs(player_now - self.loop_start) <= 30 and is_playing:
+                        self.freeze_interpolation = False
+                elif self.interp_var.get():
                     elapsed_since_last_jump = time.perf_counter() - self.last_loop_jump_time
                     loop_duration_corrected = self.loop_duration_s / player_rate
                     wrapped_elapsed = elapsed_since_last_jump % loop_duration_corrected
@@ -8159,6 +8163,7 @@ class VideoPlayer:
 
                     if elapsed_since_last_jump >= loop_duration_corrected:
                         self.safe_jump_to_time(self.loop_start, source="Jump B estim (all rates)")
+                        self.freeze_interpolation = True
                         self.last_loop_jump_time = time.perf_counter()
                         self.loop_pass_count += 1
                         Brint(f"[LOOP PASS] Boucle AB passée {self.loop_pass_count} fois")
@@ -8176,6 +8181,7 @@ class VideoPlayer:
                     self.safe_update_playhead(player_now, source="VLC loop raw")
                     if player_now >= self.loop_end:
                         self.safe_jump_to_time(self.loop_start, source="Jump B raw")
+                        self.freeze_interpolation = True
                         self.last_loop_jump_time = time.perf_counter()
                         self.loop_pass_count += 1
                         Brint(f"[LOOP PASS] Boucle AB passée {self.loop_pass_count} fois (raw)")
