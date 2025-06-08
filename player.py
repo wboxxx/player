@@ -478,7 +478,7 @@ def recalculate_chord_for_new_key(chord_name, previous_key, new_key, mode):
     """
     Recalcule un accord en changeant de clé et en respectant le mode.
     """
-    Brint(f"\n[RECALC] Début recalcul {chord_name} : de {previous_key} ➔ {new_key} | mode {mode}")
+    Brint(f"[TBD]\n[RECALC] Début recalcul {chord_name} : de {previous_key} ➔ {new_key} | mode {mode}")
 
     if not chord_name or not previous_key or not new_key:
         Brint(f"[WARNING] ➡ Données incomplètes ➔ {chord_name} conservé")
@@ -1003,7 +1003,7 @@ def detect_countins_with_rms(filepath, hop_length=256, strict=False, mode="defau
 
     groups = []
     if verbose:
-        Brint(f"\n⏺️ Tous les click_times : {[round(float(t), 3) for t in click_times]}")
+        Brint(f"[TBD]\n⏺️ Tous les click_times : {[round(float(t), 3) for t in click_times]}")
     for i in range(len(click_times) - 3):
         for j in range(i + 3, min(i + 6, len(click_times) + 1)):
             group = click_times[i:j]
@@ -1041,8 +1041,8 @@ def detect_countins_with_rms(filepath, hop_length=256, strict=False, mode="defau
             if not plateau_ok:
                 if verbose:
                     Brint(f"[TBD]      ❌ Rejeté : pas de plateau RMS stable")
-                    Brint(f"        → Moyenne RMS = {plateau_debug['mean_rms']} (ok={plateau_debug['mean_ok']})")
-                    Brint(f"        → Écart-type RMS = {plateau_debug['std_rms']} (ok={plateau_debug['std_ok']})")
+                    Brint(f"[TBD]        → Moyenne RMS = {plateau_debug['mean_rms']} (ok={plateau_debug['mean_ok']})")
+                    Brint(f"[TBD]        → Écart-type RMS = {plateau_debug['std_rms']} (ok={plateau_debug['std_ok']})")
                 continue
 
             if verbose: Brint(f"[TBD]      ✅ Accepté comme count-in 🎯")
@@ -1105,7 +1105,7 @@ def open_vlc_at(filepath, seconds):
             if choice.isdigit():
                 idx = int(choice) - 1
                 if 0 <= idx < len(groups):
-                    Brint(f"Ouverture de VLC à {seconds_to_hms(groups[idx]['clicks'][0])}...")
+                    Brint(f"[TBD] Ouverture de VLC à {seconds_to_hms(groups[idx]['clicks'][0])}...")
                     open_vlc_at(current_path, groups[idx]["clicks"][0])
                 else:
                     Brint("[TBD] Numéro invalide.")
@@ -2098,8 +2098,8 @@ class VideoPlayer:
         Brint(f"[ZOOM MOVE] 🔁 Zoom modifié !")
         Brint(f"[TBD]   🎯 A: x avant = {prev_A_x}px → après = {new_A_x}px")
         Brint(f"[TBD]   🎯 B: x avant = {prev_B_x}px → après = {new_B_x}px")
-        Brint(f"  🔍 zoom_start: {prev_zoom['zoom_start']} → {new_zoom['zoom_start']}")
-        Brint(f"  🔍 zoom_range: {prev_zoom['zoom_range']} → {new_zoom['zoom_range']}")
+        Brint(f"[TBD]  🔍 zoom_start: {prev_zoom['zoom_start']} → {new_zoom['zoom_start']}")
+        Brint(f"[TBD]  🔍 zoom_range: {prev_zoom['zoom_range']} → {new_zoom['zoom_range']}")
 
 
 
@@ -2235,7 +2235,7 @@ class VideoPlayer:
         next_mode = modes[(modes.index(current) + 1) % len(modes)]
         self.harmony_note_display_mode = next_mode
 
-        Brint(f"\n[DISPLAY MODE] 🔁 Passage du mode '{current}' → '{next_mode}'")
+        Brint(f"[TBD]\n[DISPLAY MODE] 🔁 Passage du mode '{current}' → '{next_mode}'")
 
         if next_mode == "key":
             Brint("[TBD]   ➤ Les intervalles seront calculés par rapport à la tonalité globale (key).")
@@ -4792,7 +4792,7 @@ class VideoPlayer:
 
 
     def dump_playhead_debug_log(self, n=10):
-        Brint(f"\n[DEBUG LOG] Dernières {n} positions du playhead :")
+        Brint(f"[TBD]\n[DEBUG LOG] Dernières {n} positions du playhead :")
         if not hasattr(self, "_debug_playhead_log"): self._debug_playhead_log = []
 
         for entry in self._debug_playhead_log[-n:]:
@@ -4805,7 +4805,7 @@ class VideoPlayer:
             if entry["frozen"]:
                 status += "❄️frozen "
             Brint(f"[TBD]  - t={t}ms | x={x} | mode={mode} {status}")
-            Brint(f"\n[STATS] x min = {self._debug_x_min}, x max = {self._debug_x_max}")
+            Brint(f"[TBD]\n[STATS] x min = {self._debug_x_min}, x max = {self._debug_x_max}")
 
 
 
@@ -5589,7 +5589,7 @@ class VideoPlayer:
         # self.save_zoom_prefs()
 
     def update_pan(self, user_action="UNKNOWN"):
-        Brint(f"🔵 [ACTION] Utilisateur a demandé : {user_action}")
+        Brint(f"[TBD] 🔵 [ACTION] Utilisateur a demandé : {user_action}")
         if hasattr(self, 'player') and self.player.get_media():
             video_w = self.player.video_get_width()
             video_h = self.player.video_get_height()
@@ -5615,7 +5615,7 @@ class VideoPlayer:
             # Brint(f"📐 [COMPARE] Aspect ratio → Crop: {aspect_crop:.2f} vs Video: {aspect_video:.2f}")
             # Brint(f"[TBD] 📏 Crop size: {crop_w}px x {crop_h}px")
             # Brint(f"📊 [VIEWPORT] % vidéo visible → {crop_percent_w:.1f}% largeur, {crop_percent_h:.1f}% hauteur")
-            Brint(f"🎯 [CENTER] Centre actuel du cadre crop: ({center_x}px, {center_y}px)")
+            Brint(f"[TBD] 🎯 [CENTER] Centre actuel du cadre crop: ({center_x}px, {center_y}px)")
 
 
 
@@ -5726,7 +5726,7 @@ class VideoPlayer:
         
     # --- Fonction pour charger une boucle sauvegardée quand on clique ---
     def load_saved_loop(self, index):
-        Brint(f"\n[LOAD LOOP] 🔁 Chargement boucle index={index}")
+        Brint(f"[TBD]\n[LOAD LOOP] 🔁 Chargement boucle index={index}")
         self.reset_rhythm_overlay()
 
         self.subdivision_state.clear()
@@ -5955,7 +5955,7 @@ class VideoPlayer:
             try:
                 for f in proc.info['open_files'] or []:
                     if f.path == filepath:
-                        Brint(f"🔒 {proc.info['name']} (pid {proc.info['pid']}) verrouille {filepath}")
+                        Brint(f"[TBD] 🔒 {proc.info['name']} (pid {proc.info['pid']}) verrouille {filepath}")
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
     
@@ -7813,7 +7813,7 @@ class VideoPlayer:
         def pause_later():
             self.player.pause()
             self.label_subdivision.config(text=f"Subdivision: {label}")
-            Brint(f"🎧 Lecture {index+1}/{len(self.grid_times)} @ {start:.3f}s [{label}]")
+            Brint(f"[TBD] 🎧 Lecture {index+1}/{len(self.grid_times)} @ {start:.3f}s [{label}]")
             self.step_mode_index += 1
             if self.autostep_enabled:
                 self.root.after(duration_ms, self.step_play)
@@ -7839,7 +7839,7 @@ class VideoPlayer:
         def pause_later():
             self.player.pause()
             self.label_subdivision.config(text=f"Subdivision: {label}")
-            Brint(f"🔙 Lecture {index+1}/{len(self.grid_times)} @ {start:.3f}s [{label}]")
+            Brint(f"[TBD] 🔙 Lecture {index+1}/{len(self.grid_times)} @ {start:.3f}s [{label}]")
 
         self.root.after(duration_ms, pause_later)
     
