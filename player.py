@@ -2590,7 +2590,7 @@ class VideoPlayer:
         return self.time_sec_to_canvas_x(t_sec)
 
 
-    def time_sec_to_canvas_x(self, t_sec, use_margin=True):
+    def time_sec_to_canvas_x(self, t_sec, use_margin=True, *, zoom=None, canvas_width=None):
         import traceback
         # Brint(f"[DEBUG time_sec_to_canvas_x] → Appel avec t_sec={t_sec}")
         # traceback.print_stack(limit=5)
@@ -2607,11 +2607,13 @@ class VideoPlayer:
             Brint(f"[INFO Time2X] Pas de loop active, fallback à toute la durée ({loop_end} ms) avec zoom_ratio=1.0")
 
         loop_range = loop_end - loop_start
-        zoom = self.get_zoom_context()
+        if zoom is None:
+            zoom = self.get_zoom_context()
         zoom_start = zoom["zoom_start"]
         zoom_range = zoom["zoom_range"]
 
-        canvas_width = getattr(self, "cached_canvas_width", self.grid_canvas.winfo_width())
+        if canvas_width is None:
+            canvas_width = getattr(self, "cached_canvas_width", self.grid_canvas.winfo_width())
         if canvas_width <= 1:
             Brint(f"[WARNING] canvas_width trop petit ({canvas_width}), fallback 100")
             canvas_width = 100
@@ -2903,6 +2905,7 @@ class VideoPlayer:
         zoom_start = zoom["zoom_start"]
         zoom_end = zoom["zoom_end"]
         zoom_range = zoom["zoom_range"]
+        x_params = dict(zoom=zoom, canvas_width=canvas_width)
 
         Brint(f"[PRECOMPUTE] 📏 canvas_width = {canvas_width}")
         Brint(f"[PRECOMPUTE] 🔍 zoom_start = {zoom_start:.1f} | zoom_end = {zoom_end:.1f} | zoom_range = {zoom_range:.1f}")
@@ -2917,7 +2920,7 @@ class VideoPlayer:
         playhead_x = getattr(self, 'playhead_canvas_x', -9999)
 
         for idx, (i, t_subdiv_sec) in enumerate(self.grid_subdivs):
-            x = self.time_sec_to_canvas_x(t_subdiv_sec)
+            x = self.time_sec_to_canvas_x(t_subdiv_sec, **x_params)
 
             state = self.subdivision_state.get(i, 0)
             is_playhead = abs(x - playhead_x) < 1
