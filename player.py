@@ -2184,10 +2184,8 @@ class VideoPlayer:
 
             Brint(f"[AUTOZOOM] ✅ Zoom défini A+B : start={zoom_start}, end={zoom_end}, ratio={self.loop_zoom_ratio:.3f}")
 
-        if hasattr(self, "zoom_slider"):
-            idx = self.zoom_levels.index(min(self.zoom_levels, key=lambda z: abs(z - self.loop_zoom_ratio)))
-            Brint(f"[AUTOZOOM] 🎚️ zoom_slider.set({idx})")
-            self.zoom_slider.set(idx)
+        if hasattr(self, "zoom_ratio_var"):
+            self.zoom_ratio_var.set(self.loop_zoom_ratio)
 
         self.update_loop()
      
@@ -3460,17 +3458,12 @@ class VideoPlayer:
             chk = tk.Checkbutton(self.flags_window, text=flag, variable=var, command=toggle)
             chk.pack(anchor='w')
 
-    def reset_zoom_slider(self):
-        idx = self.zoom_levels.index(min(self.zoom_levels, key=lambda z: abs(z - 0.8)))
-        self.zoom_slider.set(idx)  # Reset à 80%
-        self.on_loop_zoom_change(idx)   # Applique immédiatement le changement
-        Brint("[ZOOM] 🔄 Reset zoom boucle à 80%")
-
-
-    def on_loop_zoom_change(self, val):
-        idx = int(float(val))
-        self.loop_zoom_ratio = self.zoom_levels[idx]
-        Brint(f"[ZOOM] 🔍 Zoom boucle réglé sur {self.loop_zoom_ratio:.2f} (AB = {int(self.loop_zoom_ratio*100)}% de la timeline)")
+    def apply_loop_zoom_ratio(self, ratio):
+        """Apply the given zoom ratio to the loop and refresh display."""
+        self.loop_zoom_ratio = ratio
+        Brint(
+            f"[ZOOM] 🔍 Zoom boucle réglé sur {self.loop_zoom_ratio:.2f} (AB = {int(self.loop_zoom_ratio * 100)}% de la timeline)"
+        )
 
         if self.loop_start is not None and self.loop_end is not None and self.duration:
             loop_width_ms = max(4000.0, self.loop_end - self.loop_start)
@@ -3490,23 +3483,20 @@ class VideoPlayer:
         self.refresh_static_timeline_elements()
         self.draw_rhythm_grid_canvas()
 
-    def decrease_loop_zoom(self):
-        """Decrease zoom slider index by one step."""
-        idx = int(self.zoom_slider.get())
-        min_idx = int(self.zoom_slider['from'])
-        if idx > min_idx:
-            new_idx = idx - 1
-            self.zoom_slider.set(new_idx)
-            self.on_loop_zoom_change(new_idx)
+    def compute_ratio_for_4s(self):
+        """Return the zoom ratio that shows approximately 4 seconds of the loop."""
+        if self.loop_start is None or self.loop_end is None:
+            return 1.0
+        loop_width_ms = max(4000.0, self.loop_end - self.loop_start)
+        return loop_width_ms / 4000.0
 
-    def increase_loop_zoom(self):
-        """Increase zoom slider index by one step."""
-        idx = int(self.zoom_slider.get())
-        max_idx = int(self.zoom_slider['to'])
-        if idx < max_idx:
-            new_idx = idx + 1
-            self.zoom_slider.set(new_idx)
-            self.on_loop_zoom_change(new_idx)
+    def on_zoom_ratio_change(self):
+        val = self.zoom_ratio_var.get()
+        if val == self.zoom_auto_code:
+            ratio = self.compute_ratio_for_4s()
+        else:
+            ratio = float(val)
+        self.apply_loop_zoom_ratio(ratio)
 
 
     
@@ -6416,8 +6406,8 @@ class VideoPlayer:
         self.awaiting_vlc_resync = False   # Flag : en attente que VLC ait sauté et rejoue
         
         
-        #slider zoom
-        self.loop_zoom_ratio = 0.33  # Par défaut A–B = 1/3
+        # Zoom ratio controlling the visible portion of the loop
+        self.loop_zoom_ratio = 1.0
 
         
         import json
@@ -6778,41 +6768,33 @@ class VideoPlayer:
         # === TIMELINE EVENTS
         self.edit_mode = StringVar(value="playhead")
 
-        #zoomAB SLIDER
-        from tkinter import Scale
-
         # === RHYTHM CONTROLS FRAME ===
         self.rhythm_controls_frame = Frame(self.controls_top)
         self.rhythm_controls_frame.pack(side='left', padx=5)
-        self.zoom_levels = [0.33, 0.8, 1.0, 1.5, 2.0, 3.0]
-        self.zoom_minus_btn = Button(
-            self.rhythm_controls_frame, text="-", command=self.decrease_loop_zoom, width=2
-        )
-        self.zoom_minus_btn.pack(side='left')
 
-        self.zoom_slider = Scale(
-            self.rhythm_controls_frame,
-            from_=0,
-            to=len(self.zoom_levels) - 1,
-            resolution=1,
-            orient='horizontal',
-            label='ZoomAB',
-            showvalue=False,
-            length=60,
-            sliderlength=10,
-            width=8,
-            font=("Arial", 6),
-            command=self.on_loop_zoom_change,
-        )
-        self.zoom_slider.bind("<Double-Button-1>", lambda e: self.reset_zoom_slider())
-        init_idx = self.zoom_levels.index(min(self.zoom_levels, key=lambda z: abs(z - self.loop_zoom_ratio)))
-        self.zoom_slider.set(init_idx)
-        self.zoom_slider.pack(side='left', padx=5)
+        # Zoom ratio selection
+        self.zoom_ratio_var = tk.DoubleVar(value=self.loop_zoom_ratio)
+        self.zoom_auto_code = -1.0  # special value meaning "4s"
 
-        self.zoom_plus_btn = Button(
-            self.rhythm_controls_frame, text="+", command=self.increase_loop_zoom, width=2
-        )
-        self.zoom_plus_btn.pack(side='left')
+        self.zoom_radio_frame = Frame(self.rhythm_controls_frame)
+        self.zoom_radio_frame.pack(side='left')
+
+        zoom_options = [
+            (0.5, "0.5x"),
+            (1.0, "1x"),
+            (self.zoom_auto_code, "4s"),
+        ]
+        for val, label in zoom_options:
+            rb = tk.Radiobutton(
+                self.zoom_radio_frame,
+                text=label,
+                variable=self.zoom_ratio_var,
+                value=val,
+                indicatoron=0,
+                width=3,
+                command=self.on_zoom_ratio_change,
+            )
+            rb.pack(side='left')
         
         
         # === BINDINGS CLAVIER PRINCIPAUX ===
@@ -8059,12 +8041,9 @@ class VideoPlayer:
 
 
         # Ensure zoom shows the entire file when clearing the loop
-        if hasattr(self, "zoom_slider"):
-            idx = self.zoom_levels.index(min(self.zoom_levels, key=lambda z: abs(z - 1.0)))
-            self.zoom_slider.set(idx)
-            # Trigger callback to recompute zoom context
-            self.on_loop_zoom_change(idx)
-        self.loop_zoom_ratio = 1.0
+        if hasattr(self, "zoom_ratio_var"):
+            self.zoom_ratio_var.set(1.0)
+        self.apply_loop_zoom_ratio(1.0)
 
         if hasattr(self, "player"):
             self.player.audio_set_mute(False)
