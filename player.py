@@ -2087,7 +2087,13 @@ class VideoPlayer:
                 zoom_range = max_zoom_range
 
             
-            zoom_start = self.loop_start - int(0.05 * zoom_range)
+            if zoom_range >= loop_len:
+                # When the zoom window is wider than the loop, center the loop
+                # to keep A and B equidistant from the edges.
+                zoom_start = int(self.loop_start - (zoom_range - loop_len) / 2)
+            else:
+                # Standard case: A at 5% and B at 95% of the visible range.
+                zoom_start = self.loop_start - int(0.05 * zoom_range)
             zoom_end = zoom_start + zoom_range
 
             Brint(f"[AUTOZOOM] 📐 Calcul initial : zoom_start={zoom_start}, zoom_end={zoom_end}, zoom_range={zoom_range}")
