@@ -6752,6 +6752,7 @@ class VideoPlayer:
         
         self.root.bind("<F10>", self.start_profiling_5s)
         self.root.bind("<F6>", lambda e: self.open_chord_editor_all())
+        self.root.bind("<F5>", lambda e: self.open_chord_editor_all())
         # self.root.bind("<F9>", self.dump_playhead_debug_log())
 
         self.root.bind('<F9>', lambda e: self.dump_playhead_debug_log())
