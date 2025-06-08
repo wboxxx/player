@@ -2105,8 +2105,8 @@ class VideoPlayer:
     def auto_zoom_on_loop_markers(self, force=False):
         """
         Ajuste le zoom automatiquement selon l'état de loop_start et loop_end :
-        - Si A seul est défini, zoom sur A + 1min avec A à 20%.
-        - Si A et B sont définis, zoom pour que A soit à 20% et B à 80%.
+        - Si A seul est défini, zoom sur A + 1min avec A à 5%.
+        - Si A et B sont définis, zoom pour que A soit à 5% et B à 95%.
         """
         video_duration = self.player.get_length()
 
@@ -2117,10 +2117,10 @@ class VideoPlayer:
         Brint(f"[AUTOZOOM] 🎬 Durée vidéo = {video_duration} ms")
 
         if not self.loop_end or self.loop_end <= self.loop_start:
-            Brint("[AUTOZOOM] 🅰️ seul défini → zoom A à 20% sur 1 minute")
+            Brint("[AUTOZOOM] 🅰️ seul défini → zoom A à 5% sur 1 minute")
 
             zoom_range_ms = 60000
-            zoom_start_ms = self.loop_start - int(0.2 * zoom_range_ms)
+            zoom_start_ms = self.loop_start - int(0.05 * zoom_range_ms)
             zoom_end_ms = zoom_start_ms + zoom_range_ms
 
             Brint(f"[AUTOZOOM] 📐 Calcul initial : zoom_start={zoom_start_ms}, zoom_end={zoom_end_ms}")
@@ -2144,18 +2144,18 @@ class VideoPlayer:
             self.loop_end = self.loop_start + zoom_range_ms
             self.loop_zoom_ratio = zoom_range_ms / self.zoom_context["zoom_range"]
 
-            self.console.config(text="🅰️ Zoom auto : A à 20%, durée 1min")
+            self.console.config(text="🅰️ Zoom auto : A à 5%, durée 1min")
             Brint(f"[AUTOZOOM] ✅ Zoom défini pour A seul : start={zoom_start_ms}, end={zoom_end_ms}, ratio={self.loop_zoom_ratio:.3f}")
 
         else:
-            Brint("[AUTOZOOM] 🅰️ + 🅱️ définis → zoom A à 20%, B à 80%")
+            Brint("[AUTOZOOM] 🅰️ + 🅱️ définis → zoom A à 5%, B à 95%")
 
             loop_len = self.loop_end - self.loop_start
             if loop_len <= 0:
                 Brint("[AUTOZOOM] ❌ Loop invalide (B < A)")
                 return
 
-            zoom_range = int(loop_len / 0.6)
+            zoom_range = int(loop_len / 0.9)
             # 💡 Limite de zoom max : on ne veut pas zoomer sur toute la vidéo
             max_zoom_range = min(video_duration, 300000)  # 5 minutes max
 
@@ -2164,7 +2164,7 @@ class VideoPlayer:
                 zoom_range = max_zoom_range
 
             
-            zoom_start = self.loop_start - int(0.2 * zoom_range)
+            zoom_start = self.loop_start - int(0.05 * zoom_range)
             zoom_end = zoom_start + zoom_range
 
             Brint(f"[AUTOZOOM] 📐 Calcul initial : zoom_start={zoom_start}, zoom_end={zoom_end}, zoom_range={zoom_range}")
@@ -2186,7 +2186,7 @@ class VideoPlayer:
             }
 
             self.loop_zoom_ratio = loop_len / self.zoom_context["zoom_range"]
-            self.console.config(text="🔍 Zoom auto : A à 20%, B à 80%")
+            self.console.config(text="🔍 Zoom auto : A à 5%, B à 95%")
 
             Brint(f"[AUTOZOOM] ✅ Zoom défini A+B : start={zoom_start}, end={zoom_end}, ratio={self.loop_zoom_ratio:.3f}")
 
