@@ -24,3 +24,12 @@ def format_time(seconds, include_ms=True, include_tenths=False):
         ms = int(round((seconds - int(seconds)) * 1000))
         return f"{h}:{m:02}:{s:02}.{ms:03}"
     return f"{h}:{m:02}:{s:02}"
+
+
+def compute_scroll_speed(T_loop, T_zoom, canvas_width):
+    """Return scroll speed (px/s) for static elements during dynamic zoom."""
+    if T_loop <= 0 or T_zoom <= 0 or canvas_width <= 0:
+        return 0.0
+    v_frac = (T_loop - 0.9 * T_zoom) / (T_loop * T_zoom)
+    return v_frac * canvas_width
+
