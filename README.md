@@ -155,3 +155,5 @@ While this interpolated scroll is happening:
 	•	Scroll accordingly, so they stay aligned with the playhead’s real-time position.
 	•	Update dynamically to maintain visual accuracy and rhythmic alignment.
 
+### Troubleshooting Dynamic Scroll
+If you zoom to about **111%** of the loop length (zoom ratio around 0.9), the computed offset becomes very small. The playhead may appear fixed because the dynamic window shift is less than 1 ms and rounds to the loop start. To see the scroll effect, zoom in further so that the ratio drops noticeably below 0.9.
