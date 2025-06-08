@@ -730,9 +730,9 @@ def extract_audio_segment(audio_path, start, duration, sr=22050):
         tmp_path
     ]
 
-    Brint("[DEBUG] Appel ffmpeg:", " ".join(cmd))
+    Brint("[WARNING] Appel ffmpeg:", " ".join(cmd))
     result = subprocess.run(cmd)
-    Brint("[DEBUG] Code retour ffmpeg:", result.returncode)
+    Brint("[WARNING] Code retour ffmpeg:", result.returncode)
 
     return tmp_path
 
@@ -1070,7 +1070,7 @@ def open_vlc_at(filepath, seconds):
     abs_filepath = os.path.abspath(filepath)
     timestamp = int(seconds)
 
-    Brint("Commande VLC:", [vlc_path, abs_filepath, f"--start-time={timestamp}"])
+    Brint("WARNING", [vlc_path, abs_filepath, f"--start-time={timestamp}"])
 
     subprocess.run([
         vlc_path,
