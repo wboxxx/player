@@ -77,6 +77,7 @@ main shortcuts and what they do:
 | `Shift+F1` | Cycle subdivision mode backward |
 | `Shift+F2` | Cycle subdivision mode forward |
 | `F4` | Toggle state window |
+| `F5` | Open chord editor for the whole loop |
 | `F1` | Cycle syllable set backward |
 | `F2` | Cycle syllable set forward |
 | `F3` | Open debug flags window |
