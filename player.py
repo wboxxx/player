@@ -7293,7 +7293,12 @@ class VideoPlayer:
             label = "B"
             if zoom_start <= self.loop_end <= zoom_end:
                 label += f": {self.hms(self.loop_end)}"
-            self.timeline.create_text(xb + 10, 18, text=label, anchor='w', fill="white", tags="loop_marker")
+            x_label = xb - 10
+            anchor = 'e'
+            if x_label < 0:
+                x_label = xb + 10
+                anchor = 'w'
+            self.timeline.create_text(x_label, 18, text=label, anchor=anchor, fill="white", tags="loop_marker")
 
         self.draw_audio_power_overlay()
 
