@@ -7936,7 +7936,8 @@ class VideoPlayer:
         if hasattr(self, "btn_edit_B"):
             self.btn_edit_B.config(relief="raised")
 
-        if hasattr(self, "current_loop"):
+        # Reset loop metadata if a current_loop is defined
+        if getattr(self, "current_loop", None) is not None:
             self.current_loop.loop_start = 0
             self.current_loop.loop_end = 0
 
