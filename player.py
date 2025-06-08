@@ -5235,12 +5235,26 @@ class VideoPlayer:
 
     def open_given_file(self, path, spawn_new_instance=False):
         """Charge un fichier donné directement, sans repasser par le file dialog."""
+
+        if not path:
+            Brint("[OPEN] ❌ Chemin de fichier invalide")
+            if hasattr(self, "console"):
+                self.console.config(text="⛔ Invalid file path")
+            return
+
         if spawn_new_instance:
             import subprocess, sys, os
             subprocess.Popen([sys.executable, os.path.abspath(__file__), path])
             self.root.destroy()
             sys.exit(0)
             return
+
+        if not os.path.exists(path):
+            Brint(f"[OPEN] ❌ Média introuvable : {path}")
+            if hasattr(self, "console"):
+                self.console.config(text=f"⛔ File not found: {path}")
+            return
+
         self.current_path = path
         self.root.after(1000, self.load_screen_zoom_prefs)
 

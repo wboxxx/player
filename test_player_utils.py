@@ -439,5 +439,20 @@ class TestOpenFileAfterCancel(unittest.TestCase):
         vp.root.after_cancel.assert_called_once_with('cb1')
         self.assertIsNone(vp.after_id)
 
+
+class TestOpenGivenFileInvalidPath(unittest.TestCase):
+    def test_none_path_does_not_crash(self):
+        vp = VideoPlayer.__new__(VideoPlayer)
+        vp.root = MagicMock()
+        vp.console = MagicMock()
+        vp.instance = MagicMock()
+        vp.player = MagicMock()
+        vp.canvas = MagicMock()
+        vp.canvas.winfo_id.return_value = 1
+
+        # Should return without raising when path is None
+        VideoPlayer.open_given_file(vp, None)
+        vp.console.config.assert_called_once()
+
 if __name__ == '__main__':
     unittest.main(argv=['first-arg-is-ignored'], exit=False)
