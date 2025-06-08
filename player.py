@@ -2046,6 +2046,12 @@ class VideoPlayer:
         if not self.loop_start or not self.loop_end:
             return
 
+        # When the user has intentionally chosen a high zoom ratio
+        # (>= 3x), we skip auto adjustments to avoid unwanted resets.
+        if getattr(self, "loop_zoom_ratio", 1.0) >= 3.0:
+            Brint("[ZOOM CHECK] ⏭️ High zoom ratio, skipping auto adjust")
+            return
+
         zoom = self.get_zoom_context()
         z_start = zoom["zoom_start"]
         z_end = zoom["zoom_end"]
