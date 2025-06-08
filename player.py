@@ -691,7 +691,7 @@ def count_existing_loops(folder_id, drive):
 # === MAIN UPLOAD FUNCTION ===
 def upload_loop_to_drive(local_current_path, media_base_name):
     if not os.path.exists(local_current_path):
-        Brint(f"❌ Fichier non trouvé : {local_current_path}")
+        Brint(f"[TBD] ❌ Fichier non trouvé : {local_current_path}")
         return
 
     drive = authenticate()
@@ -712,7 +712,7 @@ def upload_loop_to_drive(local_current_path, media_base_name):
     file_drive.SetContentFile(local_current_path)
     file_drive.Upload()
 
-    Brint(f"✅ Upload terminé : {loop_filename} → Dossier {media_base_name}")
+    Brint(f"[TBD] ✅ Upload terminé : {loop_filename} → Dossier {media_base_name}")
 
 
 
@@ -751,18 +751,18 @@ def detect_tempo_and_beats(audio_path, loop_start=35.0, loop_end=75.0):
         audio_path = audio_path[1:]
     try:
         duration = loop_end - loop_start
-        Brint(f"=== Analyse tempo sur {audio_path} ===")
-        Brint(f"Loop : {loop_start:.2f}s → {loop_end:.2f}s")
+        Brint(f"[TBD] === Analyse tempo sur {audio_path} ===")
+        Brint(f"[TBD] Loop : {loop_start:.2f}s → {loop_end:.2f}s")
 
         tmp_path = extract_audio_segment(audio_path, loop_start, duration)
         pass #Brint(f"[DEBUG] Fichier temporaire créé : {tmp_path}")
         if not os.path.exists(tmp_path) or os.path.getsize(tmp_path) == 0:
-            Brint("❌ Fichier audio temporaire vide ou manquant.")
+            Brint("[TBD] ❌ Fichier audio temporaire vide ou manquant.")
             return None # Ensure to return something identifiable as failure
 
         y, sr = librosa.load(tmp_path, sr=None, dtype=np.float32)
         if y is None or len(y) == 0:
-            Brint("❌ Erreur de chargement audio depuis le fichier WAV.")
+            Brint("[TBD] ❌ Erreur de chargement audio depuis le fichier WAV.")
             return None # Ensure to return something identifiable as failure
         pass #Brint(f"[DEBUG] Taille fichier : {os.path.getsize(tmp_path)} octets, SR = {sr}, longueur = {len(y)}")
 
@@ -778,20 +778,20 @@ def detect_tempo_and_beats(audio_path, loop_start=35.0, loop_end=75.0):
         threshold = np.max(rms_bass) * 0.7
         candidates = np.where((rms_bass > threshold) & (times_bass > 1.0))[0]
         if not candidates.size:
-            Brint("⚠️ Aucun pic d’énergie clair détecté.")
+            Brint("[TBD] ⚠️ Aucun pic d’énergie clair détecté.")
             return None # Ensure to return something identifiable as failure
 
         beat1_time = float(loop_start + times_bass[candidates[0]])
         ts = timedelta(seconds=beat1_time)
         hms = f"{ts.seconds // 3600}:{(ts.seconds % 3600) // 60:02}:{ts.seconds % 60:02}.{int(ts.microseconds/1000):03}"
-        Brint(f"🌟 Beat 1 : {hms} ({beat1_time:.3f}s)")
+        Brint(f"[TBD] 🌟 Beat 1 : {hms} ({beat1_time:.3f}s)")
 
         idx_start_focus = int((beat1_time - loop_start) * sr) # Renamed idx_start to avoid conflict
         y_focus = y[idx_start_focus:idx_start_focus + int(15 * sr)]
 
         tempo_raw, _ = librosa.beat.beat_track(y=y_focus, sr=sr)
         tempo = float(tempo_raw/3)  # mesure?beat?
-        Brint(f"🎵 Tempo beats estimé  : {tempo:.2f} BPM")
+        Brint(f"[TBD] 🎵 Tempo beats estimé  : {tempo:.2f} BPM")
 
         Brint(f"[TIMER] detect_tempo_and_beats: {time.time() - start_time_func:.2f}s")
         return beat1_time, tempo
@@ -803,7 +803,7 @@ def detect_tempo_and_beats(audio_path, loop_start=35.0, loop_end=75.0):
         # For now, replicating the original fallback logic in case of an error,
         # but this might need review depending on how `self` is accessed here.
         # Assuming `self` is not accessible in this global function, returning None.
-        Brint(f"❌ Erreur tempo : {type(e).__name__} - {e}")
+        Brint(f"[TBD] ❌ Erreur tempo : {type(e).__name__} - {e}")
         return None
     finally:
         if tmp_path and os.path.exists(tmp_path):
@@ -816,7 +816,7 @@ def detect_tempo_and_beats(audio_path, loop_start=35.0, loop_end=75.0):
 
         return self.loop_end / 1000.0 if self.loop_end is not None else None
 
-        Brint(f"❌ Erreur tempo : {type(e).__name__} - {e}")
+        Brint(f"[TBD] ❌ Erreur tempo : {type(e).__name__} - {e}")
 
 
 
@@ -1023,28 +1023,28 @@ def detect_countins_with_rms(filepath, hop_length=256, strict=False, mode="defau
             clicks_hms = [seconds_to_hms(t) for t in group]
 
             if verbose:
-                Brint(f"  → Clics candidats : {clicks_hms} | Δt = {round(avg, 3)} | STD = {round(std, 4)}")
+                Brint(f"[TBD]   → Clics candidats : {clicks_hms} | Δt = {round(avg, 3)} | STD = {round(std, 4)}")
 
             if std >= threshold:
-                if verbose: Brint(f" {std:.2f}    ❌ Rejeté : irrégulier")
+                if verbose: Brint(f"[TBD]  {std:.2f}    ❌ Rejeté : irrégulier")
                 continue
             if max_dev >= lin_threshold:
-                if verbose: Brint(f" {max_dev:.2f}    ❌ Rejeté : déviation max {round(max_dev, 4)} trop élevée")
+                if verbose: Brint(f"[TBD]  {max_dev:.2f}    ❌ Rejeté : déviation max {round(max_dev, 4)} trop élevée")
                 continue
             if rms_before > 0.026:
-                if verbose: Brint(f"{rms_before:.2f}     ❌ Rejeté : pas assez silencieux avant")
+                if verbose: Brint(f"[TBD] {rms_before:.2f}     ❌ Rejeté : pas assez silencieux avant")
                 continue
             if boost <= 1.5:
-                if verbose: Brint(f" {boost:.2f}    ❌ Rejeté : boost RMS trop faible (×{round(boost,2)})")
+                if verbose: Brint(f"[TBD]  {boost:.2f}    ❌ Rejeté : boost RMS trop faible (×{round(boost,2)})")
                 continue
             if not plateau_ok:
                 if verbose:
-                    Brint(f"     ❌ Rejeté : pas de plateau RMS stable")
+                    Brint(f"[TBD]      ❌ Rejeté : pas de plateau RMS stable")
                     Brint(f"        → Moyenne RMS = {plateau_debug['mean_rms']} (ok={plateau_debug['mean_ok']})")
                     Brint(f"        → Écart-type RMS = {plateau_debug['std_rms']} (ok={plateau_debug['std_ok']})")
                 continue
 
-            if verbose: Brint(f"     ✅ Accepté comme count-in 🎯")
+            if verbose: Brint(f"[TBD]      ✅ Accepté comme count-in 🎯")
             groups.append({
                 "clicks": clicks_sec,
                 "interval": round(float(avg), 3),
@@ -1076,7 +1076,7 @@ def open_vlc_at(filepath, seconds):
     abs_filepath = os.path.abspath(filepath)
     timestamp = int(seconds)
 
-    Brint("WARNING", [vlc_path, abs_filepath, f"--start-time={timestamp}"])
+    Brint("[TBD] WARNING", [vlc_path, abs_filepath, f"--start-time={timestamp}"])
 
     subprocess.run([
         vlc_path,
@@ -1086,7 +1086,7 @@ def open_vlc_at(filepath, seconds):
 
 
     if groups:
-        Brint("\n🔍 Résultats des count-ins détectés :")
+        Brint("[TBD] \n🔍 Résultats des count-ins détectés :")
         for i, g in enumerate(groups):
             beat1_hms = seconds_to_hms(g["beat1"])
             start_hms = seconds_to_hms(g["clicks"][0])
@@ -1107,16 +1107,16 @@ def open_vlc_at(filepath, seconds):
                     Brint(f"Ouverture de VLC à {seconds_to_hms(groups[idx]['clicks'][0])}...")
                     open_vlc_at(current_path, groups[idx]["clicks"][0])
                 else:
-                    Brint("Numéro invalide.")
+                    Brint("[TBD] Numéro invalide.")
             else:
-                Brint("Merci d'entrer un numéro valide ou rien pour quitter.")
+                Brint("[TBD] Merci d'entrer un numéro valide ou rien pour quitter.")
             
                 
 
         else:
-            Brint("❌ Aucun count-in détecté.")
+            Brint("[TBD] ❌ Aucun count-in détecté.")
     else:
-        Brint("❌ Aucun fichier sélectionné.")
+        Brint("[TBD] ❌ Aucun fichier sélectionné.")
 
 
 # --- analysis_utils.py ---
@@ -1146,18 +1146,18 @@ def detect_multiple_beat1(path, sr=22050, segment_duration=15.0, step=10.0, min_
     Analyse tout le fichier en le balayant par fenêtres glissantes,
     et détecte les points d'entrée RHYTHMiques (Beat 1).
     """
-    Brint(f"📂 Analyse du fichier : {path}")
+    Brint(f"[TBD] 📂 Analyse du fichier : {path}")
     try:
         info = ffmpeg.probe(path)
         duration = float(info['format']['duration'])
     except:
         duration = 600  # fallback
 
-    Brint(f"⏳ Durée totale : {duration:.1f} sec")
+    Brint(f"[TBD] ⏳ Durée totale : {duration:.1f} sec")
     beat1_list = []
 
     for offset in np.arange(0, duration - segment_duration, step):
-        Brint(f"\n🔍 Analyse segment {offset:.2f}s → {offset + segment_duration:.2f}s")
+        Brint(f"[TBD] \n🔍 Analyse segment {offset:.2f}s → {offset + segment_duration:.2f}s")
 
         # découpage audio temporaire
         tmp_wav = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
@@ -1178,10 +1178,10 @@ def detect_multiple_beat1(path, sr=22050, segment_duration=15.0, step=10.0, min_
         try:
             y, sr = librosa.load(tmp_path, sr=sr)
             duration_loaded = len(y) / sr
-            Brint(f"    ℹ️ Segment chargé : {duration_loaded:.2f}s")
+            Brint(f"[TBD]     ℹ️ Segment chargé : {duration_loaded:.2f}s")
 
             if len(y) < sr:  # moins de 1s
-                Brint("    ⚠️ Segment vide ou trop court.")
+                Brint("[TBD]     ⚠️ Segment vide ou trop court.")
                 continue
 
             tempo, beats = librosa.beat.beat_track(y=y, sr=sr)
@@ -1189,19 +1189,19 @@ def detect_multiple_beat1(path, sr=22050, segment_duration=15.0, step=10.0, min_
                 beat_times = librosa.frames_to_time(beats, sr=sr)
                 beat1_abs = float(beat_times[0] + offset)
                 tempo = float(tempo)
-                Brint(f"    ✅ Beat 1 détecté : {beat1_abs:.2f}s @ {tempo:.1f} BPM")
+                Brint(f"[TBD]     ✅ Beat 1 détecté : {beat1_abs:.2f}s @ {tempo:.1f} BPM")
                 beat1_list.append((offset, offset + segment_duration, beat1_abs, tempo))
             else:
-                Brint("    ❌ Pas assez de beats détectés.")
+                Brint("[TBD]     ❌ Pas assez de beats détectés.")
 
         except Exception as e:
-            Brint(f"⚠️ Erreur analyse : {e}")
+            Brint(f"[TBD] ⚠️ Erreur analyse : {e}")
 
         finally:
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
 
-    Brint(f"\n🎯 Total Beat 1 détectés : {len(beat1_list)}")
+    Brint(f"[TBD] \n🎯 Total Beat 1 détectés : {len(beat1_list)}")
     return beat1_list
 
 def extract_audio_segment(path, offset=0.0, duration=30.0, sr=22050):
@@ -1224,7 +1224,7 @@ def extract_audio_segment(path, offset=0.0, duration=30.0, sr=22050):
     return tmp_path
 
 def find_beat1_hotspots(path, sr=22050):
-    Brint(f"\n📂 Analyse globale pour hotspots jamtrack : {path}")
+    Brint(f"[TBD] \n📂 Analyse globale pour hotspots jamtrack : {path}")
 
     # 1. Convertir fichier complet en .wav mono via ffmpeg
     tmp_wav = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
@@ -1251,7 +1251,7 @@ def find_beat1_hotspots(path, sr=22050):
         min_silence_duration = 2.0
         min_activity_duration = 6.0
 
-        Brint(f"🎛 Analyse énergie globale : RMS min={rms.min():.4f}, max={rms.max():.4f}, mean={rms.mean():.4f}")
+        Brint(f"[TBD] 🎛 Analyse énergie globale : RMS min={rms.min():.4f}, max={rms.max():.4f}, mean={rms.mean():.4f}")
         transitions = []
         i = 0
         while i < len(rms):
@@ -1275,54 +1275,54 @@ def find_beat1_hotspots(path, sr=22050):
 
                 if silence_dur >= min_silence_duration and act_dur >= min_activity_duration:
                     transitions.append((silence_end, act_end))
-                    Brint(f"🔁 Transition détectée : silence {silence_start:.1f}s → {silence_end:.1f}s, activité jusqu’à {act_end:.1f}s")
+                    Brint(f"[TBD] 🔁 Transition détectée : silence {silence_start:.1f}s → {silence_end:.1f}s, activité jusqu’à {act_end:.1f}s")
             else:
                 i += 1
 
         # 3. Appliquer détection Beat 1 sur chaque zone détectée
         results = []
         for idx, (start, end) in enumerate(transitions):
-            Brint(f"⏱️ Zone {idx+1} : {start:.2f}s → {end:.2f}s")
+            Brint(f"[TBD] ⏱️ Zone {idx+1} : {start:.2f}s → {end:.2f}s")
             beat_result = detect_tempo_and_beats(path, loop_start=start, loop_end=end)
             if beat_result:
                 beat1, tempo = beat_result
-                Brint(f"   ✅ Beat 1 : {beat1:.3f}s @ {tempo:.1f} BPM")
+                Brint(f"[TBD]    ✅ Beat 1 : {beat1:.3f}s @ {tempo:.1f} BPM")
                 results.append((start, end, beat1, tempo))
             else:
-                Brint(f"   ❌ Échec détection beat")
+                Brint(f"[TBD]    ❌ Échec détection beat")
 
         return results
 
     finally:
         if os.path.exists(tmp_path):
-            Brint(f"🧹 Suppression du fichier temporaire : {tmp_path}")
+            Brint(f"[TBD] 🧹 Suppression du fichier temporaire : {tmp_path}")
             os.remove(tmp_path)
 
 def detect_jamtrack_zones(path, sr=22050):
-    Brint(f"\n📂 Fichier à analyser : {path}")
+    Brint(f"[TBD] \n📂 Fichier à analyser : {path}")
     tmp_path = extract_audio_segment(path, offset=0.0, duration=180.0, sr=sr)
-    Brint(f"🎧 Segment audio temporaire généré : {tmp_path}")
+    Brint(f"[TBD] 🎧 Segment audio temporaire généré : {tmp_path}")
 
     try:
-        Brint("🔍 Chargement audio avec librosa...")
+        Brint("[TBD] 🔍 Chargement audio avec librosa...")
         y, sr = librosa.load(tmp_path, sr=sr)
-        Brint(f"✅ Chargé : {len(y)} échantillons à {sr} Hz")
+        Brint(f"[TBD] ✅ Chargé : {len(y)} échantillons à {sr} Hz")
 
-        Brint("🎛 Calcul du spectre...")
+        Brint("[TBD] 🎛 Calcul du spectre...")
         S = np.abs(librosa.stft(y, n_fft=2048, hop_length=512))**2
         freqs = librosa.fft_frequencies(sr=sr, n_fft=2048)
 
-        Brint("🎚 Extraction bande basse (40–120Hz)...")
+        Brint("[TBD] 🎚 Extraction bande basse (40–120Hz)...")
         low_band = (freqs >= 40) & (freqs <= 120)
         bass_energy = S[low_band, :].mean(axis=0)
         times = librosa.frames_to_time(np.arange(len(bass_energy)), sr=sr, hop_length=512)
 
-        Brint("📊 Calcul RMS...")
+        Brint("[TBD] 📊 Calcul RMS...")
         rms = librosa.feature.rms(y=y).flatten()
         global_threshold = np.percentile(bass_energy, 75)
-        Brint(f"📈 Seuil dynamique sur basses : {global_threshold:.4f}")
+        Brint(f"[TBD] 📈 Seuil dynamique sur basses : {global_threshold:.4f}")
 
-        Brint("🔍 Détection des frames actives...")
+        Brint("[TBD] 🔍 Détection des frames actives...")
         active = bass_energy > global_threshold
         segments = []
         start = None
@@ -1333,7 +1333,7 @@ def detect_jamtrack_zones(path, sr=22050):
                 end = times[i]
                 if end - start >= 10.0:
                     segments.append((start, end))
-                    Brint(f"⏳ Segment brut détecté : {start:.2f}s → {end:.2f}s")
+                    Brint(f"[TBD] ⏳ Segment brut détecté : {start:.2f}s → {end:.2f}s")
                 start = None
 
         # Fusionner les segments proches
@@ -1348,28 +1348,28 @@ def detect_jamtrack_zones(path, sr=22050):
                 else:
                     merged.append(seg)
 
-        Brint(f"🔁 Segments fusionnés : {len(merged)}")
+        Brint(f"[TBD] 🔁 Segments fusionnés : {len(merged)}")
         for i, (start, end) in enumerate(merged):
-            Brint(f"  ▶ Zone {i+1}: {start:.2f}s → {end:.2f}s")
+            Brint(f"[TBD]   ▶ Zone {i+1}: {start:.2f}s → {end:.2f}s")
 
         # Appliquer détection beat1
         detected = []
         for i, (start, end) in enumerate(merged):
-            Brint(f"⏱️ Zone {i+1} : détection tempo sur {start:.2f}s → {end:.2f}s")
+            Brint(f"[TBD] ⏱️ Zone {i+1} : détection tempo sur {start:.2f}s → {end:.2f}s")
             result = detect_tempo_and_beats(path, loop_start=start, loop_end=end)
             if result:
                 beat1, tempo = result
-                Brint(f"    ✅ Beat 1 détecté : {beat1:.3f}s @ {tempo:.2f} BPM")
+                Brint(f"[TBD]     ✅ Beat 1 détecté : {beat1:.3f}s @ {tempo:.2f} BPM")
                 detected.append((start, end, beat1))
             else:
-                Brint(f"    ❌ Échec détection tempo")
+                Brint(f"[TBD]     ❌ Échec détection tempo")
 
-        Brint(f"\n🎯 Zones retenues : {len(detected)}")
+        Brint(f"[TBD] \n🎯 Zones retenues : {len(detected)}")
         return detected
 
     finally:
         if os.path.exists(tmp_path):
-            Brint(f"🧹 Suppression du fichier temporaire : {tmp_path}")
+            Brint(f"[TBD] 🧹 Suppression du fichier temporaire : {tmp_path}")
             os.remove(tmp_path)
 
 
@@ -1448,7 +1448,7 @@ def loopdata_to_dict(loop_data):
 
 
 def predict_on_loop_segment(original_path, beat1_sec, duration_sec):
-    Brint(f"🎧 Extraction de {duration_sec}s à partir de {beat1_sec}s...")
+    Brint(f"[TBD] 🎧 Extraction de {duration_sec}s à partir de {beat1_sec}s...")
 
     # Si le fichier est une vidéo, extraire l'audio en WAV
     if original_path.lower().endswith('.mp4'):
@@ -1485,7 +1485,7 @@ def predict_on_loop_segment(original_path, beat1_sec, duration_sec):
             temp_path = tmpfile.name
             sf.write(temp_path, y, sr)
 
-        Brint(f"🎧 Analyse de {os.path.basename(temp_path)} (durée {len(y)/sr:.2f}s)")
+        Brint(f"[TBD] 🎧 Analyse de {os.path.basename(temp_path)} (durée {len(y)/sr:.2f}s)")
 
         # Analyse avec Basic Pitch
         start_predict = time.time()
@@ -1532,7 +1532,7 @@ def predict_on_interval(filepath, beat1_sec, bpm, measures=20, tmp_path="temp_se
         y, sr = librosa.load(filepath, sr=None, offset=beat1_sec, duration=seconds)
         sf.write(tmp_path, y, sr)
 
-        Brint(f"🎧 Analyse de {tmp_path} (durée {seconds:.2f}s)")
+        Brint(f"[TBD] 🎧 Analyse de {tmp_path} (durée {seconds:.2f}s)")
         model_output, midi_data, note_events = predict(
             tmp_path,
             model_or_model_path=ICASSP_2022_MODEL_PATH,
@@ -1559,7 +1559,7 @@ device = "cuda" if (torch is not None and torch.cuda.is_available()) else "cpu"
 
 
 
-Brint("✅ Player lancé depuis :", os.getcwd())
+Brint("[TBD] ✅ Player lancé depuis :", os.getcwd())
 
 
 NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
@@ -2095,8 +2095,8 @@ class VideoPlayer:
         new_B_x = self.time_sec_to_canvas_x(self.loop_end / 1000.0)
 
         Brint(f"[ZOOM MOVE] 🔁 Zoom modifié !")
-        Brint(f"  🎯 A: x avant = {prev_A_x}px → après = {new_A_x}px")
-        Brint(f"  🎯 B: x avant = {prev_B_x}px → après = {new_B_x}px")
+        Brint(f"[TBD]   🎯 A: x avant = {prev_A_x}px → après = {new_A_x}px")
+        Brint(f"[TBD]   🎯 B: x avant = {prev_B_x}px → après = {new_B_x}px")
         Brint(f"  🔍 zoom_start: {prev_zoom['zoom_start']} → {new_zoom['zoom_start']}")
         Brint(f"  🔍 zoom_range: {prev_zoom['zoom_range']} → {new_zoom['zoom_range']}")
 
@@ -2235,13 +2235,13 @@ class VideoPlayer:
         Brint(f"\n[DISPLAY MODE] 🔁 Passage du mode '{current}' → '{next_mode}'")
 
         if next_mode == "key":
-            Brint("  ➤ Les intervalles seront calculés par rapport à la tonalité globale (key).")
+            Brint("[TBD]   ➤ Les intervalles seront calculés par rapport à la tonalité globale (key).")
         elif next_mode == "chord":
-            Brint("  ➤ Les intervalles seront calculés par rapport à l’accord actif de la mesure.")
+            Brint("[TBD]   ➤ Les intervalles seront calculés par rapport à l’accord actif de la mesure.")
         elif next_mode == "absolute":
-            Brint("  ➤ Affichage absolu : les notes sont colorées sans relation harmonique.")
+            Brint("[TBD]   ➤ Affichage absolu : les notes sont colorées sans relation harmonique.")
         else:
-            Brint("  ⚠️ Mode inconnu, fallback 'key'")
+            Brint("[TBD]   ⚠️ Mode inconnu, fallback 'key'")
 
         # Rafraîchit l’affichage
         self.draw_rhythm_grid_canvas()
@@ -2604,7 +2604,7 @@ class VideoPlayer:
 
         # The raw canvas position may lie outside the visible range when zoomed.
         # Return this unclamped value so callers can decide how to handle it.
-        Brint(t_sec, zoom_range, loop_range, ratio, x)
+        Brint("[TBD]", t_sec, zoom_range, loop_range, ratio, x)
         x = round(x)
 
         Brint(f"[DEBUG time_sec_to_canvas_x] t_sec={t_sec:.3f}s | t_ms={t_ms:.1f} | zoom_start={zoom_start} | zoom_range={zoom_range} | canvas_width={canvas_width} → x={x}")
@@ -3707,7 +3707,7 @@ class VideoPlayer:
         Brint("[DEBUG] 🔍 master_note_list (extrait) :")
         for note in source[:20]:
             start, end, pitch, conf = note
-            Brint(f"- {self.hms(start * 1000)} → {self.hms(end * 1000)} | Pitch: {pitch} | Confidence: {conf:.2f}")
+            Brint(f"[TBD] - {self.hms(start * 1000)} → {self.hms(end * 1000)} | Pitch: {pitch} | Confidence: {conf:.2f}")
 
         for i in range(len(self.grid_times)):
             t0 = self.grid_times[i]
@@ -3776,7 +3776,7 @@ class VideoPlayer:
         Brint("[DEBUG] 🔍 master_note_list (extrait) :")
         for note in self.current_loop_master_notes[:10]:
             start, end, pitch, conf = note
-            Brint(f" - {self.hms(start * 1000)} | Pitch: {pitch} | Confidence: {conf:.2f}")
+            Brint(f"[TBD]  - {self.hms(start * 1000)} | Pitch: {pitch} | Confidence: {conf:.2f}")
         
         self.refresh_note_display()
         self.draw_rhythm_grid_canvas()
@@ -3841,7 +3841,7 @@ class VideoPlayer:
         # Brint("[DEBUG] 🔍 master_note_list (extrait) :")
         # for note in self.current_loop_master_notes[:10]:
             # start, end, pitch, conf = note
-            # Brint(f" - {self.hms(start * 1000)} | Pitch: {pitch} | Confidence: {conf:.2f}")
+            # Brint(f"[TBD]  - {self.hms(start * 1000)} | Pitch: {pitch} | Confidence: {conf:.2f}")
         
         
         
@@ -4002,7 +4002,7 @@ class VideoPlayer:
             self.safe_jump_to_time(target_ms, source="jump_playhead")
             self.safe_update_playhead(target_ms, source="jump_playhead")
 
-        Brint(f"➡️ Jump {original_level} {direction:+} → {target_ms} ms (delta : {delta_ms} ms) {override_reason}")
+        Brint(f"[TBD] ➡️ Jump {original_level} {direction:+} → {target_ms} ms (delta : {delta_ms} ms) {override_reason}")
 
 
 
@@ -4021,7 +4021,7 @@ class VideoPlayer:
         # self.update_playhead_by_time(ms)
         self.safe_update_playhead(ms, source="jump_to_A")
         self.playhead_time = ms / 1000
-        Brint(f"🎯 Jump to A : {ms} ms")
+        Brint(f"[TBD] 🎯 Jump to A : {ms} ms")
 
     def update_loop_menu(self):
         self.loop_menu.delete(0, tk.END)
@@ -4299,11 +4299,11 @@ class VideoPlayer:
                 self.current_loop.key = key_var.get().strip().upper()
                 self.current_loop.mode = mode_var.get().strip().lower()
                 
-                Brint("=== DEBUG SAUVEGARDE ===")
-                Brint(f"Key: {self.current_loop.key}")
-                Brint(f"Mode: {self.current_loop.mode}")
-                Brint(f"Chords: {self.current_loop.chords}")
-                Brint(f"Master Note List: {self.current_loop.master_note_list}")
+                Brint("[TBD] === DEBUG SAUVEGARDE ===")
+                Brint(f"[TBD] Key: {self.current_loop.key}")
+                Brint(f"[TBD] Mode: {self.current_loop.mode}")
+                Brint(f"[TBD] Chords: {self.current_loop.chords}")
+                Brint(f"[TBD] Master Note List: {self.current_loop.master_note_list}")
 
                 # ❌ Avant : self.save_current_loop()
                 # ✅ Remplace par :
@@ -4547,7 +4547,7 @@ class VideoPlayer:
         bar_index = closest_index // 12  # 12 subdivisions par mesure (en ternaire 4/4)
 
         if 0 <= bar_index < len(self.chord_sequence):
-            Brint(f"🎹 Édition accord pour mesure {bar_index + 1} (playhead)")
+            Brint(f"[TBD] 🎹 Édition accord pour mesure {bar_index + 1} (playhead)")
             self.open_chord_editor(bar_index)
         else:
             self.console.config(text=f"⚠️ Aucune mesure trouvée pour playhead {current_time:.2f}s")
@@ -4561,11 +4561,11 @@ class VideoPlayer:
 
             if 0 <= bar_index < len(self.chord_sequence):
                 self.open_chord_editor(bar_index)
-                Brint(f"🎹 Édition accord pour mesure {bar_index + 1}")
+                Brint(f"[TBD] 🎹 Édition accord pour mesure {bar_index + 1}")
             else:
                 self.console.config(text="⛔ Aucun accord associé à cette ligne")
         except Exception as e:
-            Brint("❌ Erreur dans edit_current_chord :", e)
+            Brint("[TBD] ❌ Erreur dans edit_current_chord :", e)
 
 
     def _handle_double_click_chord_edit(self, event, bar_index):
@@ -4791,7 +4791,7 @@ class VideoPlayer:
                 status += "⏳awaiting "
             if entry["frozen"]:
                 status += "❄️frozen "
-            Brint(f" - t={t}ms | x={x} | mode={mode} {status}")
+            Brint(f"[TBD]  - t={t}ms | x={x} | mode={mode} {status}")
             Brint(f"\n[STATS] x min = {self._debug_x_min}, x max = {self._debug_x_max}")
 
 
@@ -4807,9 +4807,9 @@ class VideoPlayer:
                 self.safe_update_playhead(self.player.get_time(), source="run_for_5s")
                 time.sleep(0.015)
 
-        # Brint("🟡 Profiling pendant 5 secondes...")
+        # Brint("[TBD] 🟡 Profiling pendant 5 secondes...")
         # cProfile.runctx("run_for_5s()", globals(), locals(), filename="perf5s.stats")
-        # Brint("✅ Profil terminé → perf5s.stats")
+        # Brint("[TBD] ✅ Profil terminé → perf5s.stats")
         # pstats.Stats("perf5s.stats").sort_stats("cumtime").print_stats(30)
 
 
@@ -5220,11 +5220,11 @@ class VideoPlayer:
         try:
             script_path = os.path.realpath(__file__)
         except NameError:
-            Brint("❌ __file__ non défini. Ce script n'est pas exécuté comme un fichier standard.")
+            Brint("[TBD] ❌ __file__ non défini. Ce script n'est pas exécuté comme un fichier standard.")
             return
 
         if not os.path.exists(script_path):
-            Brint(f"❌ Fichier introuvable : {script_path}")
+            Brint(f"[TBD] ❌ Fichier introuvable : {script_path}")
             return
 
         # Compte les fichiers playerX.py déjà présents
@@ -5242,7 +5242,7 @@ class VideoPlayer:
         })
         file_drive.SetContentFile(script_path)
         file_drive.Upload()
-        Brint(f"✅ Script {os.path.basename(script_path)} uploadé comme {target_name}")
+        Brint(f"[TBD] ✅ Script {os.path.basename(script_path)} uploadé comme {target_name}")
         self.log_to_console(f"✅ Script {os.path.basename(script_path)} uploadé comme {target_name}")
 
     def open_given_file(self, path, spawn_new_instance=False):
@@ -5312,7 +5312,7 @@ class VideoPlayer:
         self.open_file()  # appelle ton open_file() existant
 
     def _open_from_recent(self, path, win):
-        Brint(f"🕘 Ouverture du fichier récent : {path}")
+        Brint(f"[TBD] 🕘 Ouverture du fichier récent : {path}")
         win.destroy()
         self.open_given_file(path)
         self.needs_refresh = True
@@ -5404,7 +5404,7 @@ class VideoPlayer:
                 json.dump(data, f, indent=2)
             Brint(f"[RECENT] ✅ Ajouté : {path} | Dernière loop = {loop_name}")
         except Exception as e:
-            Brint(f"❌ Erreur lors de l'écriture dans recent_files.json : {e}")
+            Brint(f"[TBD] ❌ Erreur lors de l'écriture dans recent_files.json : {e}")
 
         # 🧠 Mise à jour interne pour menu fichiers récents
         self.recent_files = paths
@@ -5449,14 +5449,14 @@ class VideoPlayer:
                 self.saved_loops = valid_loops
 
 
-                Brint(f"✅ {len(self.saved_loops)} boucles valides chargées depuis {path}")
+                Brint(f"[TBD] ✅ {len(self.saved_loops)} boucles valides chargées depuis {path}")
                 for loop in self.saved_loops:
                     Brint(f"[LOOP LOAD] '{loop['name']}' tempo_bpm = {loop.get('tempo_bpm')}")
 
             else:
                 Brint(f"[INFO] Aucun fichier de boucles trouvé à {path}")
         except Exception as e:
-            Brint(f"❌ Erreur chargement boucles : {e}")
+            Brint(f"[TBD] ❌ Erreur chargement boucles : {e}")
 
         # ⬇ Fallback name si aucune boucle sélectionnée
         base_name = self.sanitize_filename(os.path.splitext(os.path.basename(self.current_path))[0])
@@ -5484,9 +5484,9 @@ class VideoPlayer:
                 json.dump({
                     "loops": self.saved_loops
                 }, f, indent=2)
-            Brint(f"💾 Boucles sauvegardées dans {path}")
+            Brint(f"[TBD] 💾 Boucles sauvegardées dans {path}")
         except Exception as e:
-            Brint(f"❌ Erreur sauvegarde boucles: {e}")
+            Brint(f"[TBD] ❌ Erreur sauvegarde boucles: {e}")
 
 
 
@@ -5508,7 +5508,7 @@ class VideoPlayer:
             # 📢 Seul le scale change !
             self.player.video_set_scale(self.global_zoom_level)
 
-            Brint(f"🎯 Crop fixé: {geom} | Zoom visuel: {self.global_zoom_level:.2f}")
+            Brint(f"[TBD] 🎯 Crop fixé: {geom} | Zoom visuel: {self.global_zoom_level:.2f}")
             self.update_pan(user_action="Zoom")
         # def zoom_in(self):
         # previous_zoom = self.global_zoom_level
@@ -5600,7 +5600,7 @@ class VideoPlayer:
             # Brint(f"🖐️ [PAN] Requête VLC: crop_geometry='{geom}'")
             # Brint(f"🔍 [STATE] Zoom actuel: {self.global_zoom_level:.2f}")
             # Brint(f"📐 [COMPARE] Aspect ratio → Crop: {aspect_crop:.2f} vs Video: {aspect_video:.2f}")
-            # Brint(f"📏 Crop size: {crop_w}px x {crop_h}px")
+            # Brint(f"[TBD] 📏 Crop size: {crop_w}px x {crop_h}px")
             # Brint(f"📊 [VIEWPORT] % vidéo visible → {crop_percent_w:.1f}% largeur, {crop_percent_h:.1f}% hauteur")
             Brint(f"🎯 [CENTER] Centre actuel du cadre crop: ({center_x}px, {center_y}px)")
 
@@ -5618,7 +5618,7 @@ class VideoPlayer:
         self.edit_mode_zoom = not self.edit_mode_zoom
         state = "Zoom Edit ON" if self.edit_mode_zoom else "Zoom Edit OFF"
         self.console.config(text=state)
-        Brint(f"🎛️ Mode édition zoom: {state}")  
+        Brint(f"[TBD] 🎛️ Mode édition zoom: {state}")  
 
 
     #zoom funcs
@@ -5632,27 +5632,27 @@ class VideoPlayer:
             self.saved_zoom_level = self.global_zoom_level
             self.saved_crop_x = self.global_crop_x
             self.saved_crop_y = self.global_crop_y
-            Brint(f"💾 Zoom sauvegardé : {self.saved_zoom_level}, crop=({self.saved_crop_x}, {self.saved_crop_y})")
+            Brint(f"[TBD] 💾 Zoom sauvegardé : {self.saved_zoom_level}, crop=({self.saved_crop_x}, {self.saved_crop_y})")
 
             # 🔄 Puis reset zoom
             self.global_zoom_level = 1.0
             self.global_crop_x = 0
             self.global_crop_y = 0
             self.zoom_toggled_on = True
-            Brint("🔄 Zoom reset à 1.0x")
+            Brint("[TBD] 🔄 Zoom reset à 1.0x")
         else:
             # 🔙 Restaurer le zoom sauvegardé
             if self.saved_zoom_level is not None:
                 self.global_zoom_level = self.saved_zoom_level
                 self.global_crop_x = self.saved_crop_x
                 self.global_crop_y = self.saved_crop_y
-                Brint(f"🔙 Zoom restauré : {self.global_zoom_level}x, crop=({self.global_crop_x}, {self.global_crop_y})")
+                Brint(f"[TBD] 🔙 Zoom restauré : {self.global_zoom_level}x, crop=({self.global_crop_x}, {self.global_crop_y})")
             self.zoom_toggled_on = False
 
         self.apply_crop()
     def reset_zoom_memory(self):
         """Double-click: forget saved zoom."""
-        Brint("🗑️ Zoom mémoire réinitialisé.")
+        Brint("[TBD] 🗑️ Zoom mémoire réinitialisé.")
         self.saved_zoom_level = None
         self.saved_crop_x = None
         self.saved_crop_y = None
@@ -5670,7 +5670,7 @@ class VideoPlayer:
     
     def export_loop_and_upload_to_drive(self, repeat=False):
         if not hasattr(self, 'loop_start') or not hasattr(self, 'loop_end') or not hasattr(self, 'current_path'):
-            Brint("❌ Impossible d'exporter : informations de loop manquantes.")
+            Brint("[TBD] ❌ Impossible d'exporter : informations de loop manquantes.")
             return
 
         duration = self.loop_end - self.loop_start
@@ -5682,7 +5682,7 @@ class VideoPlayer:
         temp_dir = tempfile.gettempdir()
         export_path = os.path.join(temp_dir, f"temp_loop.wav")
 
-        Brint(f"🎧 Export de la boucle : {self.loop_start:.2f} ms → {self.loop_end:.2f} ms → {export_path}")
+        Brint(f"[TBD] 🎧 Export de la boucle : {self.loop_start:.2f} ms → {self.loop_end:.2f} ms → {export_path}")
 
         start_sec = self.loop_start / 1000.0
 
@@ -5797,9 +5797,9 @@ class VideoPlayer:
             # path = self.abloops_json_path()
             # with open(path, "w", encoding="utf-8") as f:
                 # json.dump(self.saved_loops, f, indent=2)
-            # Brint(f"💾 Boucles sauvegardées dans {path}")
+            # Brint(f"[TBD] 💾 Boucles sauvegardées dans {path}")
         # except Exception as e:
-            # Brint(f"❌ Erreur sauvegarde boucles: {e}")
+            # Brint(f"[TBD] ❌ Erreur sauvegarde boucles: {e}")
 
 
     def force_save_current_loop(self):
@@ -5910,7 +5910,7 @@ class VideoPlayer:
         """Fait un jump fin, adapté selon l'état du snap."""
         if not self.snap_to_keyframes_enabled:
             delta_sec = base_delta_sec / 4
-            Brint(f"🛠️ Precision Mode: Jump réduit à {delta_sec:.3f} sec")
+            Brint(f"[TBD] 🛠️ Precision Mode: Jump réduit à {delta_sec:.3f} sec")
         else:
             delta_sec = base_delta_sec
 
@@ -5921,7 +5921,7 @@ class VideoPlayer:
         """Active ou désactive le snapping automatique aux keyframes."""
         self.snap_to_keyframes_enabled = not self.snap_to_keyframes_enabled
         state = "Activé" if self.snap_to_keyframes_enabled else "Désactivé"
-        Brint(f"🔀 Snap I-frame : {state}")
+        Brint(f"[TBD] 🔀 Snap I-frame : {state}")
         if hasattr(self, 'console'):
             self.console.config(text=f"🔀 Snap I-frame : {state}")
 
@@ -5933,11 +5933,11 @@ class VideoPlayer:
             media = self.instance.media_new(path)
             self.player.set_media(media)
             self.player.play()
-            Brint(f"🔄 Nouveau fichier chargé : {path}")
+            Brint(f"[TBD] 🔄 Nouveau fichier chargé : {path}")
 
     
     def find_locks_on_file(self, filepath):
-        Brint(f"🔎 Recherche de verrous sur {filepath}")
+        Brint(f"[TBD] 🔎 Recherche de verrous sur {filepath}")
         for proc in psutil.process_iter(['pid', 'name', 'open_files']):
             try:
                 for f in proc.info['open_files'] or []:
@@ -5949,7 +5949,7 @@ class VideoPlayer:
     def reframe_current_media(self):
         """Vérifie la densité des I-frames et reencode si nécessaire."""
         if not hasattr(self, 'current_path') or not self.current_path:
-            Brint("❌ Aucun fichier chargé")
+            Brint("[TBD] ❌ Aucun fichier chargé")
             if hasattr(self, 'console'):
                 self.console.config(text="❌ Aucun fichier chargé")
             return
@@ -5964,20 +5964,20 @@ class VideoPlayer:
         keyframes = self.extract_keyframes_around(path, center_time_sec=scan_window_sec/2, window_sec=scan_window_sec)
 
         if len(keyframes) < 2:
-            Brint("⚠️ Trop peu de keyframes détectées — reencodage forcé.")
+            Brint("[TBD] ⚠️ Trop peu de keyframes détectées — reencodage forcé.")
             self.reencode_video(path)
             return
 
         spacings = [keyframes[i+1] - keyframes[i] for i in range(len(keyframes)-1)]
         max_spacing = max(spacings)
 
-        Brint(f"📈 Espacement max entre I-frames : {max_spacing:.3f}s")
+        Brint(f"[TBD] 📈 Espacement max entre I-frames : {max_spacing:.3f}s")
 
         if max_spacing > max_spacing_sec:
-            Brint("🚨 GOP trop espacé — reencodage nécessaire.")
+            Brint("[TBD] 🚨 GOP trop espacé — reencodage nécessaire.")
             self.reencode_video(path)
         else:
-            Brint("✅ GOP ok, pas besoin de reencoder.")
+            Brint("[TBD] ✅ GOP ok, pas besoin de reencoder.")
 
     def reencode_video(self, path):
         """Reencode la vidéo pour forcer un GOP serré et recharge à la bonne position."""
@@ -6009,7 +6009,7 @@ class VideoPlayer:
 
             # 🔵 Sauvegarde du temps actuel
             current_time_ms = self.player.get_time() if hasattr(self, 'player') else 0
-            Brint(f"💾 Temps actuel avant reframe : {current_time_ms} ms")
+            Brint(f"[TBD] 💾 Temps actuel avant reframe : {current_time_ms} ms")
 
             if hasattr(self, 'player') and self.player.get_media():
                 self.player.stop()
@@ -6023,7 +6023,7 @@ class VideoPlayer:
             if answer:
                 time.sleep(0.5)
                 os.replace(temp_output, path)
-                Brint(f"✅ Fichier remplacé : {path}")
+                Brint(f"[TBD] ✅ Fichier remplacé : {path}")
                 if hasattr(self, 'console'):
                     self.console.config(text="✅ Reencodage effectué")
 
@@ -6031,23 +6031,23 @@ class VideoPlayer:
                 media = self.instance.media_new(path)
                 self.player.set_media(media)
                 self.player.play()
-                Brint(f"🔄 Nouveau fichier chargé : {path}")
+                Brint(f"[TBD] 🔄 Nouveau fichier chargé : {path}")
 
                 # 🔥 Repositionnement au temps précédent
                 def jump_back():
-                    Brint(f"🎯 Retour à {current_time_ms} ms")
+                    Brint(f"[TBD] 🎯 Retour à {current_time_ms} ms")
                     # self.jump_to_time(current_time_ms)
                     self.safe_jump_to_time(current_time_ms, source="reencode_video")
 
                 self.root.after(500, jump_back)
 
             else:
-                Brint("⏩ Remplacement annulé par l'utilisateur.")
+                Brint("[TBD] ⏩ Remplacement annulé par l'utilisateur.")
                 if hasattr(self, 'console'):
                     self.console.config(text="⏩ Remplacement annulé")
 
         except Exception as e:
-            Brint(f"❌ Erreur reencodage : {e}")
+            Brint(f"[TBD] ❌ Erreur reencodage : {e}")
             if hasattr(self, 'console'):
                 self.console.config(text=f"❌ Erreur reencodage : {e}")
 
@@ -6066,7 +6066,7 @@ class VideoPlayer:
                 elapsed = (time.perf_counter() - start_time) * 1000
                 mode = "Précis (set_time)" if self.use_precise_seek else "Rapide (set_position)"
                 msg = f"🕰️ Lag mesuré pour jump : {elapsed:.1f} ms ({mode})"
-                Brint(msg)
+                Brint("[TBD]", msg)
                 if hasattr(self, 'console'):
                     self.console.config(text=msg)
             else:
@@ -6079,7 +6079,7 @@ class VideoPlayer:
         self.use_precise_seek = not self.use_precise_seek
         mode = "Précis (set_time)" if self.use_precise_seek else "Rapide (set_position)"
         self.console.config(text=f"🔄 Mode seek: {mode}")
-        Brint(f"🔄 Mode seek: {mode}")
+        Brint(f"[TBD] 🔄 Mode seek: {mode}")
 
     def jump_to_time(self, milliseconds):
         
@@ -6094,7 +6094,7 @@ class VideoPlayer:
         self.last_jump_target_ms = target_time
         self.last_jump_time = time.time()
 
-        Brint(f"🎯 Demande de jump vers {target_time} ms")
+        Brint(f"[TBD] 🎯 Demande de jump vers {target_time} ms")
 
         if self.use_precise_seek:
             # self.player.set_time(target_time)
@@ -6106,7 +6106,7 @@ class VideoPlayer:
                 # self.player.set_position(fraction)
                 self.safe_jump_to_time(fraction, source="Jump to time2")
             else:
-                Brint("⚠️ Durée vidéo inconnue, set_position() impossible")
+                Brint("[TBD] ⚠️ Durée vidéo inconnue, set_position() impossible")
                 return
 
     #  self.measure_jump_stabilization(target_time)
@@ -6142,11 +6142,11 @@ class VideoPlayer:
                         timestamp = float(timestamp_str) + start_time
                         keyframes.append(timestamp)
 
-            Brint(f"✅ Keyframes autour de {center_time_sec:.3f}s : {keyframes}")
+            Brint(f"[TBD] ✅ Keyframes autour de {center_time_sec:.3f}s : {keyframes}")
             return keyframes
 
         except Exception as e:
-            Brint(f"❌ Erreur extraction keyframes autour de {center_time_sec:.3f}s: {e}")
+            Brint(f"[TBD] ❌ Erreur extraction keyframes autour de {center_time_sec:.3f}s: {e}")
             return []
 
     def snap_to_closest_keyframe(self, original_time_sec, keyframes, max_snap_distance_sec=0.21):
@@ -6158,10 +6158,10 @@ class VideoPlayer:
         distance = abs(closest_keyframe - original_time_sec)
 
         if distance <= max_snap_distance_sec:
-            Brint(f"🔄 Snap automatique de {original_time_sec:.3f}s vers {closest_keyframe:.3f}s (écart {distance*1000:.1f} ms)")
+            Brint(f"[TBD] 🔄 Snap automatique de {original_time_sec:.3f}s vers {closest_keyframe:.3f}s (écart {distance*1000:.1f} ms)")
             return closest_keyframe
         else:
-            Brint(f"⏩ Aucun snap : écart minimum {distance*1000:.1f} ms")
+            Brint(f"[TBD] ⏩ Aucun snap : écart minimum {distance*1000:.1f} ms")
             return original_time_sec
                 
             
@@ -6184,10 +6184,10 @@ class VideoPlayer:
                 if len(parts) == 3 and parts[2] == "I":
                     time_sec = float(parts[1])
                     keyframes.append(time_sec)
-            Brint(f"✅ {len(keyframes)} keyframes extraites")
+            Brint(f"[TBD] ✅ {len(keyframes)} keyframes extraites")
             return keyframes
         except Exception as e:
-            Brint(f"❌ Erreur extraction keyframes: {e}")
+            Brint(f"[TBD] ❌ Erreur extraction keyframes: {e}")
             return []
 
 
@@ -6929,17 +6929,17 @@ class VideoPlayer:
                 self.playhead_time = ms / 1000
                 if was_playing:
                     self.player.play()
-                    Brint(f"▶️ Lecture relancée à {ms} ms")
+                    Brint(f"[TBD] ▶️ Lecture relancée à {ms} ms")
                 else:
                     self.player.play()
                     self.root.after(100, self.player.pause)  # pause après init lecture
-                    Brint(f"⏸ Pause appliquée à {ms} ms")
+                    Brint(f"[TBD] ⏸ Pause appliquée à {ms} ms")
 
             # Lecture forcée nécessaire pour initialiser le player
             self.player.play()
             self.root.after(100, seek_then_restore)
 
-            Brint(f"🎯 Jump to {timestamp:.3f}s depuis résultat d’analyse.")
+            Brint(f"[TBD] 🎯 Jump to {timestamp:.3f}s depuis résultat d’analyse.")
 
         self.root.after(200, handle_click)
 
@@ -7104,17 +7104,17 @@ class VideoPlayer:
         
     def set_edit_mode(self, mode):
         current = self.edit_mode.get()
-        Brint(f"🎛️ set_edit_mode() : current={current}, requested={mode}")
+        Brint(f"[TBD] 🎛️ set_edit_mode() : current={current}, requested={mode}")
 
         if current == mode:
             self.edit_mode.set("playhead")
             self.console.config(text="🎯 Mode : Playhead")
-            Brint("🎯 Retour en mode playhead")
+            Brint("[TBD] 🎯 Retour en mode playhead")
         else:
             self.edit_mode.set(mode)
             label = "A" if mode == "loop_start" else "B"
             self.console.config(text=f"✏️ Mode édition : {label}")
-            Brint(f"✏️ Passage en mode édition {label}")
+            Brint(f"[TBD] ✏️ Passage en mode édition {label}")
 
         if hasattr(self, "btn_edit_A") and hasattr(self, "btn_edit_B"):
             self.btn_edit_A.config(relief="sunken" if mode == "loop_start" else "raised")
@@ -7140,7 +7140,7 @@ class VideoPlayer:
         self.loop_end = int(end )
         self.beat1 = beat1
         self.beat1_locked = True
-        Brint(f"🎯 Jamtrack {label} sélectionnée – Beat 1 @ {self.hms(self.loop_start)}")
+        Brint(f"[TBD] 🎯 Jamtrack {label} sélectionnée – Beat 1 @ {self.hms(self.loop_start)}")
         self.analyser_boucle()
 
     def load_jamtrack_zones(self, path):
@@ -7447,8 +7447,8 @@ class VideoPlayer:
         clamped_time_ms = max(0, min(milliseconds, self.duration - 100))
         self.last_jump_target_ms = clamped_time_ms
 
-        # Brint(f"✯ set_playhead_time({clamped_time_ms}ms, force_jump={force_jump})")
-        Brint(f"✯ set_playhead_time({self.hms(clamped_time_ms)}ms, force_jump={force_jump})")
+        # Brint(f"[TBD] ✯ set_playhead_time({clamped_time_ms}ms, force_jump={force_jump})")
+        Brint(f"[TBD] ✯ set_playhead_time({self.hms(clamped_time_ms)}ms, force_jump={force_jump})")
 
         # Affiche une barre rose temporaire pendant 1s
         self.draw_temp_jump_marker(clamped_time_ms)
@@ -7510,12 +7510,12 @@ class VideoPlayer:
 
             # 🔥 Test d'inversion après déplacement A
             if self.loop_end is not None and self.loop_start > self.loop_end:
-                Brint("↔️ Inversion A/B après déplacement A")
+                Brint("[TBD] ↔️ Inversion A/B après déplacement A")
                 self.loop_start, self.loop_end = self.loop_end, self.loop_start
                 self.console.config(text="↔️ Marqueurs inversés")
 
             self.set_playhead_time(self.loop_start, force_jump=False)
-            # Brint("jump to a NOWNOW")
+            # Brint("[TBD] jump to a NOWNOW")
             self.console.config(text=f"✏️ A déplacé à {self.hms(self.loop_start)}")
             return
 
@@ -7534,7 +7534,7 @@ class VideoPlayer:
 
             # 🔥 Test d'inversion après déplacement B
             if self.loop_start is not None and self.loop_start > self.loop_end:
-                Brint("↔️ Inversion A/B après déplacement B")
+                Brint("[TBD] ↔️ Inversion A/B après déplacement B")
                 self.loop_start, self.loop_end = self.loop_end, self.loop_start
                 self.console.config(text="↔️ Marqueurs inversés")
 
@@ -7568,17 +7568,17 @@ class VideoPlayer:
                 self.spam_mode_active = True
                 self.spam_mode_start_time = now
                 self.force_playhead_time = True
-                Brint("🚨 Spam détecté, cooldown activé")
+                Brint("[TBD] 🚨 Spam détecté, cooldown activé")
 
                 if self.player.is_playing():
                     self.player.pause()
-                    Brint("⏸ VLC mis en pause à cause du spam")
+                    Brint("[TBD] ⏸ VLC mis en pause à cause du spam")
         if self.spam_mode_active:
-            Brint("⏳ En attente fin de spam cooldown (VLC pas encore mis à jour)")
+            Brint("[TBD] ⏳ En attente fin de spam cooldown (VLC pas encore mis à jour)")
             return  # VLC pas encore repositionné
 
         # 🎯 Si pas spam ➔ jump immédiat
-        Brint(f"🎯 Jump immédiat vers {self.hms(new_time)}")
+        Brint(f"[TBD] 🎯 Jump immédiat vers {self.hms(new_time)}")
         # self.jump_to_time(new_time)
         self.safe_jump_to_time(new_time, source="Jump")
         self.needs_refresh = True
@@ -7626,7 +7626,7 @@ class VideoPlayer:
 
             if self.loop_end is None and self.duration > 0:
                 temp_end = self.duration - 1000
-                Brint(f"RLM]⚠️ B manquant – auto-fixé à {temp_end} ms")
+                Brint(f"[TBD] RLM]⚠️ B manquant – auto-fixé à {temp_end} ms")
                 self.console.config(text="⚠️ B auto-fixé à la fin du fichier (-1s)")
 
         elif mode == "loop_end":
@@ -7762,11 +7762,11 @@ class VideoPlayer:
 
     def step_play(self):
         if not self.grid_times or self.player is None:
-            Brint("⛔ Analyse non effectuée ou média non chargé.")
+            Brint("[TBD] ⛔ Analyse non effectuée ou média non chargé.")
             return
 
         if self.step_mode_index >= len(self.grid_times):
-            Brint("🔁 Fin de la grille atteinte. Reprise depuis 1.1.")
+            Brint("[TBD] 🔁 Fin de la grille atteinte. Reprise depuis 1.1.")
             self.step_mode_index = 0
 
         index = self.step_mode_index
@@ -7791,7 +7791,7 @@ class VideoPlayer:
 
     def step_back(self):
         if not self.grid_times or self.player is None:
-            Brint("⛔ Analyse non effectuée ou média non chargé.")
+            Brint("[TBD] ⛔ Analyse non effectuée ou média non chargé.")
             return
 
         self.step_mode_index = max(0, self.step_mode_index - 1)
@@ -7838,13 +7838,13 @@ class VideoPlayer:
         loop_start_sec = self.loop_start / 1000 if self.loop_start else 0
         loop_end_sec = self.loop_end / 1000 if self.loop_end else (loop_start_sec + 10)
 
-        Brint(f"🔍 Analyse boucle entre {loop_start_sec:.2f}s et {loop_end_sec:.2f}s")
-        Brint(f"📁 Fichier : {path}")
+        Brint(f"[TBD] 🔍 Analyse boucle entre {loop_start_sec:.2f}s et {loop_end_sec:.2f}s")
+        Brint(f"[TBD] 📁 Fichier : {path}")
 
         self.beat1 = loop_start_sec
         self.tempo = self.tempo_bpm
 
-        # Brint(f"⏱ Beat1 déjà fixé : {self.beat1:.3f}")
+        # Brint(f"[TBD] ⏱ Beat1 déjà fixé : {self.beat1:.3f}")
 
         beat1 = self.beat1
         tempo = self.tempo
@@ -7869,7 +7869,7 @@ class VideoPlayer:
         self.original_loop_end = loop_end_sec
 
 
-        Brint(f"🔁 Snap Loop A = {loop_start_sec} | B = {loop_end_sec}")
+        Brint(f"[TBD] 🔁 Snap Loop A = {loop_start_sec} | B = {loop_end_sec}")
 
         self.set_playhead_time(self.loop_start)
         self.step_mode_index = 0  # reset pour step_play
@@ -7885,12 +7885,12 @@ class VideoPlayer:
         note_events = sorted(note_events, key=lambda note: note[0])  # note[0] = start_time
 
         # 🎯 Affichage de toutes les notes détectées dans l’intervalle A–B
-        Brint(f"🎯 {len(note_events)} notes détectées dans l’intervalle A–B ({duration:.2f}s)")
+        Brint(f"[TBD] 🎯 {len(note_events)} notes détectées dans l’intervalle A–B ({duration:.2f}s)")
         for note in note_events:
             try:
                 start, end, pitch, conf = note[:4]
                 pitch_name = pretty_midi.note_number_to_name(pitch)
-                Brint(f" - {self.hms(start * 1000)} | Pitch: {pitch_name} | Confidence: {conf:.2f}")
+                Brint(f"[TBD]  - {self.hms(start * 1000)} | Pitch: {pitch_name} | Confidence: {conf:.2f}")
             except Exception as e:
                 Brint(f"[WARN] Erreur dans note: {note} => {e}")
 
@@ -7903,7 +7903,7 @@ class VideoPlayer:
 
         Brint("[DEBUG] 🎼 Master notes filtrées et triées pour la boucle A–B :")
         for start, end, pitch, conf in self.current_loop_master_notes[:10]:  # affiche les 10 premières
-            Brint(f" - {self.hms(start * 1000)} | Pitch: {pitch} | Confidence: {conf:.2f}")
+            Brint(f"[TBD]  - {self.hms(start * 1000)} | Pitch: {pitch} | Confidence: {conf:.2f}")
 
         # self.threshold = getattr(self, 'threshold', 0.5)
         self.all_detected_notes = []
@@ -8079,9 +8079,9 @@ class VideoPlayer:
                 ]
                 subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 shutil.move(temp_output, input_path)
-                Brint(f"✅ Remux faststart appliqué sur {input_path}")
+                Brint(f"[TBD] ✅ Remux faststart appliqué sur {input_path}")
             except Exception as e:
-                Brint(f"⚠️ Remux échoué : {e}")
+                Brint(f"[TBD] ⚠️ Remux échoué : {e}")
             finally:
                 if os.path.exists(temp_output) and temp_output != input_path: # Ensure we don't delete the original if move failed
                     os.remove(temp_output)
@@ -8197,12 +8197,12 @@ class VideoPlayer:
             self.time_display.config(text=f"⏱ {self.hms(self.playhead_time * 1000)} / {self.hms(self.duration)}")
 
         if self.spam_mode_active:
-            Brint(" spam")
+            Brint("[TBD]  spam")
             now = time.time() * 1000
             
 
             if now - self.spam_mode_start_time > self.spam_cooldown_ms:
-                Brint("✅ Cooldown terminé, retour à l'état normal")
+                Brint("[TBD] ✅ Cooldown terminé, retour à l'état normal")
                 self.spam_mode_active = False
                 self.last_jump_timestamps.clear()
 
@@ -8258,7 +8258,7 @@ class VideoPlayer:
         self.force_playhead_time = False
         self.force_playhead_time_until = 0
         self.last_jump_timestamps.clear()
-        Brint("🖱️ Clic timeline : spam-mode annulé")
+        Brint("[TBD] 🖱️ Clic timeline : spam-mode annulé")
 
         if mode == "loop_start":
             self.record_loop_marker("loop_start", t_ms, auto_exit=False)
@@ -8270,10 +8270,10 @@ class VideoPlayer:
     def record_loop_marker_from_timeline(self, milliseconds):
         """Méthode appelée quand on clique sur la timeline en mode édition A ou B."""
         if self.edit_mode not in ("loop_start", "loop_end"):
-            Brint("⚠️ Pas en mode édition A ou B — clic ignoré.")
+            Brint("[TBD] ⚠️ Pas en mode édition A ou B — clic ignoré.")
             return
 
-        Brint(f"🖱️ Timeline set {self.edit_mode} @ {milliseconds} ms")
+        Brint(f"[TBD] 🖱️ Timeline set {self.edit_mode} @ {milliseconds} ms")
 
         # On appelle record_loop_marker avec la bonne intention
         self.record_loop_marker(self.edit_mode, milliseconds, auto_exit=False)
@@ -8281,7 +8281,7 @@ class VideoPlayer:
 
 
     def save_ab_to_mp3(self, repeat=False):
-        Brint(f"repeat{repeat}")
+        Brint(f"[TBD] repeat{repeat}")
         if not self.loop_start or not self.loop_end:
             self.console.config(text="⚠️ Marqueurs A et B non définis")
             return
@@ -8468,7 +8468,7 @@ class VideoPlayer:
                 Brint(f"[DEBUG RHYTHM GRID SUBDIVS from draw_rhythm_grid_canvas] ▶️ Affichage des {min(len(self.grid_subdivs), 3)} premières subdivisions :")
                 for i, (idx, t) in enumerate(self.grid_subdivs[:3]):
                     x = self.time_sec_to_canvas_x(t)
-                    pass#Brint(f"  Subdiv {idx}: t={t:.3f}s ({int(t*1000)}ms) → x={x}px )")
+                    pass#Brint(f"[TBD]   Subdiv {idx}: t={t:.3f}s ({int(t*1000)}ms) → x={x}px )")
 
             if self.grid_subdivs:
                 Brint("[DEBUG RHYTHM GRID SUBDIVS from draw_rhythm_grid_canvas] ▶️ Affichage des 3 premières subdivisions :")
