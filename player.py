@@ -8035,6 +8035,8 @@ class VideoPlayer:
         if hasattr(self, "zoom_slider"):
             idx = self.zoom_levels.index(min(self.zoom_levels, key=lambda z: abs(z - 1.0)))
             self.zoom_slider.set(idx)
+            # Trigger callback to recompute zoom context
+            self.on_loop_zoom_change(idx)
         self.loop_zoom_ratio = 1.0
 
         if hasattr(self, "player"):
@@ -8050,6 +8052,12 @@ class VideoPlayer:
         # Reset loop markers to cover full media
         self.loop_start = 0
         self.loop_end = full_duration
+
+        # Reset loop related state to avoid stale interpolation behaviour
+        self.loop_pass_count = 0
+        self.loop_duration_s = None
+        self.awaiting_vlc_jump = False
+        self.freeze_interpolation = False
 
         self.edit_mode.set("playhead")
         if hasattr(self, "btn_edit_A"):
