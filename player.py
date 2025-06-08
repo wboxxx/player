@@ -3420,8 +3420,25 @@ class VideoPlayer:
         self.refresh_static_timeline_elements()
         self.draw_rhythm_grid_canvas()
 
+    def decrease_loop_zoom(self):
+        """Decrease zoom slider index by one step."""
+        idx = int(self.zoom_slider.get())
+        min_idx = int(self.zoom_slider['from'])
+        if idx > min_idx:
+            new_idx = idx - 1
+            self.zoom_slider.set(new_idx)
+            self.on_loop_zoom_change(new_idx)
 
-    
+    def increase_loop_zoom(self):
+        """Increase zoom slider index by one step."""
+        idx = int(self.zoom_slider.get())
+        max_idx = int(self.zoom_slider['to'])
+        if idx < max_idx:
+            new_idx = idx + 1
+            self.zoom_slider.set(new_idx)
+            self.on_loop_zoom_change(new_idx)
+
+
 
     def get_loop_zoom_range(self):
         if self.loop_start and self.loop_end:
@@ -6703,6 +6720,11 @@ class VideoPlayer:
         self.rhythm_controls_frame.pack(side='left', padx=5)
         # Extend available zoom ratios to allow larger zoom-out levels
         self.zoom_levels = [0.33, 0.8, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0, 8.0]
+        self.zoom_minus_btn = Button(
+            self.rhythm_controls_frame, text="-", command=self.decrease_loop_zoom, width=2
+        )
+        self.zoom_minus_btn.pack(side='left')
+
         self.zoom_slider = Scale(
             self.rhythm_controls_frame,
             from_=0,
@@ -6721,6 +6743,11 @@ class VideoPlayer:
         init_idx = self.zoom_levels.index(min(self.zoom_levels, key=lambda z: abs(z - self.loop_zoom_ratio)))
         self.zoom_slider.set(init_idx)
         self.zoom_slider.pack(side='left', padx=5)
+
+        self.zoom_plus_btn = Button(
+            self.rhythm_controls_frame, text="+", command=self.increase_loop_zoom, width=2
+        )
+        self.zoom_plus_btn.pack(side='left')
         
         
         # === BINDINGS CLAVIER PRINCIPAUX ===

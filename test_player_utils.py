@@ -500,6 +500,39 @@ class TestZoomContextCentering(unittest.TestCase):
         self.assertEqual(zoom["zoom_end"], expected_end)
 
 
+class DummySlider:
+    def __init__(self, max_idx):
+        self.value = 0
+        self.attrs = {"from": 0, "to": max_idx}
+
+    def get(self):
+        return self.value
+
+    def set(self, val):
+        self.value = val
+
+    def __getitem__(self, key):
+        return self.attrs[key]
+
+
+class TestZoomSliderButtons(unittest.TestCase):
+    def test_increase_decrease(self):
+        vp = VideoPlayer.__new__(VideoPlayer)
+        vp.zoom_levels = [0.33, 0.8, 1.0]
+        vp.zoom_slider = DummySlider(len(vp.zoom_levels) - 1)
+        vp.zoom_slider.value = 1
+        vp.on_loop_zoom_change = MagicMock()
+
+        VideoPlayer.increase_loop_zoom(vp)
+        self.assertEqual(vp.zoom_slider.value, 2)
+        vp.on_loop_zoom_change.assert_called_with(2)
+
+        VideoPlayer.decrease_loop_zoom(vp)
+        self.assertEqual(vp.zoom_slider.value, 1)
+        self.assertEqual(vp.on_loop_zoom_change.call_count, 2)
+        self.assertEqual(vp.on_loop_zoom_change.call_args_list[-1][0][0], 1)
+
+
 if __name__ == '__main__':
     unittest.main(argv=['first-arg-is-ignored'], exit=False)
 
