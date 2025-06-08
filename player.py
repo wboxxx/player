@@ -8453,7 +8453,9 @@ class VideoPlayer:
             canvas_height = self.grid_canvas.winfo_height()
 
             
-            dynamic_factor = 0.90 if zoom_range < (self.loop_end - self.loop_start) else 1.0
+            loop_range = self.loop_end - self.loop_start
+            use_dynamic = zoom_range < loop_range / 0.9
+            dynamic_factor = 0.90 if use_dynamic else 1.0
             pixels_per_beat = 1000 * interval_sec * canvas_width * dynamic_factor / zoom_range
 
             # x_beat1 = time_to_x(self.loop_start / 1000.0)
