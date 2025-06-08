@@ -14,14 +14,20 @@ _real_perf_counter = time.perf_counter
 _last_brint_time = None
 
 def _print_with_time(*args, **kwargs):
-    """Print message and show time since last Brint call."""
+    """Print a message and include the elapsed time since the previous call."""
     global _last_brint_time
     now = _real_perf_counter()
     if _last_brint_time is None:
         print(*args, **kwargs)
     else:
         delta = now - _last_brint_time
-        print(f"[+{delta:.3f}s]", *args, **kwargs)
+        if delta >= 1:
+            label = f"[+{delta:.3f}s]"
+        elif delta >= 0.001:
+            label = f"[+{delta*1000:.1f}ms]"
+        else:
+            label = f"[+{delta*1000:.3f}ms]"
+        print(label, *args, **kwargs)
     _last_brint_time = now
 
 import tempfile
