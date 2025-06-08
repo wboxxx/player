@@ -50,7 +50,9 @@ def compute_scroll_speed(T_loop, T_zoom, canvas_width):
     v_px_per_s = v_frac * canvas_width
     return v_px_per_s
 
+
 # Dans get_zoom_context(), le décalage appliqué à la fenêtre suit
 # exactement ce Δt_center :
 #    offset = progress * (T_loop - 0.9 * T_zoom)
 # On ignore tout décalage négatif éventuel.
+
