@@ -13,6 +13,9 @@ import time
 _real_perf_counter = time.perf_counter
 _last_brint_time = None
 
+# Path to store recent file history next to this script
+RECENT_FILES_PATH = os.path.join(os.path.dirname(__file__), "recent_files.json")
+
 def _print_with_time(*args, **kwargs):
     """Print message and show time since last Brint call."""
     global _last_brint_time
@@ -2735,66 +2738,80 @@ class VideoPlayer:
 
     def try_auto_load_recent_file(self, index=0, path=None):
         try:
-            with open("recent_files.json", "r", encoding="utf-8") as f:
+            with open(RECENT_FILES_PATH, "r", encoding="utf-8") as f:
                 data = json.load(f)
+        except FileNotFoundError:
+            data = {
+                "recent_paths": [],
+                "last_loops": {},
+                "auto_load_last_file": True,
+                "auto_load_last_loop": True,
+            }
+            try:
+                with open(RECENT_FILES_PATH, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=2)
+                Brint("[AUTOLOAD] 🌱 Création de recent_files.json")
+            except Exception as e:
+                Brint(f"[AUTOLOAD] ❌ Impossible de créer recent_files.json : {e}")
+        except Exception as e:
+            import traceback
+            Brint(f"[AUTOLOAD] ❌ Erreur autoload : {e}")
+            traceback.print_exc()
+            return
 
-            if path:
-                if not os.path.exists(path):
-                    Brint(f"[AUTOLOAD] ❌ Média introuvable : {path}")
-                    return
 
-                self.open_given_file(path)
-                self.current_path = path
-                Brint(f"[AUTOLOAD] ✅ Média ouvert : {path}")
-
-                if data.get("auto_load_last_loop"):
-                    loop_name = data.get("last_loops", {}).get(path)
-                    if loop_name:
-                        self.root.after(500, lambda: self.set_loop_by_name(loop_name))
-                        Brint(f"[AUTOLOAD] ⏳ Boucle à restaurer : {loop_name}")
-                    else:
-                        Brint("[AUTOLOAD] ℹ️ Aucune boucle à restaurer pour ce média")
+        if path:
+            if not os.path.exists(path):
+                Brint(f"[AUTOLOAD] ❌ Média introuvable : {path}")
                 return
 
-            if not data.get("auto_load_last_file"):
-                Brint("[AUTOLOAD] ⏩ Autoload désactivé")
-                return
+            self.open_given_file(path)
+            self.current_path = path
+            Brint(f"[AUTOLOAD] ✅ Média ouvert : {path}")
 
-            paths = data.get("recent_paths", [])
-            if not paths:
-                Brint("[AUTOLOAD] ❌ Aucun chemin récent")
-                return
-
-            if index >= len(paths) or index < 0:
-                Brint(f"[AUTOLOAD] ❌ Index {index} hors limite")
-                return
-
-            media_path = paths[index]
-            if not os.path.exists(media_path):
-                Brint(f"[AUTOLOAD] ❌ Média introuvable : {media_path}")
-                return
-
-            # 🎞️ Étape 1 : ouvrir le fichier média
-            self.open_given_file(media_path)
-            self.current_path = media_path
-            Brint(f"[AUTOLOAD] ✅ Média ouvert : {media_path}")
-
-            # 📄 Étape 2 : charger les boucles depuis le .abloops.json dérivé
-            self.load_saved_loops()
-
-            # 🔁 Étape 3 : charger la dernière loop associée à ce fichier
             if data.get("auto_load_last_loop"):
-                loop_name = data.get("last_loops", {}).get(media_path)
+                loop_name = data.get("last_loops", {}).get(path)
                 if loop_name:
                     self.root.after(500, lambda: self.set_loop_by_name(loop_name))
                     Brint(f"[AUTOLOAD] ⏳ Boucle à restaurer : {loop_name}")
                 else:
                     Brint("[AUTOLOAD] ℹ️ Aucune boucle à restaurer pour ce média")
+            return
 
-        except Exception as e:
-            import traceback
-            Brint(f"[AUTOLOAD] ❌ Erreur autoload : {e}")
-            traceback.print_exc()
+        if not data.get("auto_load_last_file"):
+            Brint("[AUTOLOAD] ⏩ Autoload désactivé")
+            return
+
+        paths = data.get("recent_paths", [])
+        if not paths:
+            Brint("[AUTOLOAD] ❌ Aucun chemin récent")
+            return
+
+        if index >= len(paths) or index < 0:
+            Brint(f"[AUTOLOAD] ❌ Index {index} hors limite")
+            return
+
+        media_path = paths[index]
+        if not os.path.exists(media_path):
+            Brint(f"[AUTOLOAD] ❌ Média introuvable : {media_path}")
+            return
+
+        # 🎞️ Étape 1 : ouvrir le fichier média
+        self.open_given_file(media_path)
+        self.current_path = media_path
+        Brint(f"[AUTOLOAD] ✅ Média ouvert : {media_path}")
+
+        # 📄 Étape 2 : charger les boucles depuis le .abloops.json dérivé
+        self.load_saved_loops()
+
+        # 🔁 Étape 3 : charger la dernière loop associée à ce fichier
+        if data.get("auto_load_last_loop"):
+            loop_name = data.get("last_loops", {}).get(media_path)
+            if loop_name:
+                self.root.after(500, lambda: self.set_loop_by_name(loop_name))
+                Brint(f"[AUTOLOAD] ⏳ Boucle à restaurer : {loop_name}")
+            else:
+                Brint("[AUTOLOAD] ℹ️ Aucune boucle à restaurer pour ce média")
 
 
 
@@ -5379,9 +5396,9 @@ class VideoPlayer:
         #recentfiles
     def load_recent_files(self):
         try:
-            with open("recent_files.json", "r", encoding="utf-8") as f:
+            with open(RECENT_FILES_PATH, "r", encoding="utf-8") as f:
                 self.recent_files = json.load(f)
-        except:
+        except Exception:
             self.recent_files = []
 
     def quick_open_recent(self):
@@ -5401,7 +5418,7 @@ class VideoPlayer:
         """Ajoute un fichier média aux fichiers récents, enregistre la loop courante associée, et met à jour recent_files.json"""
         # 🔁 Chargement de la structure complète depuis le fichier JSON
         try:
-            with open("recent_files.json", "r", encoding="utf-8") as f:
+            with open(RECENT_FILES_PATH, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 if isinstance(data, list):  # support ancien format simple
                     data = {
@@ -5437,7 +5454,7 @@ class VideoPlayer:
 
         # 💾 Sauvegarde dans le fichier JSON
         try:
-            with open("recent_files.json", "w", encoding="utf-8") as f:
+            with open(RECENT_FILES_PATH, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
             Brint(f"[RECENT] ✅ Ajouté : {path} | Dernière loop = {loop_name}")
         except Exception as e:
