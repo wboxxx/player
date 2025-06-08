@@ -500,6 +500,24 @@ class TestZoomContextCentering(unittest.TestCase):
         self.assertEqual(zoom["zoom_end"], expected_end)
 
 
+class TestZoomResetAfterLoop(unittest.TestCase):
+    def test_reset_zoom_flag(self):
+        vp = VideoPlayer.__new__(VideoPlayer)
+        vp.loop_start = 0
+        vp.loop_end = 10000
+        vp.loop_zoom_ratio = 2.0
+        vp.zoom_context = {"zoom_start": 0, "zoom_end": 5000, "zoom_range": 5000}
+        vp.playhead_time = 5.0
+        vp.player = MagicMock()
+        vp.player.get_length.return_value = 15000
+        vp.reset_zoom_next_frame = True
+
+        zoom = VideoPlayer.get_zoom_context(vp)
+        self.assertEqual(zoom["zoom_start"], 0)
+        self.assertEqual(zoom["zoom_end"], 5000)
+        self.assertFalse(vp.reset_zoom_next_frame)
+
+
 class DummySlider:
     def __init__(self, max_idx):
         self.value = 0
