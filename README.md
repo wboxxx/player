@@ -112,6 +112,9 @@ main shortcuts and what they do:
 | `Shift+P` | Stop RAM loop |
 | `t` | Step play / tap tempo |
 
+The `ZoomAB` slider in the control bar now ranges from **0.33x** up to **8x**.
+Double-click the slider to quickly reset the zoom to 80%.
+
 
 ## loop scroll
 🎛️ Zoom and Scroll Logic in the Zoom Window

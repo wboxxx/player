@@ -6749,7 +6749,8 @@ class VideoPlayer:
         # === RHYTHM CONTROLS FRAME ===
         self.rhythm_controls_frame = Frame(self.controls_top)
         self.rhythm_controls_frame.pack(side='left', padx=5)
-        self.zoom_levels = [0.33, 0.8, 1.0, 1.5, 2.0]
+        # Extend available zoom ratios to allow larger zoom-out levels
+        self.zoom_levels = [0.33, 0.8, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0, 8.0]
         self.zoom_slider = Scale(
             self.rhythm_controls_frame,
             from_=0,
