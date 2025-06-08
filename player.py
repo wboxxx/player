@@ -2330,6 +2330,17 @@ class VideoPlayer:
         if base_zoom is not None:
             zoom_dict.update(base_zoom)
 
+        if base_zoom is not None and getattr(self, "reset_zoom_next_frame", False):
+            start = base_zoom["zoom_start"]
+            end = start + base_zoom["zoom_range"]
+            if end > video_duration:
+                end = video_duration
+                start = max(0, video_duration - base_zoom["zoom_range"])
+            zoom_dict["zoom_start"] = start
+            zoom_dict["zoom_end"] = end
+            self.reset_zoom_next_frame = False
+            return zoom_dict
+
         dynamic_condition = (
             base_zoom is not None
             and self.loop_start is not None
@@ -3232,6 +3243,12 @@ class VideoPlayer:
             
     def safe_jump_to_time(self, target_ms, source="UNKNOWN"):
         Brint(f"[PH JUMP] 🚀 {source} → jump à {int(target_ms)} ms demandé")
+
+        if (
+            target_ms == getattr(self, "loop_start", None)
+            and str(source).startswith("Jump B")
+        ):
+            self.reset_zoom_next_frame = True
 
         self.player.set_time(int(target_ms))
         self.set_forced_jump(True, source=source)
@@ -6549,6 +6566,7 @@ class VideoPlayer:
         self.awaiting_vlc_jump = False
         self.freeze_interpolation = False
         self.last_seek_time = 0
+        self.reset_zoom_next_frame = False
 
 
 
