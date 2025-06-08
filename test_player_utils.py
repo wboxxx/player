@@ -440,11 +440,27 @@ class TestOpenFileAfterCancel(unittest.TestCase):
         self.assertIsNone(vp.after_id)
 
 
+
+class TestOpenGivenFileInvalidPath(unittest.TestCase):
+    def test_none_path_does_not_crash(self):
+        vp = VideoPlayer.__new__(VideoPlayer)
+        vp.root = MagicMock()
+        vp.console = MagicMock()
+        vp.instance = MagicMock()
+        vp.player = MagicMock()
+        vp.canvas = MagicMock()
+        vp.canvas.winfo_id.return_value = 1
+
+        # Should return without raising when path is None
+        VideoPlayer.open_given_file(vp, None)
+        vp.console.config.assert_called_once()
+
 class TestComputeScrollSpeed(unittest.TestCase):
     def test_basic_speed(self):
         from time_utils import compute_scroll_speed
         speed = compute_scroll_speed(10.0, 5.0, 1000)
         self.assertAlmostEqual(speed, 110.0)
+
 
 if __name__ == '__main__':
     unittest.main(argv=['first-arg-is-ignored'], exit=False)
