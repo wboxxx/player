@@ -4767,6 +4767,66 @@ class VideoPlayer:
         p = pstats.Stats('zone.stats')
         p.strip_dirs().sort_stats('cumtime').print_stats(30)
 
+    # --- Debug state window -------------------------------------------------
+    def toggle_state_window(self, event=None):
+        if self.debug_window and self.debug_window.winfo_exists():
+            self.debug_window.destroy()
+            return
+
+        self.debug_window = tk.Toplevel(self.root)
+        self.debug_window.title("State Monitor")
+
+        vars_to_show = [
+            "playhead_time", "duration", "loop_start", "loop_end",
+            "loop_zoom_ratio", "zoom_start", "zoom_end", "zoom_range",
+            "loop_duration_s", "loop_pass_count",
+        ]
+        self._debug_labels = {}
+        for name in vars_to_show:
+            lbl = tk.Label(self.debug_window, text="")
+            lbl.pack(anchor="w")
+            self._debug_labels[name] = lbl
+
+        tk.Checkbutton(
+            self.debug_window,
+            text="Pause each update",
+            variable=self.pause_each_update,
+        ).pack(anchor="w")
+        tk.Button(
+            self.debug_window,
+            text="Step",
+            command=self.step_once,
+        ).pack(anchor="w")
+
+        tk.Label(self.debug_window, text="Update delay (ms)").pack(anchor="w")
+        tk.Entry(self.debug_window, textvariable=self.update_delay_ms_var, width=6).pack(anchor="w")
+
+        self.update_state_window()
+
+    def update_state_window(self):
+        if not (self.debug_window and self.debug_window.winfo_exists()):
+            return
+        zoom = self.get_zoom_context()
+        values = {
+            "playhead_time": f"{self.playhead_time:.3f}s" if getattr(self, "playhead_time", None) is not None else "N/A",
+            "duration": self.duration,
+            "loop_start": self.loop_start,
+            "loop_end": self.loop_end,
+            "loop_zoom_ratio": self.loop_zoom_ratio,
+            "zoom_start": int(zoom.get("zoom_start", 0)),
+            "zoom_end": int(zoom.get("zoom_end", 0)),
+            "zoom_range": int(zoom.get("zoom_range", 0)),
+            "loop_duration_s": getattr(self, "loop_duration_s", None),
+            "loop_pass_count": getattr(self, "loop_pass_count", 0),
+        }
+        for name, lbl in self._debug_labels.items():
+            lbl.config(text=f"{name}: {values.get(name)}")
+        self.debug_window.after(100, self.update_state_window)
+
+    def step_once(self):
+        self.is_paused = False
+        self.update_loop()
+
 
 
     def set_tempo_bpm(self, bpm, source="manual"):
@@ -6182,7 +6242,14 @@ class VideoPlayer:
     
 
     def __init__(self, root, autoload_index=0, autoload_path=None):
-          #new timestamps on hits
+        self.root = root
+        # debug helpers
+        self.pause_each_update = tk.BooleanVar(value=False)
+        self.update_delay_ms_var = tk.IntVar(value=30)
+        self.debug_window = None
+        self._debug_labels = {}
+
+        #new timestamps on hits
         self.user_hit_timestamps = []
         self.impact_strikes = []
         self.persistent_validated_hit_timestamps = set()
@@ -6265,7 +6332,6 @@ class VideoPlayer:
         self._resize_after_id = None  # Pour le throttle
 
 
-        self.root = root
         self.root.title("Python VLC Video Player")
         self.root.geometry("960x540")
 
@@ -6629,6 +6695,7 @@ class VideoPlayer:
         self.root.bind("<F2>", lambda e: self.cycle_syllable_set())
         
         self.root.bind("<F10>", self.start_profiling_5s)
+        self.root.bind("<F8>", self.toggle_state_window)
         # self.root.bind("<F9>", self.dump_playhead_debug_log())
 
         self.root.bind('<F9>', lambda e: self.dump_playhead_debug_log())
@@ -7982,6 +8049,7 @@ class VideoPlayer:
 
     def update_loop(self):
         self.root.bind('t', lambda e: self.tap_tempo())
+        self.update_state_window()
 
         if self.grid_visible:
             self.draw_rhythm_grid_canvas()
@@ -8065,8 +8133,11 @@ class VideoPlayer:
                     # dans le spam cooldown
 
 #fps
+        if self.pause_each_update.get():
+            self.is_paused = True
         if not self.is_paused:
-            self.after_id = self.root.after(30, self.update_loop)
+            delay = int(self.update_delay_ms_var.get())
+            self.after_id = self.root.after(delay, self.update_loop)
 
 
     def on_timeline_click(self, e): self.handle_timeline_interaction(e.x)
