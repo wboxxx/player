@@ -2395,20 +2395,59 @@ class VideoPlayer:
         if base_zoom is not None:
             zoom_dict.update(base_zoom)
 
-        if (
+        if base_zoom is not None and getattr(self, "reset_zoom_next_frame", False):
+            start = base_zoom["zoom_start"]
+            end = start + base_zoom["zoom_range"]
+            if end > video_duration:
+                end = video_duration
+                start = max(0, video_duration - base_zoom["zoom_range"])
+            zoom_dict["zoom_start"] = start
+            zoom_dict["zoom_end"] = end
+            self.reset_zoom_next_frame = False
+            return zoom_dict
+
+        dynamic_condition = (
             base_zoom is not None
             and self.loop_start is not None
             and self.loop_end is not None
             and base_zoom.get("zoom_range", 0) < (self.loop_end - self.loop_start) / 0.9
             and getattr(self, "playhead_time", None) is not None
-        ):
+        )
+
+        if dynamic_condition:
             playhead_ms = self.playhead_time * 1000.0
             loop_range = self.loop_end - self.loop_start
             progress = (playhead_ms - self.loop_start) / loop_range
             progress = max(0.0, min(1.0, progress))
-            offset = progress * (loop_range - base_zoom["zoom_range"])
-            zoom_dict["zoom_start"] = self.loop_start + offset
+            # Correct direction: offset is based on the 5%-95% window movement
+            base_range = base_zoom["zoom_range"]
+            offset = progress * (loop_range - 0.9 * base_range)
+            zoom_start = base_zoom.get("zoom_start", self.loop_start) + offset
+            if zoom_start < 0:
+                zoom_start = 0
+            zoom_dict["zoom_start"] = int(zoom_start)
             zoom_dict["zoom_end"] = zoom_dict["zoom_start"] + base_zoom["zoom_range"]
+
+            # Re-clamp in case the dynamic offset pushes outside the video bounds
+            if zoom_dict["zoom_end"] > video_duration:
+                zoom_dict["zoom_end"] = video_duration
+                zoom_dict["zoom_start"] = max(0, video_duration - base_zoom["zoom_range"])
+        elif (
+            base_zoom is not None
+            and self.loop_start is not None
+            and self.loop_end is not None
+            and getattr(self, "playhead_time", None) is not None
+        ):
+            center_ms = (self.loop_start + self.loop_end) // 2
+            start = center_ms - base_zoom["zoom_range"] // 2
+            if start < 0:
+                start = 0
+            end = start + base_zoom["zoom_range"]
+            if end > video_duration:
+                end = video_duration
+                start = max(0, video_duration - base_zoom["zoom_range"])
+            zoom_dict["zoom_start"] = start
+            zoom_dict["zoom_end"] = end
 
         return zoom_dict
 
@@ -3269,6 +3308,11 @@ class VideoPlayer:
             
     def safe_jump_to_time(self, target_ms, source="UNKNOWN"):
         Brint(f"[PH JUMP] 🚀 {source} → jump à {int(target_ms)} ms demandé")
+        if (
+            target_ms == getattr(self, "loop_start", None)
+            and str(source).startswith("Jump B")
+        ):
+            self.reset_zoom_next_frame = True
 
         self.player.set_time(int(target_ms))
         self.set_forced_jump(True, source=source)
@@ -3428,13 +3472,15 @@ class VideoPlayer:
             chk.pack(anchor='w')
 
     def reset_zoom_slider(self):
-        self.zoom_slider.set(.8)  # Reset à 80%
-        self.on_loop_zoom_change(.8)   # Applique immédiatement le changement
+        idx = self.zoom_levels.index(min(self.zoom_levels, key=lambda z: abs(z - 0.8)))
+        self.zoom_slider.set(idx)  # Reset à 80%
+        self.on_loop_zoom_change(idx)   # Applique immédiatement le changement
         Brint("[ZOOM] 🔄 Reset zoom boucle à 80%")
 
 
     def on_loop_zoom_change(self, val):
-        self.loop_zoom_ratio = float(val)
+        idx = int(float(val))
+        self.loop_zoom_ratio = self.zoom_levels[idx]
         Brint(f"[ZOOM] 🔍 Zoom boucle réglé sur {self.loop_zoom_ratio:.2f} (AB = {int(self.loop_zoom_ratio*100)}% de la timeline)")
 
         if self.loop_start is not None and self.loop_end is not None and self.duration:
@@ -3454,6 +3500,24 @@ class VideoPlayer:
 
         self.refresh_static_timeline_elements()
         self.draw_rhythm_grid_canvas()
+
+    def decrease_loop_zoom(self):
+        """Decrease zoom slider index by one step."""
+        idx = int(self.zoom_slider.get())
+        min_idx = int(self.zoom_slider['from'])
+        if idx > min_idx:
+            new_idx = idx - 1
+            self.zoom_slider.set(new_idx)
+            self.on_loop_zoom_change(new_idx)
+
+    def increase_loop_zoom(self):
+        """Increase zoom slider index by one step."""
+        idx = int(self.zoom_slider.get())
+        max_idx = int(self.zoom_slider['to'])
+        if idx < max_idx:
+            new_idx = idx + 1
+            self.zoom_slider.set(new_idx)
+            self.on_loop_zoom_change(new_idx)
 
 
     
@@ -6562,6 +6626,7 @@ class VideoPlayer:
         self.awaiting_vlc_jump = False
         self.freeze_interpolation = False
         self.last_seek_time = 0
+        self.reset_zoom_next_frame = False
 
 
 
@@ -6731,10 +6796,35 @@ class VideoPlayer:
         # === RHYTHM CONTROLS FRAME ===
         self.rhythm_controls_frame = Frame(self.controls_top)
         self.rhythm_controls_frame.pack(side='left', padx=5)
-        self.zoom_slider = Scale(self.rhythm_controls_frame, from_=0.1, to=3.0, resolution=0.05, orient='horizontal', label='ZoomAB', showvalue=False,  length=60, sliderlength=10, width=8, font=("Arial", 6), command=self.on_loop_zoom_change)
+        self.zoom_levels = [0.33, 0.8, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0, 8.0]
+        self.zoom_minus_btn = Button(
+            self.rhythm_controls_frame, text="-", command=self.decrease_loop_zoom, width=2
+        )
+        self.zoom_minus_btn.pack(side='left')
+
+        self.zoom_slider = Scale(
+            self.rhythm_controls_frame,
+            from_=0,
+            to=len(self.zoom_levels) - 1,
+            resolution=1,
+            orient='horizontal',
+            label='ZoomAB',
+            showvalue=False,
+            length=60,
+            sliderlength=10,
+            width=8,
+            font=("Arial", 6),
+            command=self.on_loop_zoom_change,
+        )
         self.zoom_slider.bind("<Double-Button-1>", lambda e: self.reset_zoom_slider())
-        self.zoom_slider.set(self.loop_zoom_ratio)
+        init_idx = self.zoom_levels.index(min(self.zoom_levels, key=lambda z: abs(z - self.loop_zoom_ratio)))
+        self.zoom_slider.set(init_idx)
         self.zoom_slider.pack(side='left', padx=5)
+
+        self.zoom_plus_btn = Button(
+            self.rhythm_controls_frame, text="+", command=self.increase_loop_zoom, width=2
+        )
+        self.zoom_plus_btn.pack(side='left')
         
         
         # === BINDINGS CLAVIER PRINCIPAUX ===
