@@ -8200,7 +8200,13 @@ class VideoPlayer:
         if self.pause_each_update.get():
             self.is_paused = True
         if not self.is_paused:
-            delay = int(self.update_delay_ms_var.get())
+            try:
+                delay = int(self.update_delay_ms_var.get())
+                if delay < 1:
+                    delay = 1
+            except Exception:
+                delay = 30
+                self.update_delay_ms_var.set(delay)
             self.after_id = self.root.after(delay, self.update_loop)
 
 
