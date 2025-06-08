@@ -2344,10 +2344,12 @@ class VideoPlayer:
             progress = (playhead_ms - self.loop_start) / loop_range
             progress = max(0.0, min(1.0, progress))
             # Correct direction: offset is based on the 5%-95% window movement
-            offset = progress * (loop_range - 0.9 * base_zoom["zoom_range"])
-            if offset < 0:
-                offset = 0
-            zoom_dict["zoom_start"] = self.loop_start + offset
+            base_range = base_zoom["zoom_range"]
+            offset = progress * (loop_range - 0.9 * base_range)
+            zoom_start = base_zoom.get("zoom_start", self.loop_start) + offset
+            if zoom_start < 0:
+                zoom_start = 0
+            zoom_dict["zoom_start"] = int(zoom_start)
             zoom_dict["zoom_end"] = zoom_dict["zoom_start"] + base_zoom["zoom_range"]
 
             # Re-clamp in case the dynamic offset pushes outside the video bounds
