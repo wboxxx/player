@@ -2194,7 +2194,8 @@ class VideoPlayer:
             Brint(f"[AUTOZOOM] 🎚️ zoom_slider.set({self.loop_zoom_ratio:.3f})")
             self.zoom_slider.set(self.loop_zoom_ratio)
 
-        self.update_loop()
+        if force:
+            self.update_loop()
      
 
  
