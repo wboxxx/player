@@ -6753,13 +6753,13 @@ class VideoPlayer:
         self.root.bind("<Shift-F2>", lambda e: self.cycle_subdivision_mode())
         self.loop_menu_button.bind("<Button-1>", lambda e: self.update_loop_menu())
         # self.root.bind("<F4>", self.edit_current_chord_from_playhead)
-        self.root.bind("<F4>", lambda e: self.open_chord_editor_all())
+        self.root.bind("<F4>", self.toggle_state_window)
         self.root.bind("<F1>", lambda e: self.cycle_syllable_set_backward())
         self.root.bind("<F2>", lambda e: self.cycle_syllable_set())
         self.root.bind("<F3>", lambda e: self.open_debug_flags_window())
         
         self.root.bind("<F10>", self.start_profiling_5s)
-        self.root.bind("<F8>", self.toggle_state_window)
+        self.root.bind("<F8>", lambda e: self.open_chord_editor_all())
         # self.root.bind("<F9>", self.dump_playhead_debug_log())
 
         self.root.bind('<F9>', lambda e: self.dump_playhead_debug_log())
