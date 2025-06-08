@@ -7297,13 +7297,15 @@ class VideoPlayer:
             self.timeline.create_text(x_label, 6, text=loop["name"], anchor='w', fill="cyan", tags=tags)
             self.timeline.tag_bind(tag, "<Button-1>", lambda e, i=idx: self.load_saved_loop(i))
 
-        if self.loop_start and zoom_start <= self.loop_start <= zoom_end:
+        if self.loop_start:
             xa = self.time_sec_to_canvas_x(self.loop_start / 1000)
+            xa = max(0, min(xa, width))
             self.timeline.create_line(xa, 0, xa, 24, fill="green", tags="loop_marker")
             self.timeline.create_text(xa + 10, 18, text=f"A: {self.hms(self.loop_start)}", anchor='w', fill="white", tags="loop_marker")
 
-        if self.loop_end and zoom_start <= self.loop_end <= zoom_end:
+        if self.loop_end:
             xb = self.time_sec_to_canvas_x(self.loop_end / 1000)
+            xb = max(0, min(xb, width))
             self.timeline.create_line(xb, 0, xb, 24, fill="orange", tags="loop_marker")
             self.timeline.create_text(xb + 10, 18, text=f"B: {self.hms(self.loop_end)}", anchor='w', fill="white", tags="loop_marker")
 
