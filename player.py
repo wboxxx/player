@@ -8255,8 +8255,11 @@ class VideoPlayer:
 
             if self.loop_start and self.loop_end:
                 if not hasattr(self, 'last_loop_jump_time'):
-                    self.loop_duration_s = (self.loop_end - self.loop_start) / 1000.0
                     self.last_loop_jump_time = time.perf_counter()
+
+                # Ensure loop_duration_s is defined whenever we have valid loop markers
+                if self.loop_duration_s is None or self.loop_duration_s <= 0:
+                    self.loop_duration_s = (self.loop_end - self.loop_start) / 1000.0
                     Brint(f"[INIT LOOP] loop_duration_s = {self.loop_duration_s:.3f}s")
 
                 # Resume interpolation once VLC confirms it is playing from A
