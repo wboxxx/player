@@ -2354,9 +2354,10 @@ class VideoPlayer:
             loop_range = self.loop_end - self.loop_start
             progress = (playhead_ms - self.loop_start) / loop_range
             progress = max(0.0, min(1.0, progress))
-            # Correct direction: offset is based on the 5%-95% window movement
+            # Offset follows the loop progression so the playhead sweeps
+            # from 5% to 95% of the canvas
             base_range = base_zoom["zoom_range"]
-            offset = progress * (loop_range - 0.9 * base_range)
+            offset = progress * (loop_range - base_range)
             zoom_start = base_zoom.get("zoom_start", self.loop_start) + offset
             if zoom_start < 0:
                 zoom_start = 0
@@ -8454,7 +8455,7 @@ class VideoPlayer:
 
             
             loop_range = self.loop_end - self.loop_start
-            use_dynamic = zoom_range < loop_range / 0.9
+            use_dynamic = zoom_range < loop_range
             dynamic_factor = 0.90 if use_dynamic else 1.0
             pixels_per_beat = 1000 * interval_sec * canvas_width * dynamic_factor / zoom_range
 
