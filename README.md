@@ -1,7 +1,7 @@
 # Player3 - Audio-Visual Practice Tool
 
 This project is an interactive GUI-based audio/video loop player tailored for music practice and analysis.  
-It was developed with the help of AI tools (e.g., ChatGPT) and includes original ideas and interface designs by Vincent Boiteau.
+It was developed with the help of AI tools (e.g., ChatGPT) and includes original ideas and interface designs by Vincent Boiteau illustratingthe teaching principles of Brad Carlton.
 
 ## Features
 
