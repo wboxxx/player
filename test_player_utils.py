@@ -533,22 +533,35 @@ class DummySlider:
         return self.attrs[key]
 
 
-class TestZoomSliderButtons(unittest.TestCase):
-    def test_increase_decrease(self):
+class TestZoomRatioControls(unittest.TestCase):
+    def test_on_zoom_ratio_change(self):
         vp = VideoPlayer.__new__(VideoPlayer)
-        vp.zoom_levels = [0.33, 0.8, 1.0]
-        vp.zoom_slider = DummySlider(len(vp.zoom_levels) - 1)
-        vp.zoom_slider.value = 1
-        vp.on_loop_zoom_change = MagicMock()
+        vp.zoom_auto_code = -1.0
+        vp.zoom_ratio_var = MagicMock()
+        vp.zoom_ratio_var.get.return_value = 0.5
+        vp.apply_loop_zoom_ratio = MagicMock()
 
-        VideoPlayer.increase_loop_zoom(vp)
-        self.assertEqual(vp.zoom_slider.value, 2)
-        vp.on_loop_zoom_change.assert_called_with(2)
+        VideoPlayer.on_zoom_ratio_change(vp)
+        vp.apply_loop_zoom_ratio.assert_called_with(0.5)
 
-        VideoPlayer.decrease_loop_zoom(vp)
-        self.assertEqual(vp.zoom_slider.value, 1)
-        self.assertEqual(vp.on_loop_zoom_change.call_count, 2)
-        self.assertEqual(vp.on_loop_zoom_change.call_args_list[-1][0][0], 1)
+    def test_on_zoom_ratio_change_auto(self):
+        vp = VideoPlayer.__new__(VideoPlayer)
+        vp.zoom_auto_code = -1.0
+        vp.zoom_ratio_var = MagicMock()
+        vp.zoom_ratio_var.get.return_value = -1.0
+        vp.compute_ratio_for_4s = MagicMock(return_value=1.5)
+        vp.apply_loop_zoom_ratio = MagicMock()
+
+        VideoPlayer.on_zoom_ratio_change(vp)
+        vp.compute_ratio_for_4s.assert_called_once()
+        vp.apply_loop_zoom_ratio.assert_called_with(1.5)
+
+    def test_compute_ratio_for_4s(self):
+        vp = VideoPlayer.__new__(VideoPlayer)
+        vp.loop_start = 0
+        vp.loop_end = 8000
+        ratio = VideoPlayer.compute_ratio_for_4s(vp)
+        self.assertEqual(ratio, 2.0)
 
 
 if __name__ == '__main__':
