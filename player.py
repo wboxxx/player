@@ -8866,7 +8866,6 @@ class VideoPlayer:
 
         
         canvas = self.harmony_canvas
-        canvas.delete("all")
         canvas_width = canvas.winfo_width()
         canvas_height = canvas.winfo_height()
 
@@ -8898,6 +8897,7 @@ class VideoPlayer:
         zoom_range = zoom["zoom_range"]
 
 
+
         Brint(f"[HARMONY DEBUG] zoom_start = {zoom_start:.1f} ms | zoom_end = {zoom_end:.1f} ms | zoom_range = {zoom_range:.1f} ms | canvas_width = {canvas_width}px")
 
         if canvas_width <= 10 or zoom_range <= 0:
@@ -8917,6 +8917,22 @@ class VideoPlayer:
         }
 
         display_mode = getattr(self, "harmony_chord_display_mode", "degree")
+
+        # --- Optimization: avoid heavy redraw when nothing changed ---
+        cache_key = (
+            int(zoom_start),
+            int(zoom_end),
+            display_mode,
+            getattr(self, "harmony_note_display_mode", "key"),
+            hash(str(chords)),
+            hash(str(getattr(self.current_loop, "mapped_notes", {}))),
+        )
+        if getattr(self, "_harmony_overlay_cache_key", None) == cache_key:
+            # No change in zoom or data → skip redraw
+            return
+        self._harmony_overlay_cache_key = cache_key
+
+        canvas.delete("all")
 
         Brint("[HARMONY] 🎼 Affichage harmonique basé sur loop.chords")
 
