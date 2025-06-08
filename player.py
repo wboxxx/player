@@ -7250,7 +7250,7 @@ class VideoPlayer:
         else:
             current_time_ms = self.playhead_time * 1000
 
-        if not self.player.is_playing():
+        if forced_time_ms is None and not self.player.is_playing():
             return
 
         self.update_count += 1
