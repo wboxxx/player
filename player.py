@@ -3376,6 +3376,42 @@ class VideoPlayer:
             self.audio_power_max = 0.0
         self.root.after(0, self.refresh_static_timeline_elements)
 
+    def open_debug_flags_window(self):
+        """Open a window with checkboxes to toggle DEBUG_FLAGS."""
+        if hasattr(self, 'debug_window') and self.debug_window.winfo_exists():
+            self.debug_window.lift()
+            return
+
+        self.debug_window = tk.Toplevel(self.root)
+        self.debug_window.title('Debug Flags')
+
+        # Special handling for global BRINT flag with tri-state control
+        options = ['None', 'False', 'True']
+        var_brint = tk.StringVar(value=str(DEBUG_FLAGS.get('BRINT')))
+
+        def update_brint(choice):
+            if choice == 'None':
+                DEBUG_FLAGS['BRINT'] = None
+            elif choice == 'True':
+                DEBUG_FLAGS['BRINT'] = True
+            else:
+                DEBUG_FLAGS['BRINT'] = False
+
+        tk.Label(self.debug_window, text='BRINT').pack(anchor='w')
+        tk.OptionMenu(self.debug_window, var_brint, *options, command=update_brint).pack(anchor='w')
+
+        # Boolean flags
+        self.debug_vars = {}
+        for flag in sorted(k for k in DEBUG_FLAGS.keys() if k != 'BRINT'):
+            var = tk.BooleanVar(value=bool(DEBUG_FLAGS[flag]))
+            self.debug_vars[flag] = var
+
+            def toggle(f=flag, v=var):
+                DEBUG_FLAGS[f] = v.get()
+
+            chk = tk.Checkbutton(self.debug_window, text=flag, variable=var, command=toggle)
+            chk.pack(anchor='w')
+
     def reset_zoom_slider(self):
         self.zoom_slider.set(.8)  # Reset à 80%
         self.on_loop_zoom_change(.8)   # Applique immédiatement le changement
@@ -6627,6 +6663,7 @@ class VideoPlayer:
         self.root.bind("<F4>", lambda e: self.open_chord_editor_all())
         self.root.bind("<F1>", lambda e: self.cycle_syllable_set_backward())
         self.root.bind("<F2>", lambda e: self.cycle_syllable_set())
+        self.root.bind("<F3>", lambda e: self.open_debug_flags_window())
         
         self.root.bind("<F10>", self.start_profiling_5s)
         # self.root.bind("<F9>", self.dump_playhead_debug_log())
