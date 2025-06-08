@@ -439,5 +439,13 @@ class TestOpenFileAfterCancel(unittest.TestCase):
         vp.root.after_cancel.assert_called_once_with('cb1')
         self.assertIsNone(vp.after_id)
 
+
+class TestComputeScrollSpeed(unittest.TestCase):
+    def test_basic_speed(self):
+        from time_utils import compute_scroll_speed
+        speed = compute_scroll_speed(10.0, 5.0, 1000)
+        self.assertAlmostEqual(speed, 110.0)
+
 if __name__ == '__main__':
     unittest.main(argv=['first-arg-is-ignored'], exit=False)
+
