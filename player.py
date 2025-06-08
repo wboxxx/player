@@ -2185,8 +2185,9 @@ class VideoPlayer:
             Brint(f"[AUTOZOOM] ✅ Zoom défini A+B : start={zoom_start}, end={zoom_end}, ratio={self.loop_zoom_ratio:.3f}")
 
         if hasattr(self, "zoom_slider"):
-            Brint(f"[AUTOZOOM] 🎚️ zoom_slider.set({self.loop_zoom_ratio:.3f})")
-            self.zoom_slider.set(self.loop_zoom_ratio)
+            idx = self.zoom_levels.index(min(self.zoom_levels, key=lambda z: abs(z - self.loop_zoom_ratio)))
+            Brint(f"[AUTOZOOM] 🎚️ zoom_slider.set({idx})")
+            self.zoom_slider.set(idx)
 
         self.update_loop()
      
@@ -3428,13 +3429,15 @@ class VideoPlayer:
             chk.pack(anchor='w')
 
     def reset_zoom_slider(self):
-        self.zoom_slider.set(.8)  # Reset à 80%
-        self.on_loop_zoom_change(.8)   # Applique immédiatement le changement
+        idx = self.zoom_levels.index(min(self.zoom_levels, key=lambda z: abs(z - 0.8)))
+        self.zoom_slider.set(idx)  # Reset à 80%
+        self.on_loop_zoom_change(idx)   # Applique immédiatement le changement
         Brint("[ZOOM] 🔄 Reset zoom boucle à 80%")
 
 
     def on_loop_zoom_change(self, val):
-        self.loop_zoom_ratio = float(val)
+        idx = int(float(val))
+        self.loop_zoom_ratio = self.zoom_levels[idx]
         Brint(f"[ZOOM] 🔍 Zoom boucle réglé sur {self.loop_zoom_ratio:.2f} (AB = {int(self.loop_zoom_ratio*100)}% de la timeline)")
 
         if self.loop_start is not None and self.loop_end is not None and self.duration:
@@ -3454,6 +3457,24 @@ class VideoPlayer:
 
         self.refresh_static_timeline_elements()
         self.draw_rhythm_grid_canvas()
+
+    def decrease_loop_zoom(self):
+        """Decrease zoom slider index by one step."""
+        idx = int(self.zoom_slider.get())
+        min_idx = int(self.zoom_slider['from'])
+        if idx > min_idx:
+            new_idx = idx - 1
+            self.zoom_slider.set(new_idx)
+            self.on_loop_zoom_change(new_idx)
+
+    def increase_loop_zoom(self):
+        """Increase zoom slider index by one step."""
+        idx = int(self.zoom_slider.get())
+        max_idx = int(self.zoom_slider['to'])
+        if idx < max_idx:
+            new_idx = idx + 1
+            self.zoom_slider.set(new_idx)
+            self.on_loop_zoom_change(new_idx)
 
 
     
@@ -6731,10 +6752,35 @@ class VideoPlayer:
         # === RHYTHM CONTROLS FRAME ===
         self.rhythm_controls_frame = Frame(self.controls_top)
         self.rhythm_controls_frame.pack(side='left', padx=5)
-        self.zoom_slider = Scale(self.rhythm_controls_frame, from_=0.1, to=3.0, resolution=0.05, orient='horizontal', label='ZoomAB', showvalue=False,  length=60, sliderlength=10, width=8, font=("Arial", 6), command=self.on_loop_zoom_change)
+        self.zoom_levels = [0.33, 0.8, 1.0, 1.5, 2.0, 3.0]
+        self.zoom_minus_btn = Button(
+            self.rhythm_controls_frame, text="-", command=self.decrease_loop_zoom, width=2
+        )
+        self.zoom_minus_btn.pack(side='left')
+
+        self.zoom_slider = Scale(
+            self.rhythm_controls_frame,
+            from_=0,
+            to=len(self.zoom_levels) - 1,
+            resolution=1,
+            orient='horizontal',
+            label='ZoomAB',
+            showvalue=False,
+            length=60,
+            sliderlength=10,
+            width=8,
+            font=("Arial", 6),
+            command=self.on_loop_zoom_change,
+        )
         self.zoom_slider.bind("<Double-Button-1>", lambda e: self.reset_zoom_slider())
-        self.zoom_slider.set(self.loop_zoom_ratio)
+        init_idx = self.zoom_levels.index(min(self.zoom_levels, key=lambda z: abs(z - self.loop_zoom_ratio)))
+        self.zoom_slider.set(init_idx)
         self.zoom_slider.pack(side='left', padx=5)
+
+        self.zoom_plus_btn = Button(
+            self.rhythm_controls_frame, text="+", command=self.increase_loop_zoom, width=2
+        )
+        self.zoom_plus_btn.pack(side='left')
         
         
         # === BINDINGS CLAVIER PRINCIPAUX ===
@@ -7951,7 +7997,8 @@ class VideoPlayer:
 
         # Ensure zoom shows the entire file when clearing the loop
         if hasattr(self, "zoom_slider"):
-            self.zoom_slider.set(1.0)
+            idx = self.zoom_levels.index(min(self.zoom_levels, key=lambda z: abs(z - 1.0)))
+            self.zoom_slider.set(idx)
         self.loop_zoom_ratio = 1.0
 
         if hasattr(self, "player"):
