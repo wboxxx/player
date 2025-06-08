@@ -9,6 +9,21 @@ builtins.subprocess = subprocess
 import re
 import json
 import time
+
+_real_perf_counter = time.perf_counter
+_last_brint_time = None
+
+def _print_with_time(*args, **kwargs):
+    """Print message and show time since last Brint call."""
+    global _last_brint_time
+    now = _real_perf_counter()
+    if _last_brint_time is None:
+        print(*args, **kwargs)
+    else:
+        delta = now - _last_brint_time
+        print(f"[+{delta:.3f}s]", *args, **kwargs)
+    _last_brint_time = now
+
 import tempfile
 import ctypes
 import threading
@@ -124,8 +139,6 @@ DEBUG_FLAGS = {
     "ZOOM": False
     ,
     "BRINT" : None
-
-
 }
 
 import re
@@ -147,18 +160,18 @@ def Brint(*args, **kwargs):
 
     # 💥 Mode super-debug : BRINT = True affiche tout
     if DEBUG_FLAGS.get("BRINT", None) is True:
-        print(*args, **kwargs)
+        _print_with_time(*args, **kwargs)
         return
 
     if not tags:
         # Aucun tag → affichage inconditionnel (si BRINT n'est pas False)
-        print(*args, **kwargs)
+        _print_with_time(*args, **kwargs)
         return
 
     for tag_str in tags:
         keywords = tag_str.upper().split()
         if any(DEBUG_FLAGS.get(kw, False) for kw in keywords):
-            print(*args, **kwargs)
+            _print_with_time(*args, **kwargs)
             return
 
     # Sinon → silence
