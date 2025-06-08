@@ -2127,9 +2127,7 @@ class VideoPlayer:
             Brint(f"[AUTOZOOM] 📐 Calcul initial : zoom_start={zoom_start_ms}, zoom_end={zoom_end_ms}")
 
             if zoom_start_ms < 0:
-                zoom_start_ms = 0
-                zoom_end_ms = zoom_range_ms
-                Brint("[AUTOZOOM] 🔧 Clamp gauche : zoom_start ajusté à 0")
+                Brint("[AUTOZOOM] ↪️ zoom_start négatif autorisé pour conserver la marge 5%")
 
             if zoom_end_ms > video_duration:
                 zoom_end_ms = video_duration
@@ -2171,9 +2169,7 @@ class VideoPlayer:
             Brint(f"[AUTOZOOM] 📐 Calcul initial : zoom_start={zoom_start}, zoom_end={zoom_end}, zoom_range={zoom_range}")
 
             if zoom_start < 0:
-                zoom_start = 0
-                zoom_end = zoom_range
-                Brint("[AUTOZOOM] 🔧 Clamp gauche : zoom_start ajusté à 0")
+                Brint("[AUTOZOOM] ↪️ zoom_start négatif autorisé pour conserver la marge 5%")
 
             if zoom_end > video_duration:
                 zoom_end = video_duration
