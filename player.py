@@ -5243,7 +5243,8 @@ class VideoPlayer:
             return
 
         if spawn_new_instance:
-            import subprocess, sys, os
+            import subprocess
+            import sys
             subprocess.Popen([sys.executable, os.path.abspath(__file__), path])
             self.root.destroy()
             sys.exit(0)
@@ -8040,7 +8041,8 @@ class VideoPlayer:
         if not path:
             return
         if spawn_new_instance:
-            import subprocess, sys, os
+            import subprocess
+            import sys
             subprocess.Popen([sys.executable, os.path.abspath(__file__), path])
             self.root.destroy()
             sys.exit(0)
