@@ -330,8 +330,8 @@ class TestZoomScroll(unittest.TestCase):
         d = self.Dummy()
         d.playhead_time = 5.0
         ctx = d.get_zoom_context()
-        self.assertEqual(ctx["zoom_start"], 2500)
-        self.assertEqual(ctx["zoom_end"], 7500)
+        self.assertEqual(ctx["zoom_start"], 2750)
+        self.assertEqual(ctx["zoom_end"], 7750)
 
 
 class TestTogglePauseLoopTiming(unittest.TestCase):
@@ -460,6 +460,27 @@ class TestComputeScrollSpeed(unittest.TestCase):
         from time_utils import compute_scroll_speed
         speed = compute_scroll_speed(10.0, 5.0, 1000)
         self.assertAlmostEqual(speed, 110.0)
+
+    def test_no_scroll_when_zoom_large(self):
+        from time_utils import compute_scroll_speed
+        # Zoom window larger than the loop should not yield negative speed
+        speed = compute_scroll_speed(10.0, 12.0, 1000)
+        self.assertEqual(speed, 0.0)
+
+
+class TestZoomContextDynamicScroll(unittest.TestCase):
+    def test_zoom_context_does_not_scroll_backwards(self):
+        vp = VideoPlayer.__new__(VideoPlayer)
+        vp.loop_start = 0
+        vp.loop_end = 1000
+        vp.loop_zoom_ratio = 1.0
+        vp.zoom_context = {"zoom_start": 0, "zoom_end": 1050, "zoom_range": 1050}
+        vp.playhead_time = 0.5
+        vp.player = MagicMock()
+        vp.player.get_length.return_value = 2000
+
+        zoom = VideoPlayer.get_zoom_context(vp)
+        self.assertGreater(zoom["zoom_start"], 0)
 
 
 if __name__ == '__main__':
