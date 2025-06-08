@@ -8196,7 +8196,15 @@ class VideoPlayer:
                     self.last_loop_jump_time = time.perf_counter()
                     Brint(f"[INIT LOOP] loop_duration_s = {self.loop_duration_s:.3f}s")
 
-                if self.interp_var.get():
+                # Resume interpolation once VLC confirms it is playing from A
+                if self.awaiting_vlc_jump and is_playing:
+                    if abs(player_now - self.loop_start) < 20:
+                        self.awaiting_vlc_jump = False
+                        self.freeze_interpolation = False
+                        self.last_loop_jump_time = time.perf_counter()
+                        Brint("[LOOP RESYNC] Interpolation resumed after jump")
+
+                if self.interp_var.get() and not self.freeze_interpolation:
                     elapsed_since_last_jump = time.perf_counter() - self.last_loop_jump_time
                     loop_duration_corrected = self.loop_duration_s / player_rate
                     wrapped_elapsed = elapsed_since_last_jump % loop_duration_corrected
@@ -8207,6 +8215,8 @@ class VideoPlayer:
                     if elapsed_since_last_jump >= loop_duration_corrected:
                         self.safe_jump_to_time(self.loop_start, source="Jump B estim (all rates)")
                         self.last_loop_jump_time = time.perf_counter()
+                        self.freeze_interpolation = True
+                        self.awaiting_vlc_jump = True
                         self.loop_pass_count += 1
                         Brint(f"[LOOP PASS] Boucle AB passée {self.loop_pass_count} fois")
                         self.evaluate_subdivision_states()
