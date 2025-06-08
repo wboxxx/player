@@ -4874,6 +4874,11 @@ class VideoPlayer:
         self.draw_rhythm_grid_canvas()
         self.compute_rhythm_grid_infos()
 
+        # Ensure current_loop has the updated grid information before mapping
+        if hasattr(self, "current_loop") and self.current_loop is not None:
+            self.current_loop.grid_times = self.grid_times
+            self.current_loop.grid_subdivs = self.grid_subdivs
+
         # Remap persistent validated hits to the new grid
         Brint("[REMAP_VALIDATED_HITS] Clearing old subdivision_state before remapping.")
         self.subdivision_state.clear()
