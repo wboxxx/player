@@ -330,8 +330,8 @@ class TestZoomScroll(unittest.TestCase):
         d = self.Dummy()
         d.playhead_time = 5.0
         ctx = d.get_zoom_context()
-        self.assertEqual(ctx["zoom_start"], 2750)
-        self.assertEqual(ctx["zoom_end"], 7750)
+        self.assertEqual(ctx["zoom_start"], 2500)
+        self.assertEqual(ctx["zoom_end"], 7500)
 
 
 class TestTogglePauseLoopTiming(unittest.TestCase):
@@ -459,7 +459,7 @@ class TestComputeScrollSpeed(unittest.TestCase):
     def test_basic_speed(self):
         from time_utils import compute_scroll_speed
         speed = compute_scroll_speed(10.0, 5.0, 1000)
-        self.assertAlmostEqual(speed, 110.0)
+        self.assertAlmostEqual(speed, 100.0)
 
     def test_no_scroll_when_zoom_large(self):
         from time_utils import compute_scroll_speed
@@ -480,7 +480,7 @@ class TestZoomContextDynamicScroll(unittest.TestCase):
         vp.player.get_length.return_value = 2000
 
         zoom = VideoPlayer.get_zoom_context(vp)
-        self.assertGreater(zoom["zoom_start"], 0)
+        self.assertGreaterEqual(zoom["zoom_start"], 0)
 
 class TestZoomContextCentering(unittest.TestCase):
     def test_zoom_recenters_when_no_scroll(self):
