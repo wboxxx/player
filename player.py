@@ -2447,7 +2447,9 @@ class VideoPlayer:
         caller = inspect.stack()[1].function
         Brint(f"[TRACE GRID] 🧩 Assigné par '{caller}' {f'→ {source}' if source else ''}")
 
-        if not hasattr(self, "loop_start") or not hasattr(self, "loop_end") or self.tempo_bpm is None:
+        if (not hasattr(self, "loop_start") or self.loop_start is None or
+            not hasattr(self, "loop_end") or self.loop_end is None or
+            self.tempo_bpm is None):
             Brint("[TRACE GRID ERROR] ❌ loop_start, loop_end ou tempo_bpm manquant — grille non générée")
             self.grid_subdivs = []
             return
