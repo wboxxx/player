@@ -36,7 +36,7 @@ def compute_scroll_speed(T_loop, T_zoom, canvas_width):
     pendant que t_ph avance de t_A à t_B.
 
     Le centre de la fenêtre de zoom se déplace donc sur :
-        Δt_center = T_loop - T_zoom
+        Δt_center = T_loop - 0.9 * T_zoom
 
     → vitesse de scroll (fraction de canvas par seconde) :
         v_scroll = Δt_center / (T_loop * T_zoom)
@@ -44,7 +44,7 @@ def compute_scroll_speed(T_loop, T_zoom, canvas_width):
     → conversion en pixels :
         v_scroll_px = v_scroll * canvas_width
     """
-    v_frac = (T_loop - T_zoom) / (T_loop * T_zoom)
+    v_frac = (T_loop - 0.9 * T_zoom) / (T_loop * T_zoom)
     if v_frac < 0:
         return 0.0  # Pas de scroll si la fenêtre couvre toute la boucle
     v_px_per_s = v_frac * canvas_width
@@ -53,6 +53,6 @@ def compute_scroll_speed(T_loop, T_zoom, canvas_width):
 
 # Dans get_zoom_context(), le décalage appliqué à la fenêtre suit
 # exactement ce Δt_center :
-#    offset = progress * (T_loop - T_zoom)
+#    offset = progress * (T_loop - 0.9 * T_zoom)
 # On ignore tout décalage négatif éventuel.
 
