@@ -14,20 +14,14 @@ _real_perf_counter = time.perf_counter
 _last_brint_time = None
 
 def _print_with_time(*args, **kwargs):
-    """Print a message and include the elapsed time since the previous call."""
+    """Print message and show time since last Brint call."""
     global _last_brint_time
     now = _real_perf_counter()
     if _last_brint_time is None:
         print(*args, **kwargs)
     else:
         delta = now - _last_brint_time
-        if delta >= 1:
-            label = f"[+{delta:.3f}s]"
-        elif delta >= 0.001:
-            label = f"[+{delta*1000:.1f}ms]"
-        else:
-            label = f"[+{delta*1000:.3f}ms]"
-        print(label, *args, **kwargs)
+        print(f"[+{delta:.3f}s]", *args, **kwargs)
     _last_brint_time = now
 
 import tempfile
@@ -87,17 +81,6 @@ import tempfile
 import os
 import scipy.signal
 
-# Utility functions split into separate modules
-import audio_utils as _audio_utils
-_audio_utils.os = os
-_audio_utils.subprocess = subprocess
-_audio_utils.tempfile = tempfile
-from audio_utils import _util_extract_audio_segment, _util_get_tempo_and_beats_librosa
-
-import video_utils as _video_utils
-_video_utils.subprocess = subprocess
-from video_utils import extract_keyframes
-
 # import gdrive_uploader
 import os
 import tempfile
@@ -150,8 +133,7 @@ DEBUG_FLAGS = {
     "SEGMENTS": False,
     "SPAM": False,
     "SYNC": False,
-    "TEMPO": False,    
-    "TBD": False,
+    "TEMPO": False,
     "TRACKER": False,
     "WARNING": False,
     "ZOOM": False
@@ -489,7 +471,7 @@ def recalculate_chord_for_new_key(chord_name, previous_key, new_key, mode):
     """
     Recalcule un accord en changeant de clé et en respectant le mode.
     """
-    Brint(f"[TBD]\n[RECALC] Début recalcul {chord_name} : de {previous_key} ➔ {new_key} | mode {mode}")
+    Brint(f"\n[RECALC] Début recalcul {chord_name} : de {previous_key} ➔ {new_key} | mode {mode}")
 
     if not chord_name or not previous_key or not new_key:
         Brint(f"[WARNING] ➡ Données incomplètes ➔ {chord_name} conservé")
@@ -876,6 +858,99 @@ def format_time(seconds, include_ms=True, include_tenths=False):
         return f"{h}:{m:02}:{s:02}.{ms:03}"
     return f"{h}:{m:02}:{s:02}"
 
+def _util_extract_audio_segment(
+    input_path,
+    output_path=None,
+    *,
+    start_sec=None,
+    duration_sec=None,
+    audio_codec="pcm_s16le",
+    sample_rate=44100,
+    channels=1,
+    overwrite=True,
+    use_temp_file=True,
+):
+    """Extract an audio segment via ffmpeg."""
+    if output_path is None:
+        if use_temp_file:
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+                output_path = tmp.name
+        else:
+            raise ValueError("output_path required if use_temp_file=False")
+
+    cmd = ["ffmpeg"]
+    if overwrite:
+        cmd.append("-y")
+    if start_sec is not None:
+        cmd += ["-ss", str(start_sec)]
+    if duration_sec is not None:
+        cmd += ["-t", str(duration_sec)]
+    cmd += ["-i", input_path, "-vn", "-acodec", audio_codec, "-ar", str(sample_rate), "-ac", str(channels), output_path]
+
+    try:
+        subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except Exception:
+        return None
+
+    if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
+        return None
+
+    return output_path
+
+def _util_get_tempo_and_beats_librosa(y, sr):
+    """Return tempo and beat frames from audio using librosa."""
+    if y is None or len(y) == 0:
+        return 0.0, np.array([])
+    try:
+        tempo, beats = librosa.beat.beat_track(y=y, sr=sr)
+        return float(tempo), beats
+    except Exception:
+        return 0.0, np.array([])
+
+def extract_keyframes(
+    video_path,
+    start_time_sec=None,
+    duration_sec=None,
+    end_time_sec=None,
+):
+    """Extract keyframe timestamps from a video using ffprobe."""
+    cmd = [
+        "ffprobe",
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "frame=pkt_pts_time,pict_type",
+        "-of",
+        "csv=p=0",
+        video_path,
+    ]
+    try:
+        output = subprocess.check_output(cmd, stderr=subprocess.PIPE).decode()
+    except Exception:
+        return []
+    keyframes = []
+    for line in output.strip().splitlines():
+        try:
+            time_str, frame_type = line.split(",")
+        except ValueError:
+            continue
+        if frame_type.strip() == "I":
+            try:
+                t = float(time_str)
+            except ValueError:
+                continue
+            keyframes.append(t)
+
+    if start_time_sec is not None:
+        end = start_time_sec + duration_sec if duration_sec is not None else end_time_sec
+        if end is not None:
+            keyframes = [t for t in keyframes if start_time_sec <= t < end]
+        else:
+            keyframes = [t for t in keyframes if t >= start_time_sec]
+
+    return keyframes
 
 def detect_countins_with_rms(filepath, hop_length=256, strict=False, mode="default", verbose=True):
     threshold = 0.01 if strict else 0.03
@@ -921,7 +996,7 @@ def detect_countins_with_rms(filepath, hop_length=256, strict=False, mode="defau
 
     groups = []
     if verbose:
-        Brint(f"[TBD]\n⏺️ Tous les click_times : {[round(float(t), 3) for t in click_times]}")
+        Brint(f"\n⏺️ Tous les click_times : {[round(float(t), 3) for t in click_times]}")
     for i in range(len(click_times) - 3):
         for j in range(i + 3, min(i + 6, len(click_times) + 1)):
             group = click_times[i:j]
@@ -959,8 +1034,8 @@ def detect_countins_with_rms(filepath, hop_length=256, strict=False, mode="defau
             if not plateau_ok:
                 if verbose:
                     Brint(f"[TBD]      ❌ Rejeté : pas de plateau RMS stable")
-                    Brint(f"[TBD]        → Moyenne RMS = {plateau_debug['mean_rms']} (ok={plateau_debug['mean_ok']})")
-                    Brint(f"[TBD]        → Écart-type RMS = {plateau_debug['std_rms']} (ok={plateau_debug['std_ok']})")
+                    Brint(f"        → Moyenne RMS = {plateau_debug['mean_rms']} (ok={plateau_debug['mean_ok']})")
+                    Brint(f"        → Écart-type RMS = {plateau_debug['std_rms']} (ok={plateau_debug['std_ok']})")
                 continue
 
             if verbose: Brint(f"[TBD]      ✅ Accepté comme count-in 🎯")
@@ -1023,7 +1098,7 @@ def open_vlc_at(filepath, seconds):
             if choice.isdigit():
                 idx = int(choice) - 1
                 if 0 <= idx < len(groups):
-                    Brint(f"[TBD] Ouverture de VLC à {seconds_to_hms(groups[idx]['clicks'][0])}...")
+                    Brint(f"Ouverture de VLC à {seconds_to_hms(groups[idx]['clicks'][0])}...")
                     open_vlc_at(current_path, groups[idx]["clicks"][0])
                 else:
                     Brint("[TBD] Numéro invalide.")
@@ -1964,12 +2039,6 @@ class VideoPlayer:
         if not self.loop_start or not self.loop_end:
             return
 
-        # When the user has intentionally chosen a high zoom ratio
-        # (>= 3x), we skip auto adjustments to avoid unwanted resets.
-        if getattr(self, "loop_zoom_ratio", 1.0) >= 3.0:
-            Brint("[ZOOM CHECK] ⏭️ High zoom ratio, skipping auto adjust")
-            return
-
         zoom = self.get_zoom_context()
         z_start = zoom["zoom_start"]
         z_end = zoom["zoom_end"]
@@ -2022,16 +2091,16 @@ class VideoPlayer:
         Brint(f"[ZOOM MOVE] 🔁 Zoom modifié !")
         Brint(f"[TBD]   🎯 A: x avant = {prev_A_x}px → après = {new_A_x}px")
         Brint(f"[TBD]   🎯 B: x avant = {prev_B_x}px → après = {new_B_x}px")
-        Brint(f"[TBD]  🔍 zoom_start: {prev_zoom['zoom_start']} → {new_zoom['zoom_start']}")
-        Brint(f"[TBD]  🔍 zoom_range: {prev_zoom['zoom_range']} → {new_zoom['zoom_range']}")
+        Brint(f"  🔍 zoom_start: {prev_zoom['zoom_start']} → {new_zoom['zoom_start']}")
+        Brint(f"  🔍 zoom_range: {prev_zoom['zoom_range']} → {new_zoom['zoom_range']}")
 
 
 
     def auto_zoom_on_loop_markers(self, force=False):
         """
         Ajuste le zoom automatiquement selon l'état de loop_start et loop_end :
-        - Si A seul est défini, zoom sur A + 1min avec A à 5%.
-        - Si A et B sont définis, zoom pour que A soit à 5% et B à 95%.
+        - Si A seul est défini, zoom sur A + 1min avec A à 20%.
+        - Si A et B sont définis, zoom pour que A soit à 20% et B à 80%.
         """
         video_duration = self.player.get_length()
 
@@ -2042,16 +2111,18 @@ class VideoPlayer:
         Brint(f"[AUTOZOOM] 🎬 Durée vidéo = {video_duration} ms")
 
         if not self.loop_end or self.loop_end <= self.loop_start:
-            Brint("[AUTOZOOM] 🅰️ seul défini → zoom A à 5% sur 1 minute")
+            Brint("[AUTOZOOM] 🅰️ seul défini → zoom A à 20% sur 1 minute")
 
             zoom_range_ms = 60000
-            zoom_start_ms = self.loop_start - int(0.05 * zoom_range_ms)
+            zoom_start_ms = self.loop_start - int(0.2 * zoom_range_ms)
             zoom_end_ms = zoom_start_ms + zoom_range_ms
 
             Brint(f"[AUTOZOOM] 📐 Calcul initial : zoom_start={zoom_start_ms}, zoom_end={zoom_end_ms}")
 
             if zoom_start_ms < 0:
-                Brint("[AUTOZOOM] ↪️ zoom_start négatif autorisé pour conserver la marge 5%")
+                zoom_start_ms = 0
+                zoom_end_ms = zoom_range_ms
+                Brint("[AUTOZOOM] 🔧 Clamp gauche : zoom_start ajusté à 0")
 
             if zoom_end_ms > video_duration:
                 zoom_end_ms = video_duration
@@ -2067,18 +2138,18 @@ class VideoPlayer:
             self.loop_end = self.loop_start + zoom_range_ms
             self.loop_zoom_ratio = zoom_range_ms / self.zoom_context["zoom_range"]
 
-            self.console.config(text="🅰️ Zoom auto : A à 5%, durée 1min")
+            self.console.config(text="🅰️ Zoom auto : A à 20%, durée 1min")
             Brint(f"[AUTOZOOM] ✅ Zoom défini pour A seul : start={zoom_start_ms}, end={zoom_end_ms}, ratio={self.loop_zoom_ratio:.3f}")
 
         else:
-            Brint("[AUTOZOOM] 🅰️ + 🅱️ définis → zoom A à 5%, B à 95%")
+            Brint("[AUTOZOOM] 🅰️ + 🅱️ définis → zoom A à 20%, B à 80%")
 
             loop_len = self.loop_end - self.loop_start
             if loop_len <= 0:
                 Brint("[AUTOZOOM] ❌ Loop invalide (B < A)")
                 return
 
-            zoom_range = int(loop_len / 0.9)
+            zoom_range = int(loop_len / 0.6)
             # 💡 Limite de zoom max : on ne veut pas zoomer sur toute la vidéo
             max_zoom_range = min(video_duration, 300000)  # 5 minutes max
 
@@ -2087,19 +2158,15 @@ class VideoPlayer:
                 zoom_range = max_zoom_range
 
             
-            if zoom_range >= loop_len:
-                # When the zoom window is wider than the loop, center the loop
-                # to keep A and B equidistant from the edges.
-                zoom_start = int(self.loop_start - (zoom_range - loop_len) / 2)
-            else:
-                # Standard case: A at 5% and B at 95% of the visible range.
-                zoom_start = self.loop_start - int(0.05 * zoom_range)
+            zoom_start = self.loop_start - int(0.2 * zoom_range)
             zoom_end = zoom_start + zoom_range
 
             Brint(f"[AUTOZOOM] 📐 Calcul initial : zoom_start={zoom_start}, zoom_end={zoom_end}, zoom_range={zoom_range}")
 
             if zoom_start < 0:
-                Brint("[AUTOZOOM] ↪️ zoom_start négatif autorisé pour conserver la marge 5%")
+                zoom_start = 0
+                zoom_end = zoom_range
+                Brint("[AUTOZOOM] 🔧 Clamp gauche : zoom_start ajusté à 0")
 
             if zoom_end > video_duration:
                 zoom_end = video_duration
@@ -2113,17 +2180,15 @@ class VideoPlayer:
             }
 
             self.loop_zoom_ratio = loop_len / self.zoom_context["zoom_range"]
-            self.console.config(text="🔍 Zoom auto : A à 5%, B à 95%")
+            self.console.config(text="🔍 Zoom auto : A à 20%, B à 80%")
 
             Brint(f"[AUTOZOOM] ✅ Zoom défini A+B : start={zoom_start}, end={zoom_end}, ratio={self.loop_zoom_ratio:.3f}")
 
         if hasattr(self, "zoom_slider"):
-            idx = self.zoom_levels.index(min(self.zoom_levels, key=lambda z: abs(z - self.loop_zoom_ratio)))
-            Brint(f"[AUTOZOOM] 🎚️ zoom_slider.set({idx})")
-            self.zoom_slider.set(idx)
+            Brint(f"[AUTOZOOM] 🎚️ zoom_slider.set({self.loop_zoom_ratio:.3f})")
+            self.zoom_slider.set(self.loop_zoom_ratio)
 
-        if force:
-            self.update_loop()
+        self.update_loop()
      
 
  
@@ -2161,7 +2226,7 @@ class VideoPlayer:
         next_mode = modes[(modes.index(current) + 1) % len(modes)]
         self.harmony_note_display_mode = next_mode
 
-        Brint(f"[TBD]\n[DISPLAY MODE] 🔁 Passage du mode '{current}' → '{next_mode}'")
+        Brint(f"\n[DISPLAY MODE] 🔁 Passage du mode '{current}' → '{next_mode}'")
 
         if next_mode == "key":
             Brint("[TBD]   ➤ Les intervalles seront calculés par rapport à la tonalité globale (key).")
@@ -2330,59 +2395,20 @@ class VideoPlayer:
         if base_zoom is not None:
             zoom_dict.update(base_zoom)
 
-        if base_zoom is not None and getattr(self, "reset_zoom_next_frame", False):
-            start = base_zoom["zoom_start"]
-            end = start + base_zoom["zoom_range"]
-            if end > video_duration:
-                end = video_duration
-                start = max(0, video_duration - base_zoom["zoom_range"])
-            zoom_dict["zoom_start"] = start
-            zoom_dict["zoom_end"] = end
-            self.reset_zoom_next_frame = False
-            return zoom_dict
-
-        dynamic_condition = (
+        if (
             base_zoom is not None
             and self.loop_start is not None
             and self.loop_end is not None
             and base_zoom.get("zoom_range", 0) < (self.loop_end - self.loop_start) / 0.9
             and getattr(self, "playhead_time", None) is not None
-        )
-
-        if dynamic_condition:
+        ):
             playhead_ms = self.playhead_time * 1000.0
             loop_range = self.loop_end - self.loop_start
             progress = (playhead_ms - self.loop_start) / loop_range
             progress = max(0.0, min(1.0, progress))
-            # Correct direction: offset is based on the 5%-95% window movement
-            base_range = base_zoom["zoom_range"]
-            offset = progress * (loop_range - 0.9 * base_range)
-            zoom_start = base_zoom.get("zoom_start", self.loop_start) + offset
-            if zoom_start < 0:
-                zoom_start = 0
-            zoom_dict["zoom_start"] = int(zoom_start)
+            offset = progress * (loop_range - base_zoom["zoom_range"])
+            zoom_dict["zoom_start"] = self.loop_start + offset
             zoom_dict["zoom_end"] = zoom_dict["zoom_start"] + base_zoom["zoom_range"]
-
-            # Re-clamp in case the dynamic offset pushes outside the video bounds
-            if zoom_dict["zoom_end"] > video_duration:
-                zoom_dict["zoom_end"] = video_duration
-                zoom_dict["zoom_start"] = max(0, video_duration - base_zoom["zoom_range"])
-        elif (
-            base_zoom is not None
-            and self.loop_start is not None
-            and self.loop_end is not None
-            and getattr(self, "playhead_time", None) is not None
-        ):
-            center_ms = (self.loop_start + self.loop_end) // 2
-            start = center_ms - base_zoom["zoom_range"] // 2
-            if start < 0:
-                start = 0
-            end = start + base_zoom["zoom_range"]
-            if end > video_duration:
-                end = video_duration
-                start = max(0, video_duration - base_zoom["zoom_range"])
-            zoom_dict["zoom_start"] = start
-            zoom_dict["zoom_end"] = end
 
         return zoom_dict
 
@@ -3244,12 +3270,6 @@ class VideoPlayer:
     def safe_jump_to_time(self, target_ms, source="UNKNOWN"):
         Brint(f"[PH JUMP] 🚀 {source} → jump à {int(target_ms)} ms demandé")
 
-        if (
-            target_ms == getattr(self, "loop_start", None)
-            and str(source).startswith("Jump B")
-        ):
-            self.reset_zoom_next_frame = True
-
         self.player.set_time(int(target_ms))
         self.set_forced_jump(True, source=source)
         self.safe_update_playhead(target_ms, source)
@@ -3408,15 +3428,13 @@ class VideoPlayer:
             chk.pack(anchor='w')
 
     def reset_zoom_slider(self):
-        idx = self.zoom_levels.index(min(self.zoom_levels, key=lambda z: abs(z - 0.8)))
-        self.zoom_slider.set(idx)  # Reset à 80%
-        self.on_loop_zoom_change(idx)   # Applique immédiatement le changement
+        self.zoom_slider.set(.8)  # Reset à 80%
+        self.on_loop_zoom_change(.8)   # Applique immédiatement le changement
         Brint("[ZOOM] 🔄 Reset zoom boucle à 80%")
 
 
     def on_loop_zoom_change(self, val):
-        idx = int(float(val))
-        self.loop_zoom_ratio = self.zoom_levels[idx]
+        self.loop_zoom_ratio = float(val)
         Brint(f"[ZOOM] 🔍 Zoom boucle réglé sur {self.loop_zoom_ratio:.2f} (AB = {int(self.loop_zoom_ratio*100)}% de la timeline)")
 
         if self.loop_start is not None and self.loop_end is not None and self.duration:
@@ -3437,25 +3455,8 @@ class VideoPlayer:
         self.refresh_static_timeline_elements()
         self.draw_rhythm_grid_canvas()
 
-    def decrease_loop_zoom(self):
-        """Decrease zoom slider index by one step."""
-        idx = int(self.zoom_slider.get())
-        min_idx = int(self.zoom_slider['from'])
-        if idx > min_idx:
-            new_idx = idx - 1
-            self.zoom_slider.set(new_idx)
-            self.on_loop_zoom_change(new_idx)
 
-    def increase_loop_zoom(self):
-        """Increase zoom slider index by one step."""
-        idx = int(self.zoom_slider.get())
-        max_idx = int(self.zoom_slider['to'])
-        if idx < max_idx:
-            new_idx = idx + 1
-            self.zoom_slider.set(new_idx)
-            self.on_loop_zoom_change(new_idx)
-
-
+    
 
     def get_loop_zoom_range(self):
         if self.loop_start and self.loop_end:
@@ -4772,7 +4773,7 @@ class VideoPlayer:
 
 
     def dump_playhead_debug_log(self, n=10):
-        Brint(f"[TBD]\n[DEBUG LOG] Dernières {n} positions du playhead :")
+        Brint(f"\n[DEBUG LOG] Dernières {n} positions du playhead :")
         if not hasattr(self, "_debug_playhead_log"): self._debug_playhead_log = []
 
         for entry in self._debug_playhead_log[-n:]:
@@ -4785,7 +4786,7 @@ class VideoPlayer:
             if entry["frozen"]:
                 status += "❄️frozen "
             Brint(f"[TBD]  - t={t}ms | x={x} | mode={mode} {status}")
-            Brint(f"[TBD]\n[STATS] x min = {self._debug_x_min}, x max = {self._debug_x_max}")
+            Brint(f"\n[STATS] x min = {self._debug_x_min}, x max = {self._debug_x_max}")
 
 
 
@@ -4927,11 +4928,6 @@ class VideoPlayer:
         self.build_rhythm_grid()
         self.draw_rhythm_grid_canvas()
         self.compute_rhythm_grid_infos()
-
-        # Ensure current_loop has the updated grid information before mapping
-        if hasattr(self, "current_loop") and self.current_loop is not None:
-            self.current_loop.grid_times = self.grid_times
-            self.current_loop.grid_subdivs = self.grid_subdivs
 
         # Remap persistent validated hits to the new grid
         Brint("[REMAP_VALIDATED_HITS] Clearing old subdivision_state before remapping.")
@@ -5574,7 +5570,7 @@ class VideoPlayer:
         # self.save_zoom_prefs()
 
     def update_pan(self, user_action="UNKNOWN"):
-        Brint(f"[TBD] 🔵 [ACTION] Utilisateur a demandé : {user_action}")
+        Brint(f"🔵 [ACTION] Utilisateur a demandé : {user_action}")
         if hasattr(self, 'player') and self.player.get_media():
             video_w = self.player.video_get_width()
             video_h = self.player.video_get_height()
@@ -5600,7 +5596,7 @@ class VideoPlayer:
             # Brint(f"📐 [COMPARE] Aspect ratio → Crop: {aspect_crop:.2f} vs Video: {aspect_video:.2f}")
             # Brint(f"[TBD] 📏 Crop size: {crop_w}px x {crop_h}px")
             # Brint(f"📊 [VIEWPORT] % vidéo visible → {crop_percent_w:.1f}% largeur, {crop_percent_h:.1f}% hauteur")
-            Brint(f"[TBD] 🎯 [CENTER] Centre actuel du cadre crop: ({center_x}px, {center_y}px)")
+            Brint(f"🎯 [CENTER] Centre actuel du cadre crop: ({center_x}px, {center_y}px)")
 
 
 
@@ -5711,7 +5707,7 @@ class VideoPlayer:
         
     # --- Fonction pour charger une boucle sauvegardée quand on clique ---
     def load_saved_loop(self, index):
-        Brint(f"[TBD]\n[LOAD LOOP] 🔁 Chargement boucle index={index}")
+        Brint(f"\n[LOAD LOOP] 🔁 Chargement boucle index={index}")
         self.reset_rhythm_overlay()
 
         self.subdivision_state.clear()
@@ -5940,7 +5936,7 @@ class VideoPlayer:
             try:
                 for f in proc.info['open_files'] or []:
                     if f.path == filepath:
-                        Brint(f"[TBD] 🔒 {proc.info['name']} (pid {proc.info['pid']}) verrouille {filepath}")
+                        Brint(f"🔒 {proc.info['name']} (pid {proc.info['pid']}) verrouille {filepath}")
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
     
@@ -6566,7 +6562,6 @@ class VideoPlayer:
         self.awaiting_vlc_jump = False
         self.freeze_interpolation = False
         self.last_seek_time = 0
-        self.reset_zoom_next_frame = False
 
 
 
@@ -6736,36 +6731,10 @@ class VideoPlayer:
         # === RHYTHM CONTROLS FRAME ===
         self.rhythm_controls_frame = Frame(self.controls_top)
         self.rhythm_controls_frame.pack(side='left', padx=5)
-        # Extend available zoom ratios to allow larger zoom-out levels
-        self.zoom_levels = [0.33, 0.8, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0, 8.0]
-        self.zoom_minus_btn = Button(
-            self.rhythm_controls_frame, text="-", command=self.decrease_loop_zoom, width=2
-        )
-        self.zoom_minus_btn.pack(side='left')
-
-        self.zoom_slider = Scale(
-            self.rhythm_controls_frame,
-            from_=0,
-            to=len(self.zoom_levels) - 1,
-            resolution=1,
-            orient='horizontal',
-            label='ZoomAB',
-            showvalue=False,
-            length=60,
-            sliderlength=10,
-            width=8,
-            font=("Arial", 6),
-            command=self.on_loop_zoom_change,
-        )
+        self.zoom_slider = Scale(self.rhythm_controls_frame, from_=0.1, to=3.0, resolution=0.05, orient='horizontal', label='ZoomAB', showvalue=False,  length=60, sliderlength=10, width=8, font=("Arial", 6), command=self.on_loop_zoom_change)
         self.zoom_slider.bind("<Double-Button-1>", lambda e: self.reset_zoom_slider())
-        init_idx = self.zoom_levels.index(min(self.zoom_levels, key=lambda z: abs(z - self.loop_zoom_ratio)))
-        self.zoom_slider.set(init_idx)
+        self.zoom_slider.set(self.loop_zoom_ratio)
         self.zoom_slider.pack(side='left', padx=5)
-
-        self.zoom_plus_btn = Button(
-            self.rhythm_controls_frame, text="+", command=self.increase_loop_zoom, width=2
-        )
-        self.zoom_plus_btn.pack(side='left')
         
         
         # === BINDINGS CLAVIER PRINCIPAUX ===
@@ -6798,8 +6767,7 @@ class VideoPlayer:
         self.root.bind("<F3>", lambda e: self.open_debug_flags_window())
         
         self.root.bind("<F10>", self.start_profiling_5s)
-        self.root.bind("<F6>", lambda e: self.open_chord_editor_all())
-        self.root.bind("<F5>", lambda e: self.open_chord_editor_all())
+        self.root.bind("<F8>", lambda e: self.open_chord_editor_all())
         # self.root.bind("<F9>", self.dump_playhead_debug_log())
 
         self.root.bind('<F9>', lambda e: self.dump_playhead_debug_log())
@@ -7229,10 +7197,8 @@ class VideoPlayer:
             zoom_range = zoom_end - zoom_start
 
         t_sec = current_time_ms / 1000.0
-        x_raw = self.time_sec_to_canvas_x(t_sec)
-        Brint(f"[PH DRAW] ⏱ x = {x_raw}px pour t = {t_sec:.3f}s")
-
-        x = max(0, min(x_raw, width))
+        x = self.time_sec_to_canvas_x(t_sec)
+        Brint(f"[PH DRAW] ⏱ x = {x}px pour t = {t_sec:.3f}s")
 
 
         if self._last_playhead_x is not None and x < self._last_playhead_x:
@@ -7261,10 +7227,7 @@ class VideoPlayer:
             self.draw_count = 0
             self.last_stat_time = now
 
-        if 0 <= x_raw <= width:
-            self.playhead_canvas_x = x_raw
-        else:
-            self.playhead_canvas_x = -9999
+        self.playhead_canvas_x = self.time_sec_to_canvas_x(current_time_ms / 1000.0) if zoom_range > 0 else -9999
 
         # -- New behavior: auto-adjust zoom as playhead moves --
         old_zoom = self.get_zoom_context()
@@ -7327,28 +7290,15 @@ class VideoPlayer:
             self.timeline.create_text(x_label, 6, text=loop["name"], anchor='w', fill="cyan", tags=tags)
             self.timeline.tag_bind(tag, "<Button-1>", lambda e, i=idx: self.load_saved_loop(i))
 
-        if self.loop_start:
+        if self.loop_start and zoom_start <= self.loop_start <= zoom_end:
             xa = self.time_sec_to_canvas_x(self.loop_start / 1000)
-            xa = max(0, min(xa, width))
             self.timeline.create_line(xa, 0, xa, 24, fill="green", tags="loop_marker")
-            label = "A"
-            if zoom_start <= self.loop_start <= zoom_end:
-                label += f": {self.hms(self.loop_start)}"
-            self.timeline.create_text(xa + 10, 18, text=label, anchor='w', fill="white", tags="loop_marker")
+            self.timeline.create_text(xa + 10, 18, text=f"A: {self.hms(self.loop_start)}", anchor='w', fill="white", tags="loop_marker")
 
-        if self.loop_end:
+        if self.loop_end and zoom_start <= self.loop_end <= zoom_end:
             xb = self.time_sec_to_canvas_x(self.loop_end / 1000)
-            xb = max(0, min(xb, width))
             self.timeline.create_line(xb, 0, xb, 24, fill="orange", tags="loop_marker")
-            label = "B"
-            if zoom_start <= self.loop_end <= zoom_end:
-                label += f": {self.hms(self.loop_end)}"
-            x_label = xb - 10
-            anchor = 'e'
-            if x_label < 0:
-                x_label = xb + 10
-                anchor = 'w'
-            self.timeline.create_text(x_label, 18, text=label, anchor=anchor, fill="white", tags="loop_marker")
+            self.timeline.create_text(xb + 10, 18, text=f"B: {self.hms(self.loop_end)}", anchor='w', fill="white", tags="loop_marker")
 
         self.draw_audio_power_overlay()
 
@@ -7826,7 +7776,7 @@ class VideoPlayer:
         def pause_later():
             self.player.pause()
             self.label_subdivision.config(text=f"Subdivision: {label}")
-            Brint(f"[TBD] 🎧 Lecture {index+1}/{len(self.grid_times)} @ {start:.3f}s [{label}]")
+            Brint(f"🎧 Lecture {index+1}/{len(self.grid_times)} @ {start:.3f}s [{label}]")
             self.step_mode_index += 1
             if self.autostep_enabled:
                 self.root.after(duration_ms, self.step_play)
@@ -7852,7 +7802,7 @@ class VideoPlayer:
         def pause_later():
             self.player.pause()
             self.label_subdivision.config(text=f"Subdivision: {label}")
-            Brint(f"[TBD] 🔙 Lecture {index+1}/{len(self.grid_times)} @ {start:.3f}s [{label}]")
+            Brint(f"🔙 Lecture {index+1}/{len(self.grid_times)} @ {start:.3f}s [{label}]")
 
         self.root.after(duration_ms, pause_later)
     
@@ -8001,8 +7951,7 @@ class VideoPlayer:
 
         # Ensure zoom shows the entire file when clearing the loop
         if hasattr(self, "zoom_slider"):
-            idx = self.zoom_levels.index(min(self.zoom_levels, key=lambda z: abs(z - 1.0)))
-            self.zoom_slider.set(idx)
+            self.zoom_slider.set(1.0)
         self.loop_zoom_ratio = 1.0
 
         if hasattr(self, "player"):
@@ -8017,8 +7966,7 @@ class VideoPlayer:
         if hasattr(self, "btn_edit_B"):
             self.btn_edit_B.config(relief="raised")
 
-        # Reset loop metadata if a current_loop is defined
-        if getattr(self, "current_loop", None) is not None:
+        if hasattr(self, "current_loop"):
             self.current_loop.loop_start = 0
             self.current_loop.loop_end = 0
 
@@ -8195,11 +8143,7 @@ class VideoPlayer:
                     self.last_loop_jump_time = time.perf_counter()
                     Brint(f"[INIT LOOP] loop_duration_s = {self.loop_duration_s:.3f}s")
 
-                if self.freeze_interpolation:
-                    self.safe_update_playhead(player_now, source="VLC loop raw")
-                    if abs(player_now - self.loop_start) <= 30 and is_playing:
-                        self.freeze_interpolation = False
-                elif self.interp_var.get():
+                if self.interp_var.get():
                     elapsed_since_last_jump = time.perf_counter() - self.last_loop_jump_time
                     loop_duration_corrected = self.loop_duration_s / player_rate
                     wrapped_elapsed = elapsed_since_last_jump % loop_duration_corrected
@@ -8209,7 +8153,6 @@ class VideoPlayer:
 
                     if elapsed_since_last_jump >= loop_duration_corrected:
                         self.safe_jump_to_time(self.loop_start, source="Jump B estim (all rates)")
-                        self.freeze_interpolation = True
                         self.last_loop_jump_time = time.perf_counter()
                         self.loop_pass_count += 1
                         Brint(f"[LOOP PASS] Boucle AB passée {self.loop_pass_count} fois")
@@ -8227,7 +8170,6 @@ class VideoPlayer:
                     self.safe_update_playhead(player_now, source="VLC loop raw")
                     if player_now >= self.loop_end:
                         self.safe_jump_to_time(self.loop_start, source="Jump B raw")
-                        self.freeze_interpolation = True
                         self.last_loop_jump_time = time.perf_counter()
                         self.loop_pass_count += 1
                         Brint(f"[LOOP PASS] Boucle AB passée {self.loop_pass_count} fois (raw)")
