@@ -7290,15 +7290,21 @@ class VideoPlayer:
             self.timeline.create_text(x_label, 6, text=loop["name"], anchor='w', fill="cyan", tags=tags)
             self.timeline.tag_bind(tag, "<Button-1>", lambda e, i=idx: self.load_saved_loop(i))
 
-        if self.loop_start and zoom_start <= self.loop_start <= zoom_end:
-            xa = self.time_sec_to_canvas_x(self.loop_start / 1000)
+        if self.loop_start is not None:
+            xa_raw = self.time_sec_to_canvas_x(self.loop_start / 1000)
+            xa = min(max(0, xa_raw), width)
+            anchor_a = 'w' if xa < width - 40 else 'e'
+            offset_a = 10 if anchor_a == 'w' else -10
             self.timeline.create_line(xa, 0, xa, 24, fill="green", tags="loop_marker")
-            self.timeline.create_text(xa + 10, 18, text=f"A: {self.hms(self.loop_start)}", anchor='w', fill="white", tags="loop_marker")
+            self.timeline.create_text(xa + offset_a, 18, text=f"A: {self.hms(self.loop_start)}", anchor=anchor_a, fill="white", tags="loop_marker")
 
-        if self.loop_end and zoom_start <= self.loop_end <= zoom_end:
-            xb = self.time_sec_to_canvas_x(self.loop_end / 1000)
+        if self.loop_end is not None:
+            xb_raw = self.time_sec_to_canvas_x(self.loop_end / 1000)
+            xb = min(max(0, xb_raw), width)
+            anchor_b = 'w' if xb < width - 40 else 'e'
+            offset_b = 10 if anchor_b == 'w' else -10
             self.timeline.create_line(xb, 0, xb, 24, fill="orange", tags="loop_marker")
-            self.timeline.create_text(xb + 10, 18, text=f"B: {self.hms(self.loop_end)}", anchor='w', fill="white", tags="loop_marker")
+            self.timeline.create_text(xb + offset_b, 18, text=f"B: {self.hms(self.loop_end)}", anchor=anchor_b, fill="white", tags="loop_marker")
 
         self.draw_audio_power_overlay()
 
