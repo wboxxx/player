@@ -461,6 +461,12 @@ class TestComputeScrollSpeed(unittest.TestCase):
         speed = compute_scroll_speed(10.0, 5.0, 1000)
         self.assertAlmostEqual(speed, 110.0)
 
+    def test_no_scroll_when_zoom_large(self):
+        from time_utils import compute_scroll_speed
+        # Zoom window larger than the loop should not yield negative speed
+        speed = compute_scroll_speed(10.0, 12.0, 1000)
+        self.assertEqual(speed, 0.0)
+
 
 if __name__ == '__main__':
     unittest.main(argv=['first-arg-is-ignored'], exit=False)

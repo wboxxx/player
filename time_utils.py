@@ -27,9 +27,22 @@ def format_time(seconds, include_ms=True, include_tenths=False):
 
 
 def compute_scroll_speed(T_loop, T_zoom, canvas_width):
-    """Return scroll speed (px/s) for static elements during dynamic zoom."""
+    """Return scroll speed (px/s) for static elements during dynamic zoom.
+
+    The speed should be positive when the zoom window is smaller than the loop
+    duration (dynamic scroll mode) and zero otherwise.  In particular when the
+    zoom range is wide enough that both A and B markers are visible, the scroll
+    speed must be ``0`` so elements remain static.
+    """
     if T_loop <= 0 or T_zoom <= 0 or canvas_width <= 0:
         return 0.0
+
     v_frac = (T_loop - 0.9 * T_zoom) / (T_loop * T_zoom)
+
+    # Clamp negative speed to 0 to avoid scrolling in the wrong direction when
+    # the zoom window is wider than the loop duration.
+    if v_frac < 0:
+        return 0.0
+
     return v_frac * canvas_width
 
