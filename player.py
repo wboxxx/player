@@ -28,6 +28,7 @@ def _print_with_time(*args, **kwargs):
     _last_brint_time = now
 
 import tempfile
+import atexit
 import ctypes
 import threading
 import shutil
@@ -1809,7 +1810,8 @@ class LoopData:
 
     def __init__(self, name, loop_start, loop_end, key=None, mode=None,
                  chords=None, master_note_list=None, tempo_bpm=None,
-                 loop_zoom_ratio=None, confirmed_hit_context=None):
+                 loop_zoom_ratio=None, confirmed_hit_context=None,
+                 hit_timings=None):
         
         
         
@@ -1826,6 +1828,7 @@ class LoopData:
             "timestamps": [],
             "grid_mode": None
         }
+        self.hit_timings = hit_timings or []
 
     @classmethod
     def from_dict(cls, data):
@@ -1848,7 +1851,8 @@ class LoopData:
             master_note_list=data.get("master_note_list", []),
             tempo_bpm=data.get("tempo_bpm") or 60.0,  # ✅ fallback à 60 bpm si None
             loop_zoom_ratio=data.get("loop_zoom_ratio"),
-            confirmed_hit_context=data.get("confirmed_hit_context")
+            confirmed_hit_context=data.get("confirmed_hit_context"),
+            hit_timings=data.get("hit_timings", [])
         )
 
     def to_dict(self):
@@ -1864,7 +1868,8 @@ class LoopData:
             "master_note_list": self.master_note_list,
             "tempo_bpm": self.tempo_bpm,  # ✅ Ajouté ici
             "loop_zoom_ratio": self.loop_zoom_ratio,
-            "confirmed_hit_context": self.confirmed_hit_context
+            "confirmed_hit_context": self.confirmed_hit_context,
+            "hit_timings": self.hit_timings
         }
         
         
@@ -2886,6 +2891,7 @@ class VideoPlayer:
             "timestamps": sorted(self.persistent_validated_hit_timestamps),
             "grid_mode": self.subdivision_mode,
         }
+        self.current_loop.hit_timings = self.get_current_hit_timings()
 
         for i, loop in enumerate(self.saved_loops):
             if loop["name"] == target_name:
@@ -3115,10 +3121,11 @@ class VideoPlayer:
                                         Brint(
                                             f"[PERSIST_HIT_ADD] Added {t_hit:.3f}s to persistent_validated_hit_timestamps for validated subdiv {promoted_subdiv_idx}"
                                         )
+                                else:
+                                    Brint("[PERSIST_HIT_ADD] current_grid_times_map is empty, cannot associate timestamp.")
                         else:
-                            Brint("[PERSIST_HIT_ADD] current_grid_times_map is empty, cannot associate timestamp.")
-                    else:
-                        Brint("[PERSIST_HIT_ADD] Missing precomputed_grid_infos or user_hit_timestamps, cannot associate timestamp.")
+                            Brint("[PERSIST_HIT_ADD] Missing precomputed_grid_infos or user_hit_timestamps, cannot associate timestamp.")
+                    self.on_subdiv_validated(promoted_subdiv_idx)
 
                 # Sinon devient pré-validée orange
                 elif state == 0 and hit_count >= 2:
@@ -3302,6 +3309,7 @@ class VideoPlayer:
             self.subdivision_state[subdiv_index] = 2
             self.persistent_validated_hit_timestamps.add(t_sec)
             Brint(f"[TOGGLE] Subdiv {subdiv_index} set RED (added {t_sec:.3f}s)")
+            self.on_subdiv_validated(subdiv_index)
 
         # Refresh grid display if canvas exists
         if hasattr(self, "draw_rhythm_grid_canvas"):
@@ -3599,7 +3607,8 @@ class VideoPlayer:
             "confirmed_hit_context": {
                 "timestamps": sorted(self.persistent_validated_hit_timestamps),
                 "grid_mode": self.subdivision_mode,
-            }
+            },
+            "hit_timings": self.get_current_hit_timings(),
         }
 
         is_valid, reason = self.validate_loop_data(loop_data)
@@ -3611,6 +3620,22 @@ class VideoPlayer:
               f"{len(loop_data['chords'])} accords (beat_position), "
               f"tempo = {loop_data['tempo_bpm']}, key = {loop_data['key']}, mode = {loop_data['mode']}")
         return loop_data
+
+    def get_current_hit_timings(self):
+        """Return list of hit timings within the loop in seconds."""
+        if not getattr(self, "user_hit_timestamps", None):
+            return []
+        if self.loop_end is None or self.loop_start is None:
+            return []
+        loop_duration_s = (self.loop_end - self.loop_start) / 1000.0
+        if loop_duration_s <= 0:
+            return []
+        timings = []
+        for t_abs, lp in self.user_hit_timestamps:
+            t_norm = t_abs - lp * loop_duration_s
+            if 0 <= t_norm <= loop_duration_s:
+                timings.append(t_norm)
+        return sorted(timings)
 
 
     
@@ -5812,6 +5837,36 @@ class VideoPlayer:
         except Exception as e:
             Brint(f"[UNDO] ❌ Erreur restauration backup: {e}")
 
+    def save_temp_loop(self):
+        """Save current loop to a temporary JSON file."""
+        if not hasattr(self, "temp_loop_save_path") or not self.temp_loop_save_path:
+            return
+        if not hasattr(self, "current_loop") or not isinstance(self.current_loop, LoopData):
+            return
+        try:
+            with open(self.temp_loop_save_path, "w", encoding="utf-8") as f:
+                json.dump({"loops": [self.current_loop.to_dict()]}, f, indent=2)
+            Brint(f"[TEMP SAVE] Loop written to {self.temp_loop_save_path}")
+        except Exception as e:
+            Brint(f"[TEMP SAVE ERROR] {e}")
+
+    def cleanup_temp_loop(self):
+        if getattr(self, "temp_loop_save_path", None) and os.path.exists(self.temp_loop_save_path):
+            try:
+                os.remove(self.temp_loop_save_path)
+                Brint(f"[TEMP SAVE] Removed {self.temp_loop_save_path}")
+            except Exception as e:
+                Brint(f"[TEMP SAVE ERROR] Unable to remove temp file: {e}")
+
+    def on_subdiv_validated(self, subdiv_index):
+        """Called when a subdivision reaches red (state=2)."""
+        Brint(f"[AUTO SAVE] Subdiv {subdiv_index} validated → temp save")
+        self.save_temp_loop()
+
+    def on_app_close(self):
+        self.cleanup_temp_loop()
+        self.root.destroy()
+
 
 
 
@@ -6074,6 +6129,10 @@ class VideoPlayer:
         self.persistent_validated_hit_timestamps = set(timestamps)
         if grid_mode:
             self.subdivision_mode = grid_mode
+
+        hit_timings = loop.get("hit_timings", [])
+        self.user_hit_timestamps = [(t, 0) for t in hit_timings]
+        self.current_loop.hit_timings = hit_timings
 
         if self.loop_start is None or self.loop_end is None:
             Brint("[ERROR] loop_start ou loop_end manquant après chargement")
@@ -6670,6 +6729,9 @@ class VideoPlayer:
         self._last_playhead_x = None
         self.after_id = None
         self.is_paused = False
+
+        self.temp_loop_save_path = os.path.join(tempfile.gettempdir(), "temp_loop_autosave.json")
+        atexit.register(self.cleanup_temp_loop)
 
 
         
@@ -9111,6 +9173,7 @@ class VideoPlayer:
             # Troisième frappe consécutive → validation rouge
             self.subdivision_state[closest_i] = 2
             Brint(f"[HIT COLOR] 🔴 Subdiv {closest_i} passe en state=2 (rouge) après 3e frappe")
+            self.on_subdiv_validated(closest_i)
         elif current_state == 0 and prev_hit_loop == self.loop_pass_count - 1:
             # Deuxième frappe consécutive → prévalidation orange
             self.subdivision_state[closest_i] = 1
@@ -9581,6 +9644,7 @@ if __name__ == "__main__":
 
     root = tk.Tk()
     app = VideoPlayer(root, autoload_index=index, autoload_path=path)
+    root.protocol("WM_DELETE_WINDOW", app.on_app_close)
 
     def run_for_5s():
         start = time.time()
