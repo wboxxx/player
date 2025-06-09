@@ -7954,17 +7954,14 @@ class VideoPlayer:
             Brint(f"[RLM]↔️ Inversion effectuée : A={temp_start}, B={temp_end}")
             self.console.config(text="↔️ Marqueurs A/B interchangés")
 
-            # 🔁 Bascule de mode actif (pour la souris et les flèches)
-            if mode == "loop_start":
-                self.mode = "loop_end"
-            elif mode == "loop_end":
-                self.mode = "loop_start"
+            # 🔁 Switch the active marker being edited
+            new_mode = "loop_end" if mode == "loop_start" else "loop_start"
             if hasattr(self, "edit_mode"):
-                self.edit_mode.set(self.mode)
-            self.btn_edit_A.config(relief=tk.SUNKEN if self.edit_mode.get() == "loop_start" else tk.RAISED)
-            self.btn_edit_B.config(relief=tk.SUNKEN if self.edit_mode.get() == "loop_end" else tk.RAISED)
+                self.edit_mode.set(new_mode)
+            self.btn_edit_A.config(relief=tk.SUNKEN if new_mode == "loop_start" else tk.RAISED)
+            self.btn_edit_B.config(relief=tk.SUNKEN if new_mode == "loop_end" else tk.RAISED)
 
-            Brint(f"[RLM] Mode basculé en {self.mode} après inversion")
+            Brint(f"[RLM] Edit mode basculé en {new_mode} après inversion")
 
         # ✅ Affectati   
         if mode == "loop_start" or inversion:
