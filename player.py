@@ -3015,10 +3015,18 @@ class VideoPlayer:
         precomputed = {}
         playhead_x = getattr(self, 'playhead_canvas_x', -9999)
 
+        if not hasattr(self, "subdiv_last_hit_time"):
+            self.subdiv_last_hit_time = {}
+
+        # Compute average subdivision interval for decay logic
+        grid_times = [t for _, t in self.grid_subdivs]
+        intervals = [t2 - t1 for t1, t2 in zip(grid_times[:-1], grid_times[1:])]
+        self.avg_subdiv_interval_sec = sum(intervals) / len(intervals) if intervals else 0.5
+
         for idx, (i, t_subdiv_sec) in enumerate(self.grid_subdivs):
             x = self.time_sec_to_canvas_x(t_subdiv_sec, **x_params)
 
-            state = self.subdivision_state.get(i, 0)
+            state = self.subdivision_state.get(i, -1)
             is_playhead = abs(x - playhead_x) < 1
 
             if i < len(self.grid_labels):
@@ -3042,16 +3050,23 @@ class VideoPlayer:
         return precomputed
  
     def evaluate_subdivision_states(self):
+        subdiv_interval = getattr(self, "avg_subdiv_interval_sec", 0.5)
+        now_abs = None
+        if getattr(self, "loop_duration_s", None) is not None:
+            now_abs = self.loop_pass_count * self.loop_duration_s
+
         for i in self.grid_subdivs:
-            # On vérifie si la subdivision a été frappée lors de la dernière boucle
-            last_hit_loop = self.subdiv_last_hit_loop.get(i[0], -1)
-            state = self.subdivision_state.get(i[0], 0)
+            idx = i[0]
+            last_hit_loop = self.subdiv_last_hit_loop.get(idx, -1)
+            state = self.subdivision_state.get(idx, -1)
+            hit_count = self.subdivision_counters.get(idx, 0)
+            last_hit_time = self.subdiv_last_hit_time.get(idx)
 
             if last_hit_loop == self.loop_pass_count - 1:
                 # Si déjà pré-validée -> passe en validé rouge
-                if state == 1:
-                    self.subdivision_state[i[0]] = 2
-                    promoted_subdiv_idx = i[0]
+                if state == 1 and hit_count >= 3:
+                    self.subdivision_state[idx] = 2
+                    promoted_subdiv_idx = idx
                     Brint(f"[VALIDATED] Subdiv {promoted_subdiv_idx} passe en ROUGE (confirmée)")
                     # Add logic to store the original hit timestamp
                     if hasattr(self, "precomputed_grid_infos") and self.precomputed_grid_infos and \
@@ -3102,17 +3117,27 @@ class VideoPlayer:
                         Brint("[PERSIST_HIT_ADD] Missing precomputed_grid_infos or user_hit_timestamps, cannot associate timestamp.")
 
                 # Sinon devient pré-validée orange
-                elif state == 0:
-                    self.subdivision_state[i[0]] = 1
-                    Brint(f"[PRE-VALIDATE] Subdiv {i[0]} passe en ORANGE")
+                elif state == 0 and hit_count >= 2:
+                    self.subdivision_state[idx] = 1
+                    Brint(f"[PRE-VALIDATE] Subdiv {idx} passe en ORANGE")
             else:
-                # Si pas frappée cette fois et était pré-validée -> retour à 0
-                if state == 1:
-                    self.subdivision_state[i[0]] = 0
-                    Brint(f"[RESET] Subdiv {i[0]} retourne à NEUTRE (non confirmée)")
-                # If a subdivision is reset from state 2 or 1, attempt to remove its associated timestamps
-                # This part is tricky because we don't directly store which t_hit caused state 2 for a subdiv.
-                # For now, we'll rely on clearing persistent_validated_hit_timestamps globally when appropriate (e.g., on full reset).
+                decay_threshold = None
+                if now_abs is not None and last_hit_time is not None:
+                    decay_threshold = now_abs - last_hit_time
+
+                if (
+                    decay_threshold is not None
+                    and decay_threshold > self.loop_duration_s + subdiv_interval
+                ):
+                    if state == 1:
+                        self.subdivision_state[idx] = 0
+                        Brint(f"[DECAY] Subdiv {idx} ORANGE → GRIS")
+                    elif state == 0:
+                        self.subdivision_state[idx] = -1
+                        Brint(f"[DECAY] Subdiv {idx} GRIS → AUCUN")
+                    self.subdivision_counters[idx] = 0
+                    if idx in self.subdiv_last_hit_loop:
+                        del self.subdiv_last_hit_loop[idx]
 
         # ⚡ Optionnel : clean les entrées obsolètes
         # self.subdiv_last_hit_loop = {k: v for k, v in self.subdiv_last_hit_loop.items() if v >= self.loop_pass_count - 1}
@@ -3133,12 +3158,13 @@ class VideoPlayer:
         self.subdivision_counters.clear()
         self.subdivision_state.clear()
         self.subdiv_last_hit_loop = {}
+        self.subdiv_last_hit_time = {}
         self.persistent_validated_hit_timestamps.clear() # Clear persistent validated timestamps
         
         for i, t_subdiv_ms in self.grid_subdivs: # Ensure this uses the correct structure of grid_subdivs
             idx_to_clear = i if isinstance(i, int) else i[0] # Adapt if grid_subdivs is list of tuples
             self.subdivision_counters[idx_to_clear] = 0
-            self.subdivision_state[idx_to_clear] = 0
+            self.subdivision_state[idx_to_clear] = -1
             self.subdiv_last_hit_loop[idx_to_clear] = -1
 
         # Supprimer les frappes dynamiques
@@ -3235,11 +3261,11 @@ class VideoPlayer:
         if not hasattr(self, "persistent_validated_hit_timestamps"):
             self.persistent_validated_hit_timestamps = set()
 
-        current_state = self.subdivision_state.get(subdiv_index, 0)
+        current_state = self.subdivision_state.get(subdiv_index, -1)
         t_sec = t_ms / 1000.0
 
         if current_state == 2:
-            self.subdivision_state[subdiv_index] = 0
+            self.subdivision_state[subdiv_index] = -1
             self.persistent_validated_hit_timestamps.discard(t_sec)
             Brint(f"[TOGGLE] Subdiv {subdiv_index} reset (removed {t_sec:.3f}s)")
         else:
@@ -9038,11 +9064,31 @@ class VideoPlayer:
         # 🔍 Log final de validation complète du hit
         x = self.precomputed_grid_infos[closest_i]["x"]
         Brint(f"[HIT VALIDATED] ✅ Subdiv {closest_i} ← hit à {current_time_sec:.3f}s | x={x:.1f}px | loop_pass={self.loop_pass_count}")
-        # 🔴 Mise à jour immédiate du state = 2 pour affichage en rouge
+        # 🔄 Mise à jour immédiate de l'état de la subdivision
         if not hasattr(self, "subdivision_state"):
             self.subdivision_state = {}
-        self.subdivision_state[closest_i] = 2
-        Brint(f"[HIT COLOR] 🔴 Subdiv {closest_i} marqué state=2 (rouge) immédiatement après frappe")
+
+        prev_hit_loop = self.subdiv_last_hit_loop.get(closest_i, -2)
+        current_state = self.subdivision_state.get(closest_i, -1)
+
+        self.subdiv_last_hit_time[closest_i] = absolute_hit_time
+
+        if current_state == 2:
+            Brint(f"[HIT COLOR] Subdiv {closest_i} déjà rouge (state=2) → inchangé")
+        elif current_state == 1 and prev_hit_loop == self.loop_pass_count - 1:
+            # Troisième frappe consécutive → validation rouge
+            self.subdivision_state[closest_i] = 2
+            Brint(f"[HIT COLOR] 🔴 Subdiv {closest_i} passe en state=2 (rouge) après 3e frappe")
+        elif current_state == 0 and prev_hit_loop == self.loop_pass_count - 1:
+            # Deuxième frappe consécutive → prévalidation orange
+            self.subdivision_state[closest_i] = 1
+            Brint(f"[HIT COLOR] 🟠 Subdiv {closest_i} passe en state=1 (orange) après 2e frappe")
+        elif current_state == -1:
+            # Première frappe
+            self.subdivision_state[closest_i] = 0
+            Brint(f"[HIT COLOR] ⚪ Subdiv {closest_i} passe en state=0 (gris) après 1ère frappe")
+        else:
+            Brint(f"[HIT COLOR] ⚪ Subdiv {closest_i} reste en state={current_state}")
 
         self.draw_rhythm_grid_canvas()
 
