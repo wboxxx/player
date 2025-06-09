@@ -2457,10 +2457,18 @@ class VideoPlayer:
             if loop_range > 0:
                 progress_raw = (playhead_ms - self.loop_start) / loop_range
 
+        editing_loop = False
+        if hasattr(self, "edit_mode") and hasattr(self.edit_mode, "get"):
+            try:
+                editing_loop = self.edit_mode.get() in ("loop_start", "loop_end")
+            except Exception:
+                editing_loop = False
+
         dynamic_condition = (
             base_zoom is not None
             and progress_raw is not None
             and base_zoom.get("zoom_range", 0) < (self.loop_end - self.loop_start) / 0.9
+            and not editing_loop
         )
 
         if dynamic_condition:
