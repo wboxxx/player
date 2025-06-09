@@ -120,14 +120,15 @@ DEBUG_FLAGS = {
     "EXPORT": False,
     "GRID": False,
     "HARMONY": False,
-    "HIT": True,
+    "HIT": False,
+    "NHIT": False,
     "JUMP": True,
     "KEYBOARD": False,
-    "LOOP": True,
+    "LOOP": False,
     "MAPPING": False,
     "open_chord_editor_all": False,
     "PHANTOM" : False,
-    "PH" : True,
+    "PH" : False,
     "PLAYER": False,
     "PRECOMPUTE" : False,
     "RHYTHM": False,
@@ -137,12 +138,12 @@ DEBUG_FLAGS = {
     "SEGMENTS": False,
     "SPAM": False,
     "SYNC": False,
+    "TBD": False,
     "TEMPO": False,
     "TRACKER": False,
     "WARNING": False,
-    "ZOOM": False
-    ,
-    "BRINT" : None
+    "ZOOM": False,
+    "BRINT" : False
 }
 
 # Minimum allowed zoom window when auto-adjusting after loop marker edits
