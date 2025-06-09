@@ -3197,6 +3197,7 @@ class VideoPlayer:
             return
         interval = 60.0 / bpm / self.get_subdivisions_per_beat()
         # Keep track of which subdivisions were confirmed (state = 2) prior to the shift
+
         prev_confirmed = {
             idx for idx, state in getattr(self, "subdivision_state", {}).items() if state == 2
         }
@@ -3208,6 +3209,7 @@ class VideoPlayer:
                 grid_times = [
                     info["t_subdiv_sec"] for _, info in sorted(self.precomputed_grid_infos.items())
                 ]
+
             for t in self.persistent_validated_hit_timestamps:
                 idx_old = self.current_loop.timestamp_to_subdiv_index(t, grid_times)
                 if idx_old in prev_confirmed:
