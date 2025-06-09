@@ -3089,6 +3089,52 @@ class VideoPlayer:
             self.persistent_validated_hit_timestamps = {
                 t + direction * interval for t in self.persistent_validated_hit_timestamps
             }
+        # After shifting, remap persistent hits so that red subdivisions follow
+        if not hasattr(self, "subdivision_state"):
+            self.subdivision_state = {}
+        self.subdivision_state.clear()
+
+        if (
+            hasattr(self, "persistent_validated_hit_timestamps")
+            and self.persistent_validated_hit_timestamps
+            and hasattr(self, "precomputed_grid_infos")
+            and self.precomputed_grid_infos
+        ):
+            current_grid_times_map = {
+                idx: info["t_subdiv_sec"] for idx, info in self.precomputed_grid_infos.items()
+            }
+            if not current_grid_times_map:
+                Brint("[REMAP_VALIDATED_HITS_ERROR offset] current_grid_times_map is empty.")
+            else:
+                grid_times_list = sorted(current_grid_times_map.values())
+                intervals = [t2 - t1 for t1, t2 in zip(grid_times_list[:-1], grid_times_list[1:])]
+                avg_interval_sec = sum(intervals) / len(intervals) if intervals else 0.5
+                tolerance = avg_interval_sec / 2.0
+                Brint(
+                    f"[HIT WINDOW] \u2139\ufe0f Tolerance set to {tolerance:.3f}s (1/2 of {avg_interval_sec:.3f}s)"
+                )
+                for timestamp_sec in self.persistent_validated_hit_timestamps:
+                    new_closest_subdiv_idx = None
+                    min_delta = float("inf")
+                    for subdiv_idx, subdiv_t_sec in current_grid_times_map.items():
+                        delta = abs(subdiv_t_sec - timestamp_sec)
+                        if delta < min_delta:
+                            min_delta = delta
+                            new_closest_subdiv_idx = subdiv_idx
+
+                    if new_closest_subdiv_idx is not None and min_delta <= tolerance:
+                        self.subdivision_state[new_closest_subdiv_idx] = 2
+                        Brint(
+                            f"[REMAP_VALIDATED_HITS offset] Timestamp {timestamp_sec:.3f}s remapped to new subdiv {new_closest_subdiv_idx} (state 2) with delta {min_delta:.3f}s."
+                        )
+                    else:
+                        Brint(
+                            f"[REMAP_VALIDATED_HITS_WARN offset] Timestamp {timestamp_sec:.3f}s (min_delta {min_delta:.3f}s > tol {tolerance:.3f}s) could not be reliably remapped to any subdiv in the new grid."
+                        )
+        else:
+            Brint(
+                "[REMAP_VALIDATED_HITS offset] No persistent validated hit timestamps to remap or grid info unavailable."
+            )
         Brint(
             f"[OFFSET HITS] Décalage de {direction:+d} subdiv → Δ={direction*interval:.3f}s"
         )
