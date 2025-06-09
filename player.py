@@ -8018,18 +8018,14 @@ class VideoPlayer:
 
             Brint(f"[RLM] Edit mode basculé en {new_mode} après inversion")
 
-        # ✅ Affectati
-        old_start = self.loop_start
+        # ✅ Affectation finale des marqueurs
         if mode == "loop_start" or inversion:
             self.loop_start = temp_start
         if mode == "loop_end" or inversion:
             self.loop_end = temp_end
 
-        # Preserve hit alignment when A moves
-        if old_start is not None and self.loop_start is not None:
-            delta_sec = (self.loop_start - old_start) / 1000.0
-            if abs(delta_sec) > 1e-9:
-                self.shift_all_hit_timestamps(delta_sec)
+        # Hits are kept in absolute time; do not shift when markers move
+
 
         Brint(f"[RLM]✅ Affectation finale : A={self.loop_start} | B={self.loop_end}")
 
