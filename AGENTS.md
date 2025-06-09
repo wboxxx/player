@@ -56,3 +56,63 @@ def compute_scroll_speed(T_loop, T_zoom, canvas_width):
 #    offset = progress * (T_loop - 0.9 * T_zoom)
 # On ignore tout décalage négatif éventuel.
 
+
+
+🎯 Expected Behavior: Hit Association & Subdivision States (state = 2)
+1. Hit Timing & Association
+Chaque hit utilisateur est stocké avec un timestamp absolu (en millisecondes depuis le début du fichier).
+
+Lors de son enregistrement :
+
+Le hit est immédiatement associé à la subdivision la plus proche en temps.
+
+La subdivision correspondante met immédiatement à jour son state selon les règles définies ci-dessous.
+
+2. Subdivision States (Computed from Hit History)
+Les subdivisions ont un champ state reflétant l'historique des hits reçus :
+
+state = 0 : aucun hit associé,
+
+state = 1 : hit associé dans une boucle récente (gris),
+
+state = 2 : deux hits consécutifs (sur deux loops consécutives sans interruption, devient rouge et persistant).
+
+Les hits eux-mêmes n'ont pas de state : seul leur association influence celui de la subdivision.
+
+3. Loop Marker Behavior
+Déplacer les marqueurs A et B :
+
+N’affecte pas la position des subdivisions ni celle des hits (temps absolus),
+
+Ne déclenche pas de réassociation,
+
+N’affecte pas les states,
+
+Ne modifie pas l'affichage visuel, tant que le zoom et le viewport restent constants.
+
+4. Changing Tempo or Rhythm Mode
+Modifier le tempo ou le mode rythmique (e.g., binaire → ternaire) :
+
+Recalcule la position temporelle des subdivisions,
+
+Déclenche une réassociation des hits vers la subdivision la plus proche dans le nouveau mode,
+
+Nécessite un recalcul du state de chaque subdivision affectée.
+
+5. Manual Subdivision Offset ([ / ])
+Lorsqu'une subdivision rouge (state = 2) est décalée manuellement :
+
+Les timestamps des hits associés sont déplacés d’un intervalle de subdivision (calculé selon le tempo et le mode courant),
+
+Le state = 2 est conservé sur la nouvelle subdivision cible,
+
+L'affichage reste inchangé si le zoom et le défilement sont constants.
+
+6. Realtime Visual Feedback
+Au moment de l'enregistrement d’un hit, la subdivision la plus proche :
+
+Est immédiatement mise à jour visuellement,
+
+Son state est recalculé en temps réel pour refléter l’impact du hit.
+
+
