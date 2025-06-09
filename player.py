@@ -131,7 +131,7 @@ DEBUG_FLAGS = {
     "PH" : False,
     "PLAYER": False,
     "PRECOMPUTE" : False,
-    "RELOAD: True,
+    "RELOAD": True,
     "RESET": True,
     "RHYTHM": False,
     "RLM" : False,
