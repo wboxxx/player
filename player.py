@@ -2042,12 +2042,27 @@ class VideoPlayer:
         tolerance = avg_interval_sec / 2.0
         Brint(f"[HIT WINDOW] ℹ️ Tolerance set to {tolerance:.3f}s (1/2 of {avg_interval_sec:.3f}s)")
 
+        loop_duration_s = None
+        if (
+            hasattr(self, "loop_end")
+            and hasattr(self, "loop_start")
+            and self.loop_end is not None
+            and self.loop_start is not None
+        ):
+            loop_duration_s = (self.loop_end - self.loop_start) / 1000.0
+
         for t_hit, loop_pass in self.user_hit_timestamps:
+            t_norm = (
+                t_hit - loop_pass * loop_duration_s
+                if loop_duration_s is not None
+                else t_hit
+            )
+
             closest_pos, closest_t = min(
                 enumerate(sorted_times),
-                key=lambda item: abs(item[1] - t_hit)
+                key=lambda item: abs(item[1] - t_norm)
             )
-            delta = abs(closest_t - t_hit)
+            delta = abs(closest_t - t_norm)
             if delta <= tolerance:
                 closest_i = sorted_indices[closest_pos]
                 dynamic_hits[closest_i] += 1
@@ -3018,19 +3033,37 @@ class VideoPlayer:
                             tolerance = avg_interval_sec / 2.0
                             Brint(f"[HIT WINDOW] ℹ️ Tolerance set to {tolerance:.3f}s (1/2 of {avg_interval_sec:.3f}s)")
 
+                            loop_duration_s = None
+                            if (
+                                hasattr(self, "loop_end")
+                                and hasattr(self, "loop_start")
+                                and self.loop_end is not None
+                                and self.loop_start is not None
+                            ):
+                                loop_duration_s = (
+                                    self.loop_end - self.loop_start
+                                ) / 1000.0
+
                             for t_hit, pass_count in self.user_hit_timestamps:
-                                if pass_count == self.loop_pass_count - 1: # Hit from the pass that just confirmed validation
+                                if pass_count == self.loop_pass_count - 1:  # Hit from the pass that just confirmed validation
+                                    t_norm = (
+                                        t_hit - pass_count * loop_duration_s
+                                        if loop_duration_s is not None
+                                        else t_hit
+                                    )
                                     matched_idx_for_t_hit = None
                                     min_delta_for_t_hit = float('inf')
                                     for current_sub_idx, current_sub_t_sec in current_grid_times_map.items():
-                                        delta = abs(current_sub_t_sec - t_hit)
+                                        delta = abs(current_sub_t_sec - t_norm)
                                         if delta < min_delta_for_t_hit:
                                             min_delta_for_t_hit = delta
                                             matched_idx_for_t_hit = current_sub_idx
 
                                     if matched_idx_for_t_hit == promoted_subdiv_idx and min_delta_for_t_hit <= tolerance:
                                         self.persistent_validated_hit_timestamps.add(t_hit)
-                                        Brint(f"[PERSIST_HIT_ADD] Added {t_hit:.3f}s to persistent_validated_hit_timestamps for validated subdiv {promoted_subdiv_idx}")
+                                        Brint(
+                                            f"[PERSIST_HIT_ADD] Added {t_hit:.3f}s to persistent_validated_hit_timestamps for validated subdiv {promoted_subdiv_idx}"
+                                        )
                         else:
                             Brint("[PERSIST_HIT_ADD] current_grid_times_map is empty, cannot associate timestamp.")
                     else:
@@ -8851,7 +8884,13 @@ class VideoPlayer:
         # 🆕 Enregistrement du timestamp pour re-snapping visuel
         if not hasattr(self, "user_hit_timestamps"):
             self.user_hit_timestamps = []
-        self.user_hit_timestamps.append((current_time_sec, self.loop_pass_count))
+        loop_duration_s = (
+            self.loop_end - self.loop_start
+        ) / 1000.0 if self.loop_end is not None and self.loop_start is not None else 0.0
+
+        absolute_hit_time = current_time_sec + self.loop_pass_count * loop_duration_s
+
+        self.user_hit_timestamps.append((absolute_hit_time, self.loop_pass_count))
 
         Brint(f"[HIT] Subdiv {closest_i} MAJ : Hits après={self.subdivision_counters[closest_i]} | LastHitLoop={self.subdiv_last_hit_pass[closest_i]}")
         # 🔍 Log final de validation complète du hit
