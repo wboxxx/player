@@ -9123,6 +9123,7 @@ class VideoPlayer:
             int(zoom_end),
             display_mode,
             getattr(self, "harmony_note_display_mode", "key"),
+            round(bpm, 4),  # include tempo to invalidate cache when feathering
             hash(str(chords)),
             hash(str(getattr(self.current_loop, "mapped_notes", {}))),
         )
