@@ -7340,6 +7340,9 @@ class VideoPlayer:
             self.console.config(text=f"✏️ Mode édition : {label}")
             Brint(f"[TBD] ✏️ Passage en mode édition {label}")
 
+        # Keep focus on the main window so arrow keys work
+        self.root.focus_set()
+
         if hasattr(self, "btn_edit_A") and hasattr(self, "btn_edit_B"):
             self.btn_edit_A.config(relief="sunken" if mode == "loop_start" else "raised")
             self.btn_edit_B.config(relief="sunken" if mode == "loop_end" else "raised")
@@ -8217,6 +8220,9 @@ class VideoPlayer:
             label = "A" if mode == "loop_start" else "B" if mode == "loop_end" else "Playhead"
             self.console.config(text=f"✏️ Mode édition : {label}")
             Brint(f"[EDIT MODE] Active le mode {label}")
+
+        # Ensure key bindings remain responsive when toggling edit mode
+        self.root.focus_set()
 
         # 🔄 Met à jour l’état visuel des boutons
         self.btn_edit_A.config(relief=tk.SUNKEN if self.edit_mode.get() == "loop_start" else tk.RAISED)
