@@ -144,6 +144,11 @@ DEBUG_FLAGS = {
     "BRINT" : None
 }
 
+# Minimum allowed zoom window when auto-adjusting after loop marker edits
+# Using a 4-second span prevents extremely small or inverted ranges from
+# breaking the view during marker inversion.
+MIN_ZOOM_RANGE_MS = 4000
+
 import re
 
 def Brint(*args, **kwargs):
@@ -2195,7 +2200,7 @@ class VideoPlayer:
                 Brint("[AUTOZOOM] ❌ Loop invalide (B < A)")
                 return
 
-            zoom_range = int(loop_len / 0.6)
+            zoom_range = int(max(loop_len / 0.6, MIN_ZOOM_RANGE_MS))
             # 💡 Limite de zoom max : on ne veut pas zoomer sur toute la vidéo
             max_zoom_range = min(video_duration, 300000)  # 5 minutes max
 
@@ -3639,11 +3644,11 @@ class VideoPlayer:
         )
 
         if self.loop_start is not None and self.loop_end is not None and self.duration:
-            loop_width_ms = max(4000.0, self.loop_end - self.loop_start)
+            loop_width_ms = max(float(MIN_ZOOM_RANGE_MS), self.loop_end - self.loop_start)
             center_ms = (self.loop_start + self.loop_end) / 2.0
             desired_ms = loop_width_ms / self.loop_zoom_ratio
             if self.loop_zoom_ratio > 1.0:
-                desired_ms = max(4000.0, desired_ms)
+                desired_ms = max(float(MIN_ZOOM_RANGE_MS), desired_ms)
                 desired_ms = min(desired_ms, loop_width_ms)
             zoom_start = max(0.0, center_ms - desired_ms / 2.0)
             zoom_end = min(self.duration, zoom_start + desired_ms)
@@ -3660,8 +3665,8 @@ class VideoPlayer:
         """Return the zoom ratio that shows approximately 4 seconds of the loop."""
         if self.loop_start is None or self.loop_end is None:
             return 1.0
-        loop_width_ms = max(4000.0, self.loop_end - self.loop_start)
-        return loop_width_ms / 4000.0
+        loop_width_ms = max(float(MIN_ZOOM_RANGE_MS), self.loop_end - self.loop_start)
+        return loop_width_ms / float(MIN_ZOOM_RANGE_MS)
 
     def on_zoom_ratio_change(self):
         val = self.zoom_ratio_var.get()
@@ -3676,11 +3681,11 @@ class VideoPlayer:
 
     def get_loop_zoom_range(self):
         if self.loop_start and self.loop_end:
-            loop_width_sec = max(4.0, (self.loop_end - self.loop_start) / 1000.0)
+            loop_width_sec = max(MIN_ZOOM_RANGE_MS / 1000.0, (self.loop_end - self.loop_start) / 1000.0)
             center_sec = (self.loop_start + self.loop_end) / 2000.0
             desired_sec = loop_width_sec / self.loop_zoom_ratio
             if self.loop_zoom_ratio > 1.0:
-                desired_sec = max(4.0, desired_sec)
+                desired_sec = max(MIN_ZOOM_RANGE_MS / 1000.0, desired_sec)
                 desired_sec = min(desired_sec, loop_width_sec)
             zoom_start = max(0, center_sec - desired_sec / 2.0)
             zoom_end = min(self.duration / 1000.0, center_sec + desired_sec / 2.0)
