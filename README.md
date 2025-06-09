@@ -74,6 +74,7 @@ main shortcuts and what they do:
 | `*` | Increase bars in mode bar |
 | `/` | Decrease bars in mode bar |
 | `.` | Reset syllabic grid hits |
+| `[` / `]` | Shift all hit timestamps by ±1 subdivision |
 | `Shift+F1` | Cycle subdivision mode backward |
 | `Shift+F2` | Cycle subdivision mode forward |
 | `F4` | Toggle state window |

@@ -3064,7 +3064,35 @@ class VideoPlayer:
         Brint(f"[RESET SYLLABIC] Reset complet effectué : {len(self.grid_subdivs)} subdivisions remises à zéro (counters, states, timestamps, and persistent validated timestamps).")
 
         # Redessiner grille sans marques
-        self.draw_syllabic_grid_heatmap()
+        if hasattr(self, "draw_syllabic_grid_heatmap"):
+            try:
+                self.draw_syllabic_grid_heatmap()
+            except AttributeError:
+                pass
+
+    def offset_all_hit_timestamps(self, direction):
+        """Shift all hit timestamps by one subdivision forward or backward."""
+        bpm = getattr(self, "tempo_bpm", 0)
+        if bpm <= 0:
+            Brint("[OFFSET HITS] tempo_bpm manquant – opération annulée")
+            return
+        interval = 60.0 / bpm / self.get_subdivisions_per_beat()
+        if hasattr(self, "user_hit_timestamps"):
+            self.user_hit_timestamps = [
+                (t + direction * interval, lp) for t, lp in self.user_hit_timestamps
+            ]
+        if hasattr(self, "persistent_validated_hit_timestamps"):
+            self.persistent_validated_hit_timestamps = {
+                t + direction * interval for t in self.persistent_validated_hit_timestamps
+            }
+        Brint(
+            f"[OFFSET HITS] Décalage de {direction:+d} subdiv → Δ={direction*interval:.3f}s"
+        )
+        if hasattr(self, "draw_syllabic_grid_heatmap"):
+            try:
+                self.draw_syllabic_grid_heatmap()
+            except AttributeError:
+                pass
     
     def time_ms_to_canvas_x(self, t_ms):
         zoom_ratio = self.loop_zoom_ratio or 1.0
@@ -6842,6 +6870,8 @@ class VideoPlayer:
         
         #heatmap
         self.root.bind("<period>", lambda e: self.reset_syllabic_grid_hits())
+        self.root.bind("[", lambda e: self.offset_all_hit_timestamps(-1))
+        self.root.bind("]", lambda e: self.offset_all_hit_timestamps(+1))
 
         
         #zoom bindings screen
