@@ -5168,14 +5168,14 @@ class VideoPlayer:
 
     def remap_persistent_validated_hits(self):
         """Map stored hit timestamps back to the current grid and set their states."""
+        if not getattr(self, "persistent_validated_hit_timestamps", None):
+            Brint("[REMAP_VALIDATED_HITS] No persistent validated hit timestamps to remap.")
+            return
+
         Brint("[REMAP_VALIDATED_HITS] Clearing old subdivision_state before remapping.")
         if not hasattr(self, "subdivision_state"):
             self.subdivision_state = {}
         self.subdivision_state.clear()
-
-        if not getattr(self, "persistent_validated_hit_timestamps", None):
-            Brint("[REMAP_VALIDATED_HITS] No persistent validated hit timestamps to remap.")
-            return
         if not getattr(self, "precomputed_grid_infos", None):
             Brint("[REMAP_VALIDATED_HITS_ERROR] precomputed_grid_infos not available for remapping.")
             return
