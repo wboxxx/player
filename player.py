@@ -9165,6 +9165,7 @@ class VideoPlayer:
         absolute_ms = int(current_time_ms + self.loop_pass_count * loop_dur_ms)
         self.record_user_hit(absolute_ms)
 
+        precomputed = self.precomputed_grid_infos or self.compute_rhythm_grid_infos()
         self.precomputed_grid_infos = precomputed
 
         # 1. Calcul de l'espacement moyen entre subdivisions
