@@ -3187,6 +3187,20 @@ class VideoPlayer:
                 self.draw_syllabic_grid_heatmap()
             except AttributeError:
                 pass
+
+    def shift_all_hit_timestamps(self, delta_sec):
+        """Shift all hit timestamps by an arbitrary time delta."""
+        if delta_sec == 0:
+            return
+        if hasattr(self, "user_hit_timestamps"):
+            self.user_hit_timestamps = [
+                (t + delta_sec, lp) for t, lp in self.user_hit_timestamps
+            ]
+        if hasattr(self, "persistent_validated_hit_timestamps"):
+            self.persistent_validated_hit_timestamps = {
+                t + delta_sec for t in self.persistent_validated_hit_timestamps
+            }
+        self.remap_persistent_validated_hits()
     
     def time_ms_to_canvas_x(self, t_ms):
         zoom_ratio = self.loop_zoom_ratio or 1.0
@@ -7979,11 +7993,18 @@ class VideoPlayer:
 
             Brint(f"[RLM] Edit mode basculé en {new_mode} après inversion")
 
-        # ✅ Affectati   
+        # ✅ Affectati
+        old_start = self.loop_start
         if mode == "loop_start" or inversion:
             self.loop_start = temp_start
         if mode == "loop_end" or inversion:
             self.loop_end = temp_end
+
+        # Preserve hit alignment when A moves
+        if old_start is not None and self.loop_start is not None:
+            delta_sec = (self.loop_start - old_start) / 1000.0
+            if abs(delta_sec) > 1e-9:
+                self.shift_all_hit_timestamps(delta_sec)
 
         Brint(f"[RLM]✅ Affectation finale : A={self.loop_start} | B={self.loop_end}")
 
