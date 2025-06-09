@@ -640,7 +640,7 @@ class TestRemapPersistentHitsHelper(unittest.TestCase):
 
 class TestRecordLoopMarkerShift(unittest.TestCase):
     @patch.object(VideoPlayer, "shift_all_hit_timestamps")
-    def test_shift_called_when_moving_A(self, mock_shift):
+    def test_shift_not_called_when_moving_A(self, mock_shift):
         vp = VideoPlayer.__new__(VideoPlayer)
         vp.loop_start = 1000
         vp.loop_end = 2000
@@ -669,7 +669,48 @@ class TestRecordLoopMarkerShift(unittest.TestCase):
         vp.auto_zoom_on_loop_markers = MagicMock()
 
         VideoPlayer.record_loop_marker(vp, "loop_start", milliseconds=1500, auto_exit=True)
-        mock_shift.assert_called_with((1500 - 1000)/1000.0)
+        mock_shift.assert_not_called()
+
+
+class TestLoadSavedLoopHits(unittest.TestCase):
+    def test_confirmed_hits_loaded(self):
+        vp = VideoPlayer.__new__(VideoPlayer)
+        vp.saved_loops = [{
+            "name": "t",
+            "loop_start": 0,
+            "loop_end": 1000,
+            "tempo_bpm": 60,
+            "loop_zoom_ratio": 1.0,
+            "confirmed_hit_context": {"timestamps": [0.5], "grid_mode": "binary8"}
+        }]
+
+        vp.reset_rhythm_overlay = MagicMock()
+        vp.subdivision_state = {}
+        vp.persistent_validated_hit_timestamps = set()
+        vp.user_hit_timestamps = []
+        vp.subdiv_last_hit_loop = {}
+        vp.loop_pass_count = 0
+        vp.auto_zoom_on_loop_markers = MagicMock()
+        vp.set_zoom_range_from_loop = MagicMock()
+        vp.rebuild_loop_context = MagicMock()
+        vp.remap_persistent_validated_hits = MagicMock()
+        vp.draw_rhythm_grid_canvas = MagicMock()
+        vp.set_playhead_time = MagicMock()
+        vp.refresh_static_timeline_elements = MagicMock()
+        vp.update_tempo_ui_from_loop = MagicMock()
+        vp.set_selected_loop_name = MagicMock()
+        vp.root = MagicMock()
+        vp.root.after = MagicMock()
+        vp.console = MagicMock()
+        vp.mode_bar_enabled = False
+        vp.player = MagicMock()
+        vp.player.get_length.return_value = 1000
+        vp.loop_zoom_ratio = 1.0
+
+        VideoPlayer.load_saved_loop(vp, 0)
+
+        self.assertEqual(vp.persistent_validated_hit_timestamps, {0.5})
+        self.assertEqual(vp.subdivision_mode, "binary8")
 
 
 class TestLoopBackupRestore(unittest.TestCase):
