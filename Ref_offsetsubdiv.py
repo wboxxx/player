@@ -8914,9 +8914,9 @@ class VideoPlayer:
         x = self.precomputed_grid_infos[closest_i]["x"]
         Brint(f"[HIT VALIDATED] ✅ Subdiv {closest_i} ← hit à {current_time_sec:.3f}s | x={x:.1f}px | loop_pass={self.loop_pass_count}")
         # 🔴 Mise à jour immédiate du state = 2 pour affichage en rouge
-        if not hasattr(self, "subdivision_states"):
-            self.subdivision_states = {}
-        self.subdivision_states[closest_i] = 2
+        if not hasattr(self, "subdivision_state"):
+            self.subdivision_state = {}
+        self.subdivision_state[closest_i] = 2
         Brint(f"[HIT COLOR] 🔴 Subdiv {closest_i} marqué state=2 (rouge) immédiatement après frappe")
 
         self.draw_rhythm_grid_canvas()
