@@ -9,28 +9,28 @@ builtins.subprocess = subprocess
 import re
 import json
 import time
+from collections import defaultdict
 
 _real_perf_counter = time.perf_counter
 _last_brint_time = None
 
+
+# Path to store recent file history next to this script
+RECENT_FILES_PATH = os.path.join(os.path.dirname(__file__), "recent_files.json")
+
 def _print_with_time(*args, **kwargs):
-    """Print a message and include the elapsed time since the previous call."""
+    """Print message and show time since last Brint call."""
     global _last_brint_time
     now = _real_perf_counter()
     if _last_brint_time is None:
         print(*args, **kwargs)
     else:
         delta = now - _last_brint_time
-        if delta >= 1:
-            label = f"[+{delta:.3f}s]"
-        elif delta >= 0.001:
-            label = f"[+{delta*1000:.1f}ms]"
-        else:
-            label = f"[+{delta*1000:.3f}ms]"
-        print(label, *args, **kwargs)
+        print(f"[+{delta:.3f}s]", *args, **kwargs)
     _last_brint_time = now
 
 import tempfile
+import atexit
 import ctypes
 import threading
 import shutil
@@ -87,17 +87,6 @@ import tempfile
 import os
 import scipy.signal
 
-# Utility functions split into separate modules
-import audio_utils as _audio_utils
-_audio_utils.os = os
-_audio_utils.subprocess = subprocess
-_audio_utils.tempfile = tempfile
-from audio_utils import _util_extract_audio_segment, _util_get_tempo_and_beats_librosa
-
-import video_utils as _video_utils
-_video_utils.subprocess = subprocess
-from video_utils import extract_keyframes
-
 # import gdrive_uploader
 import os
 import tempfile
@@ -122,7 +111,7 @@ from tkinter import simpledialog, Toplevel, Listbox, Button, Label, SINGLE, Fram
 
 DEBUG_FLAGS = {
     "AUDIO": False,
-    "AUTOLOAD": False,
+    "AUTOLOAD": True,
     "AUTOZOOM": False,
     "CHORD": False,
     "CLICK": False,
@@ -133,31 +122,38 @@ DEBUG_FLAGS = {
     "EXPORT": False,
     "GRID": False,
     "HARMONY": False,
-    "HIT": True,
-    "JUMP": True,
+    "HIT": False,
+    "NHIT": True,
+    "JUMP": False,
     "KEYBOARD": False,
-    "LOOP": True,
+    "LOOP": False,
     "MAPPING": False,
     "open_chord_editor_all": False,
     "PHANTOM" : False,
-    "PH" : True,
+    "PH" : False,
     "PLAYER": False,
     "PRECOMPUTE" : False,
+    "RELOAD": True,
+    "RESET": True,
     "RHYTHM": False,
-    "RLM" : True,
-    "SAVE": False,
+    "RLM" : False,
+    "SAVE": True,
     "SCORE": False,
     "SEGMENTS": False,
     "SPAM": False,
     "SYNC": False,
-    "TEMPO": False,    
     "TBD": False,
+    "TEMPO": False,
     "TRACKER": False,
     "WARNING": False,
-    "ZOOM": False
-    ,
-    "BRINT" : None
+    "ZOOM": False,
+    "BRINT" : False
 }
+
+# Minimum allowed zoom window when auto-adjusting after loop marker edits
+# Using a 4-second span prevents extremely small or inverted ranges from
+# breaking the view during marker inversion.
+MIN_ZOOM_RANGE_MS = 4000
 
 import re
 
@@ -295,8 +291,8 @@ RHYTHM_SYLLABLE_SETS = {
     ],
     "ternary24": [
         {"name": "Split Triplet", "labels": [
-            "1", "n", "T", "n", "P", "n", "2", "n", "T", "n", "P", "n",
-            "3", "n", "T", "n", "P", "n", "4", "n", "T", "n", "P", "n"]},
+            "1", "n", "T", "n", "L", "n", "2", "n", "T", "n", "L", "n",
+            "3", "n", "T", "n", "L", "n", "4", "n", "T", "n", "L", "n"]},
         {"name": "Shuffled 16ths", "labels": [
             "1", "", "y", "n", "", "a", "2", "", "y", "n", "", "a",
             "3", "y", "", "n", "", "a", "4", "", "y", "n", "", "a"]},
@@ -489,7 +485,7 @@ def recalculate_chord_for_new_key(chord_name, previous_key, new_key, mode):
     """
     Recalcule un accord en changeant de clé et en respectant le mode.
     """
-    Brint(f"[TBD]\n[RECALC] Début recalcul {chord_name} : de {previous_key} ➔ {new_key} | mode {mode}")
+    Brint(f"\n[RECALC] Début recalcul {chord_name} : de {previous_key} ➔ {new_key} | mode {mode}")
 
     if not chord_name or not previous_key or not new_key:
         Brint(f"[WARNING] ➡ Données incomplètes ➔ {chord_name} conservé")
@@ -876,6 +872,99 @@ def format_time(seconds, include_ms=True, include_tenths=False):
         return f"{h}:{m:02}:{s:02}.{ms:03}"
     return f"{h}:{m:02}:{s:02}"
 
+def _util_extract_audio_segment(
+    input_path,
+    output_path=None,
+    *,
+    start_sec=None,
+    duration_sec=None,
+    audio_codec="pcm_s16le",
+    sample_rate=44100,
+    channels=1,
+    overwrite=True,
+    use_temp_file=True,
+):
+    """Extract an audio segment via ffmpeg."""
+    if output_path is None:
+        if use_temp_file:
+            with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+                output_path = tmp.name
+        else:
+            raise ValueError("output_path required if use_temp_file=False")
+
+    cmd = ["ffmpeg"]
+    if overwrite:
+        cmd.append("-y")
+    if start_sec is not None:
+        cmd += ["-ss", str(start_sec)]
+    if duration_sec is not None:
+        cmd += ["-t", str(duration_sec)]
+    cmd += ["-i", input_path, "-vn", "-acodec", audio_codec, "-ar", str(sample_rate), "-ac", str(channels), output_path]
+
+    try:
+        subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    except Exception:
+        return None
+
+    if not os.path.exists(output_path) or os.path.getsize(output_path) == 0:
+        return None
+
+    return output_path
+
+def _util_get_tempo_and_beats_librosa(y, sr):
+    """Return tempo and beat frames from audio using librosa."""
+    if y is None or len(y) == 0:
+        return 0.0, np.array([])
+    try:
+        tempo, beats = librosa.beat.beat_track(y=y, sr=sr)
+        return float(tempo), beats
+    except Exception:
+        return 0.0, np.array([])
+
+def extract_keyframes(
+    video_path,
+    start_time_sec=None,
+    duration_sec=None,
+    end_time_sec=None,
+):
+    """Extract keyframe timestamps from a video using ffprobe."""
+    cmd = [
+        "ffprobe",
+        "-v",
+        "error",
+        "-select_streams",
+        "v:0",
+        "-show_entries",
+        "frame=pkt_pts_time,pict_type",
+        "-of",
+        "csv=p=0",
+        video_path,
+    ]
+    try:
+        output = subprocess.check_output(cmd, stderr=subprocess.PIPE).decode()
+    except Exception:
+        return []
+    keyframes = []
+    for line in output.strip().splitlines():
+        try:
+            time_str, frame_type = line.split(",")
+        except ValueError:
+            continue
+        if frame_type.strip() == "I":
+            try:
+                t = float(time_str)
+            except ValueError:
+                continue
+            keyframes.append(t)
+
+    if start_time_sec is not None:
+        end = start_time_sec + duration_sec if duration_sec is not None else end_time_sec
+        if end is not None:
+            keyframes = [t for t in keyframes if start_time_sec <= t < end]
+        else:
+            keyframes = [t for t in keyframes if t >= start_time_sec]
+
+    return keyframes
 
 def detect_countins_with_rms(filepath, hop_length=256, strict=False, mode="default", verbose=True):
     threshold = 0.01 if strict else 0.03
@@ -921,7 +1010,7 @@ def detect_countins_with_rms(filepath, hop_length=256, strict=False, mode="defau
 
     groups = []
     if verbose:
-        Brint(f"[TBD]\n⏺️ Tous les click_times : {[round(float(t), 3) for t in click_times]}")
+        Brint(f"\n⏺️ Tous les click_times : {[round(float(t), 3) for t in click_times]}")
     for i in range(len(click_times) - 3):
         for j in range(i + 3, min(i + 6, len(click_times) + 1)):
             group = click_times[i:j]
@@ -959,8 +1048,8 @@ def detect_countins_with_rms(filepath, hop_length=256, strict=False, mode="defau
             if not plateau_ok:
                 if verbose:
                     Brint(f"[TBD]      ❌ Rejeté : pas de plateau RMS stable")
-                    Brint(f"[TBD]        → Moyenne RMS = {plateau_debug['mean_rms']} (ok={plateau_debug['mean_ok']})")
-                    Brint(f"[TBD]        → Écart-type RMS = {plateau_debug['std_rms']} (ok={plateau_debug['std_ok']})")
+                    Brint(f"        → Moyenne RMS = {plateau_debug['mean_rms']} (ok={plateau_debug['mean_ok']})")
+                    Brint(f"        → Écart-type RMS = {plateau_debug['std_rms']} (ok={plateau_debug['std_ok']})")
                 continue
 
             if verbose: Brint(f"[TBD]      ✅ Accepté comme count-in 🎯")
@@ -1023,7 +1112,7 @@ def open_vlc_at(filepath, seconds):
             if choice.isdigit():
                 idx = int(choice) - 1
                 if 0 <= idx < len(groups):
-                    Brint(f"[TBD] Ouverture de VLC à {seconds_to_hms(groups[idx]['clicks'][0])}...")
+                    Brint(f"Ouverture de VLC à {seconds_to_hms(groups[idx]['clicks'][0])}...")
                     open_vlc_at(current_path, groups[idx]["clicks"][0])
                 else:
                     Brint("[TBD] Numéro invalide.")
@@ -1354,7 +1443,9 @@ def loopdata_to_dict(loop_data):
         "master_note_list": loop_data.master_note_list if hasattr(loop_data, "master_note_list") else [],
         "chords": loop_data.chords if hasattr(loop_data, "chords") else [],
         "tempo_bpm": getattr(loop_data, "tempo_bpm", None),
-        "key": getattr(loop_data, "key", None)
+        "key": getattr(loop_data, "key", None),
+        "loop_zoom_ratio": getattr(loop_data, "loop_zoom_ratio", None),
+        "confirmed_hit_context": getattr(loop_data, "confirmed_hit_context", None),
     }
 
     Brint(f"[OK] Boucle prête : start={loop_dict['loop_start']}, end={loop_dict['loop_end']}, bpm={loop_dict['tempo_bpm']}")
@@ -1581,15 +1672,6 @@ class LoopData:
             "beat_end": beat_pos + 4
         })
 
-    def timestamp_to_subdiv_index(self, timestamp_ms, grid_times):
-        if not grid_times:
-            return None
-        return min(range(len(grid_times)), key=lambda i: abs(grid_times[i] - timestamp_ms))
-
-    def subdiv_index_to_timestamp(self, subdiv_index, grid_times):
-        if 0 <= subdiv_index < len(grid_times):
-            return grid_times[subdiv_index]
-        return None
 
     
     def get_notes_near_timestamp(self, target_ms, tolerance_ms=50):
@@ -1722,7 +1804,10 @@ class LoopData:
         
     #LOOPDATA INIT
 
-    def __init__(self, name, loop_start, loop_end, key=None, mode=None, chords=None, master_note_list=None, tempo_bpm=None,loop_zoom_ratio=None):
+    def __init__(self, name, loop_start, loop_end, key=None, mode=None,
+                 chords=None, master_note_list=None, tempo_bpm=None,
+                 loop_zoom_ratio=None, confirmed_hit_context=None,
+                 hit_timings=None, hit_timestamps=None):
         
         
         
@@ -1735,6 +1820,12 @@ class LoopData:
         self.master_note_list = master_note_list if master_note_list else []
         self.tempo_bpm = tempo_bpm  # ✅ Important
         self.loop_zoom_ratio = loop_zoom_ratio if loop_zoom_ratio is not None else .33
+        self.confirmed_hit_context = confirmed_hit_context or {
+            "timestamps": [],
+            "grid_mode": None
+        }
+        self.hit_timings = hit_timings or []
+        self.hit_timestamps = hit_timestamps or []
 
     @classmethod
     def from_dict(cls, data):
@@ -1753,10 +1844,14 @@ class LoopData:
             loop_end=data.get("loop_end"),
             key=data.get("key"),
             mode=data.get("mode"),
-            chords = normalized_chords ,
+            chords=normalized_chords,
             master_note_list=data.get("master_note_list", []),
-            tempo_bpm=data.get("tempo_bpm") or 60.0  # ✅ fallback à 60 bpm si None        
-            )
+            tempo_bpm=data.get("tempo_bpm") or 60.0,  # ✅ fallback à 60 bpm si None
+            loop_zoom_ratio=data.get("loop_zoom_ratio"),
+            confirmed_hit_context=data.get("confirmed_hit_context"),
+            hit_timings=data.get("hit_timings", []),
+            hit_timestamps=data.get("hit_timestamps", [])
+        )
 
     def to_dict(self):
         Brint(f"[TO_DICT DEBUG] tempo_bpm exporté = {self.tempo_bpm}")
@@ -1769,7 +1864,11 @@ class LoopData:
             "mode": self.mode,
             "chords": self.chords,
             "master_note_list": self.master_note_list,
-            "tempo_bpm": self.tempo_bpm  # ✅ Ajouté ici
+            "tempo_bpm": self.tempo_bpm,  # ✅ Ajouté ici
+            "loop_zoom_ratio": self.loop_zoom_ratio,
+            "confirmed_hit_context": self.confirmed_hit_context,
+            "hit_timings": self.hit_timings,
+            "hit_timestamps": self.hit_timestamps
         }
         
         
@@ -1905,6 +2004,17 @@ class ToolTip:
 
 class VideoPlayer:
     
+    def timestamp_to_subdiv_index(self, timestamp_ms, grid_times):
+        if not grid_times:
+            return None
+        return min(range(len(grid_times)), key=lambda i: abs(grid_times[i] - timestamp_ms))
+
+    def subdiv_index_to_timestamp(self, subdiv_index, grid_times):
+        if 0 <= subdiv_index < len(grid_times):
+            return grid_times[subdiv_index]
+        return None
+    
+    
     def try_itemconfig(self, canvas_widget, item_id, **kwargs):
         # Helper to safely call itemconfig, catching TclError if item is gone.
         try:
@@ -1936,22 +2046,53 @@ class VideoPlayer:
         if not self.precomputed_grid_infos:
             self.compute_rhythm_grid_infos()
 
-        grid_times = [info['t_subdiv_sec'] for info in self.precomputed_grid_infos.values()]
-        if not grid_times:
+        if not self.precomputed_grid_infos:
             return dynamic_hits
 
-        intervals = [t2 - t1 for t1, t2 in zip(grid_times[:-1], grid_times[1:])]
+        sorted_items = sorted(
+            self.precomputed_grid_infos.items(),
+            key=lambda item: item[1]['t_subdiv_sec']
+        )
+        sorted_times = [info['t_subdiv_sec'] for _, info in sorted_items]
+        sorted_indices = [idx for idx, _ in sorted_items]
+
+        intervals = [t2 - t1 for t1, t2 in zip(sorted_times[:-1], sorted_times[1:])]
         avg_interval_sec = sum(intervals) / len(intervals) if intervals else 0.5
-        tolerance = avg_interval_sec / 3.0
+        # Widen the detection window so every hit can match a subdivision
+        tolerance = avg_interval_sec / 2.0
+        Brint(f"[HIT WINDOW] ℹ️ Tolerance set to {tolerance:.3f}s (1/2 of {avg_interval_sec:.3f}s)")
+
+        loop_duration_s = None
+        if (
+            hasattr(self, "loop_end")
+            and hasattr(self, "loop_start")
+            and self.loop_end is not None
+            and self.loop_start is not None
+        ):
+            loop_duration_s = (self.loop_end - self.loop_start) / 1000.0
 
         for t_hit, loop_pass in self.user_hit_timestamps:
-            closest_i, closest_t = min(enumerate(grid_times), key=lambda item: abs(item[1] - t_hit))
-            delta = abs(closest_t - t_hit)
+            t_norm = (
+                t_hit - loop_pass * loop_duration_s
+                if loop_duration_s is not None
+                else t_hit
+            )
+
+            closest_pos, closest_t = min(
+                enumerate(sorted_times),
+                key=lambda item: abs(item[1] - t_norm)
+            )
+            delta = abs(closest_t - t_norm)
             if delta <= tolerance:
+                closest_i = sorted_indices[closest_pos]
                 dynamic_hits[closest_i] += 1
-                Brint(f"[HIT MAP] 🟠 t_hit={t_hit:.3f}s → Subdiv {closest_i} (Δ={delta:.3f}s)")
+                Brint(
+                    f"[HIT MAP] 🟠 t_hit={t_hit:.3f}s → Subdiv {closest_i} (Δ={delta:.3f}s)"
+                )
             else:
-                Brint(f"[HIT MAP] ⛔ t_hit={t_hit:.3f}s ignoré (Δ={delta:.3f}s > tolérance)")
+                Brint(
+                    f"[HIT MAP] ⛔ t_hit={t_hit:.3f}s ignoré (Δ={delta:.3f}s > tolérance)"
+                )
 
         return dynamic_hits
 
@@ -1962,12 +2103,6 @@ class VideoPlayer:
         Sinon, ne touche pas au zoom.
         """
         if not self.loop_start or not self.loop_end:
-            return
-
-        # When the user has intentionally chosen a high zoom ratio
-        # (>= 3x), we skip auto adjustments to avoid unwanted resets.
-        if getattr(self, "loop_zoom_ratio", 1.0) >= 3.0:
-            Brint("[ZOOM CHECK] ⏭️ High zoom ratio, skipping auto adjust")
             return
 
         zoom = self.get_zoom_context()
@@ -2022,16 +2157,16 @@ class VideoPlayer:
         Brint(f"[ZOOM MOVE] 🔁 Zoom modifié !")
         Brint(f"[TBD]   🎯 A: x avant = {prev_A_x}px → après = {new_A_x}px")
         Brint(f"[TBD]   🎯 B: x avant = {prev_B_x}px → après = {new_B_x}px")
-        Brint(f"[TBD]  🔍 zoom_start: {prev_zoom['zoom_start']} → {new_zoom['zoom_start']}")
-        Brint(f"[TBD]  🔍 zoom_range: {prev_zoom['zoom_range']} → {new_zoom['zoom_range']}")
+        Brint(f"  🔍 zoom_start: {prev_zoom['zoom_start']} → {new_zoom['zoom_start']}")
+        Brint(f"  🔍 zoom_range: {prev_zoom['zoom_range']} → {new_zoom['zoom_range']}")
 
 
 
     def auto_zoom_on_loop_markers(self, force=False):
         """
         Ajuste le zoom automatiquement selon l'état de loop_start et loop_end :
-        - Si A seul est défini, zoom sur A + 1min avec A à 5%.
-        - Si A et B sont définis, zoom pour que A soit à 5% et B à 95%.
+        - Si A seul est défini, zoom sur A + 1min avec A à 20%.
+        - Si A et B sont définis, zoom pour que A soit à 20% et B à 80%.
         """
         video_duration = self.player.get_length()
 
@@ -2042,16 +2177,18 @@ class VideoPlayer:
         Brint(f"[AUTOZOOM] 🎬 Durée vidéo = {video_duration} ms")
 
         if not self.loop_end or self.loop_end <= self.loop_start:
-            Brint("[AUTOZOOM] 🅰️ seul défini → zoom A à 5% sur 1 minute")
+            Brint("[AUTOZOOM] 🅰️ seul défini → zoom A à 20% sur 1 minute")
 
             zoom_range_ms = 60000
-            zoom_start_ms = self.loop_start - int(0.05 * zoom_range_ms)
+            zoom_start_ms = self.loop_start - int(0.2 * zoom_range_ms)
             zoom_end_ms = zoom_start_ms + zoom_range_ms
 
             Brint(f"[AUTOZOOM] 📐 Calcul initial : zoom_start={zoom_start_ms}, zoom_end={zoom_end_ms}")
 
             if zoom_start_ms < 0:
-                Brint("[AUTOZOOM] ↪️ zoom_start négatif autorisé pour conserver la marge 5%")
+                zoom_start_ms = 0
+                zoom_end_ms = zoom_range_ms
+                Brint("[AUTOZOOM] 🔧 Clamp gauche : zoom_start ajusté à 0")
 
             if zoom_end_ms > video_duration:
                 zoom_end_ms = video_duration
@@ -2067,18 +2204,18 @@ class VideoPlayer:
             self.loop_end = self.loop_start + zoom_range_ms
             self.loop_zoom_ratio = zoom_range_ms / self.zoom_context["zoom_range"]
 
-            self.console.config(text="🅰️ Zoom auto : A à 5%, durée 1min")
+            self.console.config(text="🅰️ Zoom auto : A à 20%, durée 1min")
             Brint(f"[AUTOZOOM] ✅ Zoom défini pour A seul : start={zoom_start_ms}, end={zoom_end_ms}, ratio={self.loop_zoom_ratio:.3f}")
 
         else:
-            Brint("[AUTOZOOM] 🅰️ + 🅱️ définis → zoom A à 5%, B à 95%")
+            Brint("[AUTOZOOM] 🅰️ + 🅱️ définis → zoom A à 20%, B à 80%")
 
             loop_len = self.loop_end - self.loop_start
             if loop_len <= 0:
                 Brint("[AUTOZOOM] ❌ Loop invalide (B < A)")
                 return
 
-            zoom_range = int(loop_len / 0.9)
+            zoom_range = int(max(loop_len / 0.6, MIN_ZOOM_RANGE_MS))
             # 💡 Limite de zoom max : on ne veut pas zoomer sur toute la vidéo
             max_zoom_range = min(video_duration, 300000)  # 5 minutes max
 
@@ -2087,19 +2224,15 @@ class VideoPlayer:
                 zoom_range = max_zoom_range
 
             
-            if zoom_range >= loop_len:
-                # When the zoom window is wider than the loop, center the loop
-                # to keep A and B equidistant from the edges.
-                zoom_start = int(self.loop_start - (zoom_range - loop_len) / 2)
-            else:
-                # Standard case: A at 5% and B at 95% of the visible range.
-                zoom_start = self.loop_start - int(0.05 * zoom_range)
+            zoom_start = self.loop_start - int(0.2 * zoom_range)
             zoom_end = zoom_start + zoom_range
 
             Brint(f"[AUTOZOOM] 📐 Calcul initial : zoom_start={zoom_start}, zoom_end={zoom_end}, zoom_range={zoom_range}")
 
             if zoom_start < 0:
-                Brint("[AUTOZOOM] ↪️ zoom_start négatif autorisé pour conserver la marge 5%")
+                zoom_start = 0
+                zoom_end = zoom_range
+                Brint("[AUTOZOOM] 🔧 Clamp gauche : zoom_start ajusté à 0")
 
             if zoom_end > video_duration:
                 zoom_end = video_duration
@@ -2113,17 +2246,14 @@ class VideoPlayer:
             }
 
             self.loop_zoom_ratio = loop_len / self.zoom_context["zoom_range"]
-            self.console.config(text="🔍 Zoom auto : A à 5%, B à 95%")
+            self.console.config(text="🔍 Zoom auto : A à 20%, B à 80%")
 
             Brint(f"[AUTOZOOM] ✅ Zoom défini A+B : start={zoom_start}, end={zoom_end}, ratio={self.loop_zoom_ratio:.3f}")
 
-        if hasattr(self, "zoom_slider"):
-            idx = self.zoom_levels.index(min(self.zoom_levels, key=lambda z: abs(z - self.loop_zoom_ratio)))
-            Brint(f"[AUTOZOOM] 🎚️ zoom_slider.set({idx})")
-            self.zoom_slider.set(idx)
+        if hasattr(self, "zoom_ratio_var"):
+            self.zoom_ratio_var.set(self.loop_zoom_ratio)
 
-        if force:
-            self.update_loop()
+        self.update_loop()
      
 
  
@@ -2161,7 +2291,7 @@ class VideoPlayer:
         next_mode = modes[(modes.index(current) + 1) % len(modes)]
         self.harmony_note_display_mode = next_mode
 
-        Brint(f"[TBD]\n[DISPLAY MODE] 🔁 Passage du mode '{current}' → '{next_mode}'")
+        Brint(f"\n[DISPLAY MODE] 🔁 Passage du mode '{current}' → '{next_mode}'")
 
         if next_mode == "key":
             Brint("[TBD]   ➤ Les intervalles seront calculés par rapport à la tonalité globale (key).")
@@ -2296,6 +2426,12 @@ class VideoPlayer:
         Si zoom_context est défini manuellement, on l’utilise.
         Sinon, fallback dynamique basé sur loop + zoom_ratio.
         """
+        if getattr(self, "reset_zoom_next_frame", False):
+            self.reset_zoom_next_frame = False
+            if hasattr(self, "zoom_context") and self.zoom_context:
+                return dict(self.zoom_context)
+            duration = self.player.get_length() if hasattr(self, "player") else 0
+            return {"zoom_start": 0, "zoom_end": duration, "zoom_range": duration}
         if hasattr(self, "zoom_context") and self.zoom_context:
             base_zoom = dict(self.zoom_context)
         else:
@@ -2303,11 +2439,6 @@ class VideoPlayer:
 
         loop_start = self.loop_start or 0
         loop_end = self.loop_end or self.duration or 10000  # fallback sécurité
-
-        # Handle inverted markers gracefully without altering instance values
-        if loop_end < loop_start:
-            loop_start, loop_end = loop_end, loop_start
-
         loop_width = loop_end - loop_start
         zoom_ratio = self.loop_zoom_ratio or 1.0
         zoom_width = int(loop_width / zoom_ratio)
@@ -2335,59 +2466,51 @@ class VideoPlayer:
         if base_zoom is not None:
             zoom_dict.update(base_zoom)
 
-        if base_zoom is not None and getattr(self, "reset_zoom_next_frame", False):
-            start = base_zoom["zoom_start"]
-            end = start + base_zoom["zoom_range"]
-            if end > video_duration:
-                end = video_duration
-                start = max(0, video_duration - base_zoom["zoom_range"])
-            zoom_dict["zoom_start"] = start
-            zoom_dict["zoom_end"] = end
-            self.reset_zoom_next_frame = False
-            return zoom_dict
-
-        dynamic_condition = (
-            base_zoom is not None
-            and self.loop_start is not None
-            and self.loop_end is not None
-            and base_zoom.get("zoom_range", 0) < (self.loop_end - self.loop_start) / 0.9
-            and getattr(self, "playhead_time", None) is not None
-        )
-
-        if dynamic_condition:
-            playhead_ms = self.playhead_time * 1000.0
-            loop_range = self.loop_end - self.loop_start
-            progress = (playhead_ms - self.loop_start) / loop_range
-            progress = max(0.0, min(1.0, progress))
-            # Correct direction: offset is based on the 5%-95% window movement
-            base_range = base_zoom["zoom_range"]
-            offset = progress * (loop_range - 0.9 * base_range)
-            zoom_start = base_zoom.get("zoom_start", self.loop_start) + offset
-            if zoom_start < 0:
-                zoom_start = 0
-            zoom_dict["zoom_start"] = int(zoom_start)
-            zoom_dict["zoom_end"] = zoom_dict["zoom_start"] + base_zoom["zoom_range"]
-
-            # Re-clamp in case the dynamic offset pushes outside the video bounds
-            if zoom_dict["zoom_end"] > video_duration:
-                zoom_dict["zoom_end"] = video_duration
-                zoom_dict["zoom_start"] = max(0, video_duration - base_zoom["zoom_range"])
-        elif (
-            base_zoom is not None
-            and self.loop_start is not None
+        progress_raw = None
+        if (
+            self.loop_start is not None
             and self.loop_end is not None
             and getattr(self, "playhead_time", None) is not None
         ):
-            center_ms = (self.loop_start + self.loop_end) // 2
-            start = center_ms - base_zoom["zoom_range"] // 2
-            if start < 0:
-                start = 0
-            end = start + base_zoom["zoom_range"]
-            if end > video_duration:
-                end = video_duration
-                start = max(0, video_duration - base_zoom["zoom_range"])
-            zoom_dict["zoom_start"] = start
-            zoom_dict["zoom_end"] = end
+            playhead_ms = self.playhead_time * 1000.0
+            loop_range = self.loop_end - self.loop_start
+            if loop_range > 0:
+                progress_raw = (playhead_ms - self.loop_start) / loop_range
+
+        editing_loop = False
+        if hasattr(self, "edit_mode") and hasattr(self.edit_mode, "get"):
+            try:
+                editing_loop = self.edit_mode.get() in ("loop_start", "loop_end")
+            except Exception:
+                editing_loop = False
+
+        dynamic_condition = (
+            base_zoom is not None
+            and progress_raw is not None
+            and base_zoom.get("zoom_range", 0) < (self.loop_end - self.loop_start) / 0.9
+            and not editing_loop
+        )
+
+        if dynamic_condition:
+            if progress_raw < 0 or progress_raw > 1:
+                zoom_dict["zoom_start"] = (self.loop_start + self.loop_end - base_zoom["zoom_range"]) / 2
+                zoom_dict["zoom_end"] = zoom_dict["zoom_start"] + base_zoom["zoom_range"]
+            else:
+                offset = progress_raw * (loop_range - 0.9 * base_zoom["zoom_range"])
+                zoom_dict["zoom_start"] = self.loop_start + offset
+                zoom_dict["zoom_end"] = zoom_dict["zoom_start"] + base_zoom["zoom_range"]
+        elif progress_raw is not None and base_zoom is not None and (progress_raw < 0 or progress_raw > 1):
+            zoom_dict["zoom_start"] = (self.loop_start + self.loop_end - base_zoom["zoom_range"]) / 2
+            zoom_dict["zoom_end"] = zoom_dict["zoom_start"] + base_zoom["zoom_range"]
+
+        if base_zoom is not None:
+            zoom_width = base_zoom["zoom_range"]
+            if zoom_dict["zoom_start"] < 0:
+                zoom_dict["zoom_start"] = 0
+                zoom_dict["zoom_end"] = zoom_width
+            if zoom_dict["zoom_end"] > video_duration:
+                zoom_dict["zoom_end"] = video_duration
+                zoom_dict["zoom_start"] = max(0, video_duration - zoom_width)
 
         return zoom_dict
 
@@ -2539,7 +2662,7 @@ class VideoPlayer:
         return self.time_sec_to_canvas_x(t_sec)
 
 
-    def time_sec_to_canvas_x(self, t_sec):
+    def time_sec_to_canvas_x(self, t_sec, use_margin=True, *, zoom=None, canvas_width=None):
         import traceback
         # Brint(f"[DEBUG time_sec_to_canvas_x] → Appel avec t_sec={t_sec}")
         # traceback.print_stack(limit=5)
@@ -2549,21 +2672,20 @@ class VideoPlayer:
         loop_start = self.loop_start or 0
         loop_end = self.loop_end or 0
 
-        if loop_end < loop_start:
-            Brint(f"[WARN Time2X] Inverted markers A={self.loop_start} B={self.loop_end}")
-            loop_start, loop_end = loop_end, loop_start
-
-        if loop_end == loop_start:
+        if loop_end <= loop_start:
             loop_start = 0
             loop_end = self.player.get_length()
-            Brint(f"[INFO Time2X] Pas de loop active, fallback à toute la durée ({loop_end} ms)")
+            self.loop_zoom_ratio = 1.0
+            Brint(f"[INFO Time2X] Pas de loop active, fallback à toute la durée ({loop_end} ms) avec zoom_ratio=1.0")
 
         loop_range = loop_end - loop_start
-        zoom = self.get_zoom_context()
+        if zoom is None:
+            zoom = self.get_zoom_context()
         zoom_start = zoom["zoom_start"]
         zoom_range = zoom["zoom_range"]
 
-        canvas_width = getattr(self, "cached_canvas_width", self.grid_canvas.winfo_width())
+        if canvas_width is None:
+            canvas_width = getattr(self, "cached_canvas_width", self.grid_canvas.winfo_width())
         if canvas_width <= 1:
             Brint(f"[WARNING] canvas_width trop petit ({canvas_width}), fallback 100")
             canvas_width = 100
@@ -2573,7 +2695,7 @@ class VideoPlayer:
             zoom_range = 1000
 
         ratio = (t_ms - zoom_start) / zoom_range
-        if zoom_range < loop_range:
+        if zoom_range < loop_range and use_margin:
             x = 0.05 * canvas_width + ratio * 0.90 * canvas_width
         else:
             x = ratio * canvas_width
@@ -2687,68 +2809,80 @@ class VideoPlayer:
 
     def try_auto_load_recent_file(self, index=0, path=None):
         try:
-            with open("recent_files.json", "r", encoding="utf-8") as f:
+            with open(RECENT_FILES_PATH, "r", encoding="utf-8") as f:
                 data = json.load(f)
+        except FileNotFoundError:
+            data = {
+                "recent_paths": [],
+                "last_loops": {},
+                "auto_load_last_file": True,
+                "auto_load_last_loop": True,
+            }
+            try:
+                with open(RECENT_FILES_PATH, "w", encoding="utf-8") as f:
+                    json.dump(data, f, indent=2)
+                Brint("[AUTOLOAD] 🌱 Création de recent_files.json")
+            except Exception as e:
+                Brint(f"[AUTOLOAD] ❌ Impossible de créer recent_files.json : {e}")
+        except Exception as e:
+            import traceback
+            Brint(f"[AUTOLOAD] ❌ Erreur autoload : {e}")
+            traceback.print_exc()
+            return
 
-            if path:
-                if not os.path.exists(path):
-                    Brint(f"[AUTOLOAD] ❌ Média introuvable : {path}")
-                    return
 
-                self.open_given_file(path)
-                self.current_path = path
-                Brint(f"[AUTOLOAD] ✅ Média ouvert : {path}")
-
-                if data.get("auto_load_last_loop"):
-                    loop_name = data.get("last_loops", {}).get(path)
-                    if loop_name:
-                        self.root.after(500, lambda: self.set_loop_by_name(loop_name))
-                        Brint(f"[AUTOLOAD] ⏳ Boucle à restaurer : {loop_name}")
-                    else:
-                        Brint("[AUTOLOAD] ℹ️ Aucune boucle à restaurer pour ce média")
+        if path:
+            if not os.path.exists(path):
+                Brint(f"[AUTOLOAD] ❌ Média introuvable : {path}")
                 return
 
-            if not data.get("auto_load_last_file"):
-                Brint("[AUTOLOAD] ⏩ Autoload désactivé")
-                return
+            self.open_given_file(path)
+            self.current_path = path
+            Brint(f"[AUTOLOAD] ✅ Média ouvert : {path}")
 
-            paths = data.get("recent_paths", [])
-            if not paths:
-                Brint("[AUTOLOAD] ❌ Aucun chemin récent")
-                return
-
-            if index >= len(paths) or index < 0:
-                Brint(f"[AUTOLOAD] ❌ Index {index} hors limite")
-                return
-
-            media_path = paths[index]
-            if not os.path.exists(media_path):
-                Brint(f"[AUTOLOAD] ❌ Média introuvable : {media_path}")
-                return
-
-            # 🎞️ Étape 1 : ouvrir le fichier média
-            self.open_given_file(media_path)
-            self.current_path = media_path
-            Brint(f"[AUTOLOAD] ✅ Média ouvert : {media_path}")
-
-            # 📄 Étape 2 : charger les boucles depuis le .abloops.json dérivé
-            self.load_saved_loops()
-
-            # 🔁 Étape 3 : charger la dernière loop associée à ce fichier
             if data.get("auto_load_last_loop"):
-                loop_name = data.get("last_loops", {}).get(media_path)
+                loop_name = data.get("last_loops", {}).get(path)
                 if loop_name:
                     self.root.after(500, lambda: self.set_loop_by_name(loop_name))
                     Brint(f"[AUTOLOAD] ⏳ Boucle à restaurer : {loop_name}")
                 else:
                     Brint("[AUTOLOAD] ℹ️ Aucune boucle à restaurer pour ce média")
+            return
 
-        except Exception as e:
-            import traceback
-            Brint(f"[AUTOLOAD] ❌ Erreur autoload : {e}")
-            traceback.print_exc()
+        if not data.get("auto_load_last_file"):
+            Brint("[AUTOLOAD] ⏩ Autoload désactivé")
+            return
 
+        paths = data.get("recent_paths", [])
+        if not paths:
+            Brint("[AUTOLOAD] ❌ Aucun chemin récent")
+            return
 
+        if index >= len(paths) or index < 0:
+            Brint(f"[AUTOLOAD] ❌ Index {index} hors limite")
+            return
+
+        media_path = paths[index]
+        if not os.path.exists(media_path):
+            Brint(f"[AUTOLOAD] ❌ Média introuvable : {media_path}")
+            return
+
+        # 🎞️ Étape 1 : ouvrir le fichier média
+        self.open_given_file(media_path)
+        self.current_path = media_path
+        Brint(f"[AUTOLOAD] ✅ Média ouvert : {media_path}")
+
+        # 📄 Étape 2 : charger les boucles depuis le .abloops.json dérivé
+        self.load_saved_loops()
+
+        # 🔁 Étape 3 : charger la dernière loop associée à ce fichier
+        if data.get("auto_load_last_loop"):
+            loop_name = data.get("last_loops", {}).get(media_path)
+            if loop_name:
+                self.root.after(500, lambda: self.set_loop_by_name(loop_name))
+                Brint(f"[AUTOLOAD] ⏳ Boucle à restaurer : {loop_name}")
+            else:
+                Brint("[AUTOLOAD] ℹ️ Aucune boucle à restaurer pour ce média")
 
     def quick_save_current_loop(self, event=None):
         """💾 Sauvegarde rapide (Ctrl+S) de la boucle AB courante dans saved_loops + fichier JSON."""
@@ -2759,6 +2893,17 @@ class VideoPlayer:
 
         target_name = self.current_loop.name
         updated = False
+
+        # Synchronize confirmed hits context before exporting
+        self.current_loop.confirmed_hit_context = {
+            "timestamps": sorted(getattr(self, "persistent_validated_hit_timestamps", [])),
+            "grid_mode": getattr(self, "subdivision_mode", None),
+        }
+        self.current_loop.hit_timings = self.get_current_hit_timings()
+        self.current_loop.hit_timestamps = self.get_current_hit_timestamps()
+
+        # ✅ Ajouter les subdivisions rouges détectées
+        self.current_loop.confirmed_red_subdivisions = getattr(self, "confirmed_red_subdivisions", {})
 
         for i, loop in enumerate(self.saved_loops):
             if loop["name"] == target_name:
@@ -2778,7 +2923,31 @@ class VideoPlayer:
         self.save_loops_to_file()
         self.console.config(text=f"💾 Boucle '{target_name}' sauvegardée ({'maj' if updated else 'nouvelle'})")
 
-    
+    def reload_current_loop(self, event=None):
+        """Reload the current loop from saved_loops (Shift+S)."""
+        if not hasattr(self, "current_loop") or not isinstance(self.current_loop, LoopData):
+            Brint("[RELOAD] ❌ Aucun current_loop valide")
+            self.log_to_console("⚠️ Aucune boucle active à recharger")
+            return
+
+        target_name = self.current_loop.name
+        for i, loop in enumerate(self.saved_loops):
+            if loop.get("name") == target_name:
+                Brint(f"[RELOAD] 🔄 Boucle trouvée : {target_name} (index {i})")
+
+                self.load_saved_loop(i)
+
+                # ✅ Recharger les subdivisions rouges
+                red = loop.get("confirmed_red_subdivisions", {})
+                self.confirmed_red_subdivisions = red
+                Brint(f"[RELOAD] ✅ Red hits restaurés : {len(red)} subdivisions")
+
+                self.log_to_console(f"🔄 Boucle '{target_name}' rechargée")
+                return
+
+        Brint(f"[RELOAD] ❌ Boucle '{target_name}' introuvable dans saved_loops")
+        self.log_to_console(f"⚠️ Boucle '{target_name}' non trouvée")
+
         
 
     def hms(self, ms):
@@ -2828,7 +2997,30 @@ class VideoPlayer:
         parts = list(map(float, hms.split(":")))
         return sum(t * 60**i for i, t in enumerate(reversed(parts)))
 
+    def abph_stamp(self):
+        """Return current A/B/playhead times in h:mm:ss.1 format."""
+        from datetime import timedelta
 
+        def fmt_ms(ms):
+            if not isinstance(ms, (int, float)):
+                return "N/A"
+            td = timedelta(milliseconds=ms)
+            total_seconds = int(td.total_seconds())
+            hours = total_seconds // 3600
+            minutes = (total_seconds % 3600) // 60
+            seconds = total_seconds % 60
+            tenths = int((ms % 1000) / 100)  # dixièmes
+            return f"{hours}:{minutes:02d}:{seconds:02d}.{tenths}"
+
+        a = getattr(self, "loop_start", None)
+        b = getattr(self, "loop_end", None)
+        ph = getattr(self, "playhead_time", None)
+
+        a_s = fmt_ms(a)
+        b_s = fmt_ms(b)
+        ph_s = fmt_ms(ph * 1000) if isinstance(ph, (int, float)) else "N/A"
+
+        return f"A({a_s}) B({b_s}) PH({ph_s})"
     
     def compute_rhythm_grid_infos(self):
         Brint("[PRECOMPUTE] ▶️ Démarrage du calcul des subdivisions (X, label, state, is_playhead)")
@@ -2855,6 +3047,7 @@ class VideoPlayer:
         zoom_start = zoom["zoom_start"]
         zoom_end = zoom["zoom_end"]
         zoom_range = zoom["zoom_range"]
+        x_params = dict(zoom=zoom, canvas_width=canvas_width)
 
         Brint(f"[PRECOMPUTE] 📏 canvas_width = {canvas_width}")
         Brint(f"[PRECOMPUTE] 🔍 zoom_start = {zoom_start:.1f} | zoom_end = {zoom_end:.1f} | zoom_range = {zoom_range:.1f}")
@@ -2868,10 +3061,18 @@ class VideoPlayer:
         precomputed = {}
         playhead_x = getattr(self, 'playhead_canvas_x', -9999)
 
-        for idx, (i, t_subdiv_sec) in enumerate(self.grid_subdivs):
-            x = self.time_sec_to_canvas_x(t_subdiv_sec)
+        if not hasattr(self, "subdiv_last_hit_time"):
+            self.subdiv_last_hit_time = {}
 
-            state = self.subdivision_state.get(i, 0)
+        # Compute average subdivision interval for decay logic
+        grid_times = [t for _, t in self.grid_subdivs]
+        intervals = [t2 - t1 for t1, t2 in zip(grid_times[:-1], grid_times[1:])]
+        self.avg_subdiv_interval_sec = sum(intervals) / len(intervals) if intervals else 0.5
+
+        for idx, (i, t_subdiv_sec) in enumerate(self.grid_subdivs):
+            x = self.time_sec_to_canvas_x(t_subdiv_sec, **x_params)
+
+            state = self.subdivision_state.get(i, -1)
             is_playhead = abs(x - playhead_x) < 1
 
             if i < len(self.grid_labels):
@@ -2895,16 +3096,27 @@ class VideoPlayer:
         return precomputed
  
     def evaluate_subdivision_states(self):
+        subdiv_interval = getattr(self, "avg_subdiv_interval_sec", 0.5)
+        now_abs = None
+        if getattr(self, "loop_duration_s", None) is not None:
+            now_abs = self.loop_pass_count * self.loop_duration_s
+
         for i in self.grid_subdivs:
-            # On vérifie si la subdivision a été frappée lors de la dernière boucle
-            last_hit_loop = self.subdiv_last_hit_loop.get(i[0], -1)
-            state = self.subdivision_state.get(i[0], 0)
+
+            idx = i[0]
+            last_hit_loop = self.subdiv_last_hit_loop.get(idx, -1)
+            state = self.subdivision_state.get(idx, -1)
+            hit_count = self.subdivision_counters.get(idx, 0)
+            last_hit_time = self.subdiv_last_hit_time.get(idx)
+
 
             if last_hit_loop == self.loop_pass_count - 1:
                 # Si déjà pré-validée -> passe en validé rouge
-                if state == 1:
-                    self.subdivision_state[i[0]] = 2
-                    promoted_subdiv_idx = i[0]
+                if state == 1 and hit_count >= 3:
+
+                    self.subdivision_state[idx] = 2
+                    promoted_subdiv_idx = idx
+
                     Brint(f"[VALIDATED] Subdiv {promoted_subdiv_idx} passe en ROUGE (confirmée)")
                     # Add logic to store the original hit timestamp
                     if hasattr(self, "precomputed_grid_infos") and self.precomputed_grid_infos and \
@@ -2914,46 +3126,119 @@ class VideoPlayer:
                             grid_times_list = sorted(current_grid_times_map.values())
                             intervals = [t2 - t1 for t1, t2 in zip(grid_times_list[:-1], grid_times_list[1:])]
                             avg_interval_sec = sum(intervals) / len(intervals) if intervals else 0.5
-                            tolerance = avg_interval_sec / 3.0
+                            # Wider window: half of the average subdivision interval
+                            tolerance = avg_interval_sec / 2.0
+                            Brint(f"[HIT WINDOW] ℹ️ Tolerance set to {tolerance:.3f}s (1/2 of {avg_interval_sec:.3f}s)")
+
+                            loop_duration_s = None
+                            if (
+                                hasattr(self, "loop_end")
+                                and hasattr(self, "loop_start")
+                                and self.loop_end is not None
+                                and self.loop_start is not None
+                            ):
+                                loop_duration_s = (
+                                    self.loop_end - self.loop_start
+                                ) / 1000.0
 
                             for t_hit, pass_count in self.user_hit_timestamps:
-                                if pass_count == self.loop_pass_count - 1: # Hit from the pass that just confirmed validation
+                                if pass_count == self.loop_pass_count - 1:  # Hit from the pass that just confirmed validation
+                                    t_norm = (
+                                        t_hit - pass_count * loop_duration_s
+                                        if loop_duration_s is not None
+                                        else t_hit
+                                    )
                                     matched_idx_for_t_hit = None
                                     min_delta_for_t_hit = float('inf')
                                     for current_sub_idx, current_sub_t_sec in current_grid_times_map.items():
-                                        delta = abs(current_sub_t_sec - t_hit)
+                                        delta = abs(current_sub_t_sec - t_norm)
                                         if delta < min_delta_for_t_hit:
                                             min_delta_for_t_hit = delta
                                             matched_idx_for_t_hit = current_sub_idx
 
                                     if matched_idx_for_t_hit == promoted_subdiv_idx and min_delta_for_t_hit <= tolerance:
-                                        self.persistent_validated_hit_timestamps.add(t_hit)
-                                        Brint(f"[PERSIST_HIT_ADD] Added {t_hit:.3f}s to persistent_validated_hit_timestamps for validated subdiv {promoted_subdiv_idx}")
+                                        # self.persistent_validated_hit_timestamps.add(t_hit)
+                                        # Brint(
+                                            # passf"[PERSIST_HIT_ADD] Added {t_hit:.3f}s to persistent_validated_hit_timestamps for validated subdiv {promoted_subdiv_idx}"
+                                        # )
+                                        pass
+                                else:
+                                    Brint("[PERSIST_HIT_ADD] current_grid_times_map is empty, cannot associate timestamp.")
                         else:
-                            Brint("[PERSIST_HIT_ADD] current_grid_times_map is empty, cannot associate timestamp.")
-                    else:
-                        Brint("[PERSIST_HIT_ADD] Missing precomputed_grid_infos or user_hit_timestamps, cannot associate timestamp.")
+                            Brint("[PERSIST_HIT_ADD] Missing precomputed_grid_infos or user_hit_timestamps, cannot associate timestamp.")
+                    self.on_subdiv_validated(promoted_subdiv_idx)
 
                 # Sinon devient pré-validée orange
-                elif state == 0:
-                    self.subdivision_state[i[0]] = 1
-                    Brint(f"[PRE-VALIDATE] Subdiv {i[0]} passe en ORANGE")
+                elif state == 0 and hit_count >= 2:
+
+                    self.subdivision_state[idx] = 1
+                    Brint(f"[PRE-VALIDATE] Subdiv {idx} passe en ORANGE")
+
             else:
-                # Si pas frappée cette fois et était pré-validée -> retour à 0
-                if state == 1:
-                    self.subdivision_state[i[0]] = 0
-                    Brint(f"[RESET] Subdiv {i[0]} retourne à NEUTRE (non confirmée)")
-                # If a subdivision is reset from state 2 or 1, attempt to remove its associated timestamps
-                # This part is tricky because we don't directly store which t_hit caused state 2 for a subdiv.
-                # For now, we'll rely on clearing persistent_validated_hit_timestamps globally when appropriate (e.g., on full reset).
+                decay_threshold = None
+                if now_abs is not None and last_hit_time is not None:
+                    decay_threshold = now_abs - last_hit_time
+
+                if (
+                    decay_threshold is not None
+                    and decay_threshold > self.loop_duration_s + subdiv_interval
+                ):
+                    if state == 1:
+                        self.subdivision_state[idx] = 0
+                        Brint(f"[DECAY] Subdiv {idx} ORANGE → GRIS")
+                    elif state == 0:
+                        self.subdivision_state[idx] = -1
+                        Brint(f"[DECAY] Subdiv {idx} GRIS → AUCUN")
+                    self.subdivision_counters[idx] = 0
+                    if idx in self.subdiv_last_hit_loop:
+                        del self.subdiv_last_hit_loop[idx]
 
         # ⚡ Optionnel : clean les entrées obsolètes
         # self.subdiv_last_hit_loop = {k: v for k, v in self.subdiv_last_hit_loop.items() if v >= self.loop_pass_count - 1}
     
+    def sanitize_raw_hit_memory(self):
+        """Nettoie raw_hit_memory en ne conservant que les tuples (float, int) valides."""
+        if not hasattr(self, "raw_hit_memory"):
+            self.raw_hit_memory = {}
+            return
+
+        for idx in list(self.raw_hit_memory.keys()):
+            hits = self.raw_hit_memory[idx]
+            cleaned = [
+                (t, lp) for h in hits
+                if isinstance(h, tuple) and len(h) == 2
+                for (t, lp) in [h]
+                if isinstance(t, (int, float)) and isinstance(lp, int)
+            ]
+            if cleaned:
+                self.raw_hit_memory[idx] = cleaned
+            else:
+                del self.raw_hit_memory[idx]  # supprime les vides
     
     
     
     def reset_syllabic_grid_hits(self):
+        if not hasattr(self, "persistent_validated_hit_timestamps"):
+            self.persistent_validated_hit_timestamps = {}
+
+        self.persistent_validated_hit_timestamps.clear()  # Clear persistent validated timestamps
+
+        if hasattr(self, "confirmed_red_subdivisions"):
+            self.confirmed_red_subdivisions.clear()
+
+        if hasattr(self, "subdivision_state"):
+            self.subdivision_state.clear()
+
+        if hasattr(self, "raw_hit_memory"):
+            self.raw_hit_memory.clear()
+
+        Brint("[NHIT] ✅ reset_syllabic_grid_hits() completed — all hit memory cleared.")
+
+
+
+
+
+    
         if not hasattr(self, "grid_subdivs") or not self.grid_subdivs:
             Brint("[RESET SYLLABIC] Aucune grille active, rien à reset.")
             return
@@ -2966,12 +3251,13 @@ class VideoPlayer:
         self.subdivision_counters.clear()
         self.subdivision_state.clear()
         self.subdiv_last_hit_loop = {}
+        self.subdiv_last_hit_time = {}
         self.persistent_validated_hit_timestamps.clear() # Clear persistent validated timestamps
         
         for i, t_subdiv_ms in self.grid_subdivs: # Ensure this uses the correct structure of grid_subdivs
             idx_to_clear = i if isinstance(i, int) else i[0] # Adapt if grid_subdivs is list of tuples
             self.subdivision_counters[idx_to_clear] = 0
-            self.subdivision_state[idx_to_clear] = 0
+            self.subdivision_state[idx_to_clear] = -1
             self.subdiv_last_hit_loop[idx_to_clear] = -1
 
         # Supprimer les frappes dynamiques
@@ -2984,7 +3270,288 @@ class VideoPlayer:
         Brint(f"[RESET SYLLABIC] Reset complet effectué : {len(self.grid_subdivs)} subdivisions remises à zéro (counters, states, timestamps, and persistent validated timestamps).")
 
         # Redessiner grille sans marques
-        self.draw_syllabic_grid_heatmap()
+        if hasattr(self, "draw_syllabic_grid_heatmap"):
+            try:
+                self.draw_syllabic_grid_heatmap()
+            except AttributeError:
+                pass
+
+    # === New Hit Management API ===
+    def record_user_hit(self, hit_time_ms):
+        Brint(f"[NHIT] Hit registered at {self.hms(hit_time_ms)} | {self.abph_stamp()}")
+        if not hasattr(self, "current_loop") or self.current_loop is None:
+            return
+
+        if not hasattr(self, "raw_hit_memory"):
+            self.raw_hit_memory = {}  # idx → List[(timestamp_ms, loop_id)]
+
+        grid_sec = getattr(self, "grid_times", [])
+        if not grid_sec:
+            return
+        grid_ms = [t * 1000 for t in grid_sec]
+
+        # Find closest subdivision
+        idx = min(range(len(grid_ms)), key=lambda i: abs(grid_ms[i] - hit_time_ms))
+
+        loop_id = self.loop_pass_count  # boucle logique actuelle
+        self.raw_hit_memory.setdefault(idx, [])
+        if loop_id in [lp for _, lp in self.raw_hit_memory[idx]]:
+            Brint(f"[NHIT] Ignored duplicate hit on subdiv {idx} for loop {loop_id}")
+            return
+
+        self.raw_hit_memory[idx].append((hit_time_ms, loop_id))
+        self.raw_hit_memory[idx] = self.raw_hit_memory[idx][-5:]
+        Brint(f"[NHIT] raw_hit_memory[{idx}] += {hit_time_ms / 1000:.3f}s")
+        self.update_subdivision_states()
+        
+    def update_subdivision_states(self):
+        Brint(f"[NHIT] 🔄 update_subdivision_states() called | loop_pass_count = {self.loop_pass_count}")
+        self.subdiv_states = {}  # idx → 1, 2, 3
+
+        for idx, hits in self.raw_hit_memory.items():
+            valid_hits = [(t, lp) for (t, lp) in hits if isinstance(t, (int, float)) and isinstance(lp, int)]
+            if not valid_hits:
+                continue
+
+            loop_ids = sorted(set(lp for _, lp in valid_hits))
+
+            if len(loop_ids) >= 3 and loop_ids[-3:] == list(range(loop_ids[-3], loop_ids[-3] + 3)):
+                self.subdiv_states[idx] = 3
+                self.confirmed_red_subdivisions[idx] = valid_hits[-3:]
+                Brint(f"[NHIT] Subdiv {idx} → RED (3) | loops = {loop_ids[-3:]}")
+            elif len(loop_ids) >= 2 and loop_ids[-2:] == list(range(loop_ids[-2], loop_ids[-2] + 2)):
+                self.subdiv_states[idx] = 2
+                Brint(f"[NHIT] Subdiv {idx} → ORANGE (2) | loops = {loop_ids[-2:]}")
+            else:
+                self.subdiv_states[idx] = 1
+                Brint(f"[NHIT] Subdiv {idx} → GRIS FONCÉ (1) | loops = {loop_ids}")
+
+
+
+    def decay_subdivision_states(self):
+        if not hasattr(self, "raw_hit_memory") or not self.raw_hit_memory:
+            return
+
+        current_loop = self.loop_pass_count
+        loop_duration = (self.loop_end - self.loop_start) if self.loop_start and self.loop_end else 0
+        decay_threshold = 1.2  # en nombre de boucles
+
+        for idx, hits in list(self.raw_hit_memory.items()):
+            filtered = [(t, lp) for (t, lp) in hits if isinstance(lp, int)]
+            if not filtered:
+                continue
+
+            last_loop = max(lp for _, lp in filtered)
+            delta_loops = current_loop - last_loop
+            if delta_loops > decay_threshold:
+                Brint(f"[NHIT] Subdiv {idx} → decay triggered (last seen loop {last_loop}, now {current_loop})")
+                self.raw_hit_memory[idx] = []
+                if idx in self.subdiv_states and self.subdiv_states[idx] < 3:
+                    del self.subdiv_states[idx]
+                if idx in self.confirmed_red_subdivisions:
+                    continue  # red = figé
+
+
+
+
+
+
+    def _update_red_subdivisions(self, hit_time_ms):
+        if not hasattr(self, "confirmed_red_subdivisions"):
+            self.confirmed_red_subdivisions = {}
+
+        if not hasattr(self, "raw_hit_memory"):
+            self.raw_hit_memory = {}
+
+        grid_sec = getattr(self, "grid_times", [])
+        if not grid_sec:
+            return
+
+        grid_ms = [t * 1000 for t in grid_sec]
+        interval = grid_ms[1] - grid_ms[0] if len(grid_ms) > 1 else 0
+        loop_dur_ms = self.loop_end - self.loop_start if self.loop_end and self.loop_start is not None else 0
+
+        # Exclude hits far outside the loop
+        if hit_time_ms < self.loop_start - interval or hit_time_ms > self.loop_end + interval:
+            return
+
+        # Find closest subdivision
+        idx = min(range(len(grid_ms)), key=lambda i: abs(grid_ms[i] - hit_time_ms))
+
+        # Determine loop pass
+        loop_pass = int((hit_time_ms - self.loop_start) // loop_dur_ms) if loop_dur_ms else 0
+
+        # Init list
+        if idx not in self.raw_hit_memory:
+            self.raw_hit_memory[idx] = []
+
+        # Nettoyage préventif (évite les floats seuls ou mauvais formats)
+        self.raw_hit_memory[idx] = [
+            hit for hit in self.raw_hit_memory[idx]
+            if isinstance(hit, tuple) and len(hit) == 2 and isinstance(hit[1], int)
+        ]
+
+        # Ajout du nouveau hit
+        self.raw_hit_memory[idx].append((hit_time_ms, loop_pass))
+        self.raw_hit_memory[idx] = [
+            (t, lp) for (t, lp) in self.raw_hit_memory[idx]
+            if isinstance(t, (int, float)) and isinstance(lp, int)
+        ][-5:]  # garde les 5 derniers
+
+
+        # Limite mémoire à 5 hits
+        self.raw_hit_memory[idx] = self.raw_hit_memory[idx][-5:]
+
+        # Vérifie s’il y a 3 loop_pass consécutifs
+        recent_passes = sorted(set(lp for _, lp in self.raw_hit_memory[idx]))
+        for i in range(len(recent_passes) - 2):
+            if (recent_passes[i+1] == recent_passes[i] + 1 and
+                recent_passes[i+2] == recent_passes[i] + 2):
+                target_passes = {recent_passes[i], recent_passes[i+1], recent_passes[i+2]}
+                red_hits = [t for t, lp in self.raw_hit_memory[idx] if lp in target_passes]
+                if len(red_hits) >= 3:
+                    self.confirmed_red_subdivisions[idx] = red_hits[:3]
+                    Brint(f"[NHIT] Subdiv {idx} → RED with hits: {red_hits[:3]}")
+                    break
+
+    def offset_red_subdivisions(self, direction):
+        """Shift all red subdivision hits up/down by one subdivision unit."""
+        bpm = getattr(self, "tempo_bpm", 0)
+        if bpm <= 0 or not getattr(self, "grid_times", None):
+            return
+        interval = (60.0 / bpm / self.get_subdivisions_per_beat()) * 1000  # in ms
+
+        new_reds = {}
+        for idx, timestamps in self.confirmed_red_subdivisions.items():
+            new_ts = [t + direction * interval for t in timestamps]
+            new_reds[idx] = new_ts
+            Brint(f"[NHIT] Offset subdiv {idx}: {timestamps} → {new_ts}")
+        self.confirmed_red_subdivisions = new_reds
+
+    def reset_red_hits(self):
+        self.confirmed_red_subdivisions = {}
+        self.raw_hit_memory = {}
+        Brint("[NHIT] All red hits reset")
+
+    def get_subdivision_state(self, idx):
+        return self.subdivision_state.get(idx, 0)
+    
+    def associate_hits_to_subdivisions(self):
+        """
+        Associe tous les hits rouges (confirmés) à la subdivision la plus proche
+        selon la grille actuelle. Écrase les anciennes associations.
+        """
+        if not getattr(self, "confirmed_red_subdivisions", None):
+            self.confirmed_red_subdivisions = {}
+            return self.confirmed_red_subdivisions
+
+        grid_sec = getattr(self, "grid_times", [])
+        if not grid_sec:
+            return self.confirmed_red_subdivisions
+
+        grid_ms = [t * 1000 for t in grid_sec]
+        if not grid_ms:
+            Brint("[NHIT] ⚠️ associate_hits_to_subdivisions() — grid_ms est vide, skip association")
+            return {}
+
+        if len(grid_ms) < 2:
+            return self.confirmed_red_subdivisions
+
+        reassociated = {}
+        for t in [ts for hits in self.confirmed_red_subdivisions.values() for ts in hits]:
+
+
+            idx = min(range(len(grid_ms)), key=lambda i: abs(grid_ms[i] - t))
+            if idx not in reassociated:
+                reassociated[idx] = []
+            reassociated[idx].append(t)
+            Brint(f"[RED REASSOC] Hit {t:.1f}ms reassocié à subdiv {idx} (grille @ {grid_ms[idx]:.1f}ms)")
+
+        self.confirmed_red_subdivisions = reassociated
+        Brint(f"[RED REASSOC] ✅ {len(reassociated)} subdivisions rouges mises à jour")
+        return self.confirmed_red_subdivisions
+
+
+
+
+
+
+
+
+
+
+
+
+    def offset_all_hit_timestamps(self, direction):
+        """Shift all hit timestamps by one subdivision forward or backward."""
+        bpm = getattr(self, "tempo_bpm", 0)
+        if bpm <= 0:
+            Brint("[OFFSET HITS] tempo_bpm manquant – opération annulée")
+            return
+        interval = 60.0 / bpm / self.get_subdivisions_per_beat()
+        # Keep track of which subdivisions were confirmed (state = 2) prior to the shift
+
+        prev_confirmed = {
+            idx for idx, state in getattr(self, "subdivision_state", {}).items() if state == 2
+        }
+        force_state_indices = []
+        if prev_confirmed and getattr(self, "persistent_validated_hit_timestamps", None):
+            # Use the ordered grid_times list so indices correspond to subdivision_state keys
+            grid_times = getattr(self, "grid_times", [])
+            if not grid_times and getattr(self, "precomputed_grid_infos", None):
+                grid_times = [
+                    info["t_subdiv_sec"] for _, info in sorted(self.precomputed_grid_infos.items())
+                ]
+
+            for t in self.get_all_red_hit_timestamps():
+                idx_old = self.current_loop.timestamp_to_subdiv_index(t, grid_times)
+                if idx_old in prev_confirmed:
+                    t_new = t + direction * interval
+                    idx_new = self.current_loop.timestamp_to_subdiv_index(t_new, grid_times)
+                    if idx_new is not None:
+                        force_state_indices.append(idx_new)
+        if hasattr(self, "user_hit_timestamps"):
+            self.user_hit_timestamps = [
+                (t + direction * interval, lp) for t, lp in self.user_hit_timestamps
+            ]
+        if hasattr(self, "persistent_validated_hit_timestamps"):
+            self.confirmed_red_subdivisions = {
+                idx: [t + direction * interval for t in hits]
+                for idx, hits in self.confirmed_red_subdivisions.items()
+            }
+        # After shifting, remap persistent hits so that red subdivisions follow
+        self.remap_persistent_validated_hits()
+        for idx in force_state_indices:
+            self.subdivision_state[idx] = 2
+            Brint(f"[OFFSET HITS] Forced state=2 on subdiv {idx} after offset")
+        if hasattr(self, "refresh_chord_editor"):
+            try:
+                self.refresh_chord_editor()
+            except AttributeError:
+                pass
+        Brint(
+            f"[OFFSET HITS] Décalage de {direction:+d} subdiv → Δ={direction*interval:.3f}s"
+        )
+        if hasattr(self, "draw_syllabic_grid_heatmap"):
+            try:
+                self.draw_syllabic_grid_heatmap()
+            except AttributeError:
+                pass
+
+    def shift_all_hit_timestamps(self, delta_sec):
+        """Shift all hit timestamps by an arbitrary time delta."""
+        if delta_sec == 0:
+            return
+        if hasattr(self, "user_hit_timestamps"):
+            self.user_hit_timestamps = [
+                (t + delta_sec, lp) for t, lp in self.user_hit_timestamps
+            ]
+        self.confirmed_red_subdivisions = {
+            idx: [t + delta_sec * 1000 for t in hits]
+            for idx, hits in self.confirmed_red_subdivisions.items()
+        }
+
+        self.remap_persistent_validated_hits()
     
     def time_ms_to_canvas_x(self, t_ms):
         zoom_ratio = self.loop_zoom_ratio or 1.0
@@ -3005,6 +3572,39 @@ class VideoPlayer:
             return "?"
 
 
+    def get_all_red_hit_timestamps(self):
+        """Renvoie tous les timestamps (en secondes) des subdivisions rouges."""
+        if not hasattr(self, "confirmed_red_subdivisions"):
+            return set()
+        return set(t / 1000.0 for hits in self.confirmed_red_subdivisions.values() for t in hits)
+
+
+    def toggle_subdiv_state_manual(self, subdiv_index, t_ms):
+        """
+        Active ou désactive manuellement une subdivision rouge.
+        Si déjà rouge, elle est supprimée ; sinon, ajoutée avec le timestamp donné.
+        """
+        if not hasattr(self, "confirmed_red_subdivisions"):
+            self.confirmed_red_subdivisions = {}
+        if not hasattr(self, "subdivision_state"):
+            self.subdivision_state = {}
+
+        t_ms = int(t_ms)  # sécurité
+        t_list = self.confirmed_red_subdivisions.get(subdiv_index, [])
+
+        if subdiv_index in self.confirmed_red_subdivisions:
+            del self.confirmed_red_subdivisions[subdiv_index]
+            self.subdivision_state[subdiv_index] = 0
+            if hasattr(self, "raw_hit_memory") and subdiv_index in self.raw_hit_memory:
+                del self.raw_hit_memory[subdiv_index]
+            Brint(f"[TOGGLE] Subdiv {subdiv_index} reset (removed {t_ms} ms)")
+        else:
+            self.confirmed_red_subdivisions[subdiv_index] = [t_ms] * 3
+            self.subdivision_state[subdiv_index] = 3
+            Brint(f"[TOGGLE] Subdiv {subdiv_index} set RED (added {t_ms} ms)")
+
+        if hasattr(self, "draw_rhythm_grid_canvas"):
+            self.draw_rhythm_grid_canvas()
 
     def apply_all_chords(self, entry_vars, popup):
         Brint("[DEBUG] ✅ Application des modifications")
@@ -3075,6 +3675,15 @@ class VideoPlayer:
             return False, "Loop start ou end non numériques"
         if loop["loop_start"] >= loop["loop_end"]:
             return False, f"Loop start >= loop end ({loop['loop_start']} >= {loop['loop_end']})"
+
+        ctx = loop.get("confirmed_hit_context")
+        if ctx is not None:
+            if not isinstance(ctx, dict):
+                return False, "confirmed_hit_context invalide"
+            if "timestamps" in ctx and not isinstance(ctx["timestamps"], list):
+                return False, "timestamps doit être une liste"
+            if "grid_mode" in ctx and ctx["grid_mode"] is not None and not isinstance(ctx["grid_mode"], str):
+                return False, "grid_mode doit être une chaîne ou None"
         return True, None
 
     
@@ -3252,12 +3861,6 @@ class VideoPlayer:
     def safe_jump_to_time(self, target_ms, source="UNKNOWN"):
         Brint(f"[PH JUMP] 🚀 {source} → jump à {int(target_ms)} ms demandé")
 
-        if (
-            target_ms == getattr(self, "loop_start", None)
-            and str(source).startswith("Jump B")
-        ):
-            self.reset_zoom_next_frame = True
-
         self.player.set_time(int(target_ms))
         self.set_forced_jump(True, source=source)
         self.safe_update_playhead(target_ms, source)
@@ -3289,7 +3892,13 @@ class VideoPlayer:
             "tempo_bpm": self.current_loop.tempo_bpm,
             "key": self.current_loop.key,
             "mode": self.current_loop.mode,
-            "loop_zoom_ratio": getattr(self, "loop_zoom_ratio", None)  # ✅ new field
+            "loop_zoom_ratio": getattr(self, "loop_zoom_ratio", None),  # ✅ new field
+            "confirmed_hit_context": {
+                "timestamps": sorted(self.get_all_red_hit_timestamps()),
+                "grid_mode": self.subdivision_mode,
+            },
+            "hit_timings": self.get_current_hit_timings(),
+            "hit_timestamps": self.get_current_hit_timestamps(),
         }
 
         is_valid, reason = self.validate_loop_data(loop_data)
@@ -3302,6 +3911,26 @@ class VideoPlayer:
               f"tempo = {loop_data['tempo_bpm']}, key = {loop_data['key']}, mode = {loop_data['mode']}")
         return loop_data
 
+    def get_current_hit_timings(self):
+        """Return timings (in sec) of red hits, normalized to current loop."""
+        if not getattr(self, "confirmed_red_subdivisions", None):
+            return []
+        if self.loop_end is None or self.loop_start is None:
+            return []
+
+        loop_duration_s = (self.loop_end - self.loop_start) / 1000.0
+        if loop_duration_s <= 0:
+            return []
+
+        red_hits = [t for hits in self.confirmed_red_subdivisions.values() for t in hits]
+        timings = [(t / 1000.0) % loop_duration_s for t in red_hits]
+        return sorted(timings)
+
+    def get_current_hit_timestamps(self):
+        """Return list of all red hit timestamps in ms."""
+        if not getattr(self, "confirmed_red_subdivisions", None):
+            return []
+        return sorted(int(t) for hits in self.confirmed_red_subdivisions.values() for t in hits)
 
     
         
@@ -3415,24 +4044,19 @@ class VideoPlayer:
             chk = tk.Checkbutton(self.flags_window, text=flag, variable=var, command=toggle)
             chk.pack(anchor='w')
 
-    def reset_zoom_slider(self):
-        idx = self.zoom_levels.index(min(self.zoom_levels, key=lambda z: abs(z - 0.8)))
-        self.zoom_slider.set(idx)  # Reset à 80%
-        self.on_loop_zoom_change(idx)   # Applique immédiatement le changement
-        Brint("[ZOOM] 🔄 Reset zoom boucle à 80%")
-
-
-    def on_loop_zoom_change(self, val):
-        idx = int(float(val))
-        self.loop_zoom_ratio = self.zoom_levels[idx]
-        Brint(f"[ZOOM] 🔍 Zoom boucle réglé sur {self.loop_zoom_ratio:.2f} (AB = {int(self.loop_zoom_ratio*100)}% de la timeline)")
+    def apply_loop_zoom_ratio(self, ratio):
+        """Apply the given zoom ratio to the loop and refresh display."""
+        self.loop_zoom_ratio = ratio
+        Brint(
+            f"[ZOOM] 🔍 Zoom boucle réglé sur {self.loop_zoom_ratio:.2f} (AB = {int(self.loop_zoom_ratio * 100)}% de la timeline)"
+        )
 
         if self.loop_start is not None and self.loop_end is not None and self.duration:
-            loop_width_ms = max(4000.0, self.loop_end - self.loop_start)
+            loop_width_ms = max(float(MIN_ZOOM_RANGE_MS), self.loop_end - self.loop_start)
             center_ms = (self.loop_start + self.loop_end) / 2.0
             desired_ms = loop_width_ms / self.loop_zoom_ratio
             if self.loop_zoom_ratio > 1.0:
-                desired_ms = max(4000.0, desired_ms)
+                desired_ms = max(float(MIN_ZOOM_RANGE_MS), desired_ms)
                 desired_ms = min(desired_ms, loop_width_ms)
             zoom_start = max(0.0, center_ms - desired_ms / 2.0)
             zoom_end = min(self.duration, zoom_start + desired_ms)
@@ -3445,33 +4069,31 @@ class VideoPlayer:
         self.refresh_static_timeline_elements()
         self.draw_rhythm_grid_canvas()
 
-    def decrease_loop_zoom(self):
-        """Decrease zoom slider index by one step."""
-        idx = int(self.zoom_slider.get())
-        min_idx = int(self.zoom_slider['from'])
-        if idx > min_idx:
-            new_idx = idx - 1
-            self.zoom_slider.set(new_idx)
-            self.on_loop_zoom_change(new_idx)
+    def compute_ratio_for_4s(self):
+        """Return the zoom ratio that shows approximately 4 seconds of the loop."""
+        if self.loop_start is None or self.loop_end is None:
+            return 1.0
+        loop_width_ms = max(float(MIN_ZOOM_RANGE_MS), self.loop_end - self.loop_start)
+        return loop_width_ms / float(MIN_ZOOM_RANGE_MS)
 
-    def increase_loop_zoom(self):
-        """Increase zoom slider index by one step."""
-        idx = int(self.zoom_slider.get())
-        max_idx = int(self.zoom_slider['to'])
-        if idx < max_idx:
-            new_idx = idx + 1
-            self.zoom_slider.set(new_idx)
-            self.on_loop_zoom_change(new_idx)
+    def on_zoom_ratio_change(self):
+        val = self.zoom_ratio_var.get()
+        if val == self.zoom_auto_code:
+            ratio = self.compute_ratio_for_4s()
+        else:
+            ratio = float(val)
+        self.apply_loop_zoom_ratio(ratio)
 
 
+    
 
     def get_loop_zoom_range(self):
         if self.loop_start and self.loop_end:
-            loop_width_sec = max(4.0, (self.loop_end - self.loop_start) / 1000.0)
+            loop_width_sec = max(MIN_ZOOM_RANGE_MS / 1000.0, (self.loop_end - self.loop_start) / 1000.0)
             center_sec = (self.loop_start + self.loop_end) / 2000.0
             desired_sec = loop_width_sec / self.loop_zoom_ratio
             if self.loop_zoom_ratio > 1.0:
-                desired_sec = max(4.0, desired_sec)
+                desired_sec = max(MIN_ZOOM_RANGE_MS / 1000.0, desired_sec)
                 desired_sec = min(desired_sec, loop_width_sec)
             zoom_start = max(0, center_sec - desired_sec / 2.0)
             zoom_end = min(self.duration / 1000.0, center_sec + desired_sec / 2.0)
@@ -3739,39 +4361,7 @@ class VideoPlayer:
         Brint(f"[DEBUG CYCLE] Après update notes → accords = {len(self.current_loop.chords)}")
 
         # Remap persistent validated hits to the new grid
-        Brint("[REMAP_VALIDATED_HITS cycle_subdivision_mode_backward] Clearing old subdivision_state.")
-        self.subdivision_state.clear()
-
-        if not hasattr(self, 'persistent_validated_hit_timestamps') or not self.persistent_validated_hit_timestamps:
-            Brint("[REMAP_VALIDATED_HITS cycle_subdivision_mode_backward] No persistent validated hit timestamps to remap.")
-        elif not hasattr(self, 'precomputed_grid_infos') or not self.precomputed_grid_infos:
-            Brint("[REMAP_VALIDATED_HITS_ERROR cycle_subdivision_mode_backward] precomputed_grid_infos not available for remapping.")
-        else:
-            Brint(f"[REMAP_VALIDATED_HITS cycle_subdivision_mode_backward] Remapping {len(self.persistent_validated_hit_timestamps)} persistent hit timestamps...")
-            current_grid_times_map = {idx: info['t_subdiv_sec'] for idx, info in self.precomputed_grid_infos.items()}
-
-            if not current_grid_times_map:
-                Brint("[REMAP_VALIDATED_HITS_ERROR cycle_subdivision_mode_backward] current_grid_times_map is empty.")
-            else:
-                grid_times_list = sorted(current_grid_times_map.values())
-                intervals = [t2 - t1 for t1, t2 in zip(grid_times_list[:-1], grid_times_list[1:])]
-                avg_interval_sec = sum(intervals) / len(intervals) if intervals else 0.5
-                tolerance = avg_interval_sec / 3.0
-
-                for timestamp_sec in self.persistent_validated_hit_timestamps:
-                    new_closest_subdiv_idx = None
-                    min_delta = float('inf')
-                    for subdiv_idx, subdiv_t_sec in current_grid_times_map.items():
-                        delta = abs(subdiv_t_sec - timestamp_sec)
-                        if delta < min_delta:
-                            min_delta = delta
-                            new_closest_subdiv_idx = subdiv_idx
-
-                    if new_closest_subdiv_idx is not None and min_delta <= tolerance:
-                        self.subdivision_state[new_closest_subdiv_idx] = 2
-                        Brint(f"[REMAP_VALIDATED_HITS cycle_subdivision_mode_backward] Timestamp {timestamp_sec:.3f}s remapped to new subdiv {new_closest_subdiv_idx} (state 2) with delta {min_delta:.3f}s.")
-                    else:
-                        Brint(f"[REMAP_VALIDATED_HITS_WARN cycle_subdivision_mode_backward] Timestamp {timestamp_sec:.3f}s (min_delta {min_delta:.3f}s > tol {tolerance:.3f}s) could not be reliably remapped to any subdiv in the new grid.")
+        self.remap_persistent_validated_hits()
 
         # 🔍 Debug : affichage des 10 premières notes de la master list
         Brint("[DEBUG] 🔍 master_note_list (extrait) :")
@@ -3802,39 +4392,7 @@ class VideoPlayer:
         self.rebuild_loop_context()  # ← met à jour self.grid_subdivs ET chords si tu les relies dedans
 
         # Remap persistent validated hits to the new grid
-        Brint("[REMAP_VALIDATED_HITS cycle_subdivision_mode] Clearing old subdivision_state.")
-        self.subdivision_state.clear()
-
-        if not hasattr(self, 'persistent_validated_hit_timestamps') or not self.persistent_validated_hit_timestamps:
-            Brint("[REMAP_VALIDATED_HITS cycle_subdivision_mode] No persistent validated hit timestamps to remap.")
-        elif not hasattr(self, 'precomputed_grid_infos') or not self.precomputed_grid_infos:
-            Brint("[REMAP_VALIDATED_HITS_ERROR cycle_subdivision_mode] precomputed_grid_infos not available for remapping.")
-        else:
-            Brint(f"[REMAP_VALIDATED_HITS cycle_subdivision_mode] Remapping {len(self.persistent_validated_hit_timestamps)} persistent hit timestamps...")
-            current_grid_times_map = {idx: info['t_subdiv_sec'] for idx, info in self.precomputed_grid_infos.items()}
-
-            if not current_grid_times_map:
-                Brint("[REMAP_VALIDATED_HITS_ERROR cycle_subdivision_mode] current_grid_times_map is empty.")
-            else:
-                grid_times_list = sorted(current_grid_times_map.values())
-                intervals = [t2 - t1 for t1, t2 in zip(grid_times_list[:-1], grid_times_list[1:])]
-                avg_interval_sec = sum(intervals) / len(intervals) if intervals else 0.5
-                tolerance = avg_interval_sec / 3.0
-
-                for timestamp_sec in self.persistent_validated_hit_timestamps:
-                    new_closest_subdiv_idx = None
-                    min_delta = float('inf')
-                    for subdiv_idx, subdiv_t_sec in current_grid_times_map.items():
-                        delta = abs(subdiv_t_sec - timestamp_sec)
-                        if delta < min_delta:
-                            min_delta = delta
-                            new_closest_subdiv_idx = subdiv_idx
-
-                    if new_closest_subdiv_idx is not None and min_delta <= tolerance:
-                        self.subdivision_state[new_closest_subdiv_idx] = 2
-                        Brint(f"[REMAP_VALIDATED_HITS cycle_subdivision_mode] Timestamp {timestamp_sec:.3f}s remapped to new subdiv {new_closest_subdiv_idx} (state 2) with delta {min_delta:.3f}s.")
-                    else:
-                        Brint(f"[REMAP_VALIDATED_HITS_WARN cycle_subdivision_mode] Timestamp {timestamp_sec:.3f}s (min_delta {min_delta:.3f}s > tol {tolerance:.3f}s) could not be reliably remapped to any subdiv in the new grid.")
+        self.remap_persistent_validated_hits()
 
         self.update_all_detected_notes_from_master()  # ← très important
 
@@ -3912,7 +4470,7 @@ class VideoPlayer:
             "beat": base_beat,
             "8th": base_beat / (3 if rhythm_type == "ternary" else 2),
             "16th": base_beat / (6 if rhythm_type == "ternary" else 4),
-            "64th": base_beat / (24 if rhythm_type == "ternary" else 16)
+            "64th": base_beat / (48 if rhythm_type == "ternary" else 32)
 
         }
         Brint(f"[SCORE jumps] RHYTHMe jump → BPM={bpm:.2f} | bar={levels['bar']} | beat={levels['beat']}")
@@ -3978,6 +4536,7 @@ class VideoPlayer:
                 delta_ms = self.get_jump_duration_ms(level)
         else:
             delta_ms = self.get_jump_duration_ms(level)
+       
 
         mode = self.edit_mode.get() if hasattr(self, "edit_mode") else None
 
@@ -4084,7 +4643,15 @@ class VideoPlayer:
         Brint(f"[DEBUG] → {len(subdiv_mapping)} subdivisions avec notes mappées")
 
         popup = tk.Toplevel(self.root)
+        self.chord_editor_popup = popup
         popup.title(f"Modifier accords/notes de '{self.current_loop.name}' (key={self.current_loop.key})")
+
+        def on_popup_close():
+            self.chord_editor_popup = None
+            self.chord_editor_note_entries = []
+            popup.destroy()
+
+        popup.protocol("WM_DELETE_WINDOW", on_popup_close)
 
         beats_per_measure = 4
         subdivs_per_beat = self.subdivs_per_beat
@@ -4293,7 +4860,7 @@ class VideoPlayer:
                 Brint("[UI] 🔁 Redessin harmonique post-reset notes")
                 self.draw_harmony_grid_overlay()
 
-            for subdiv_i, var, t_ms in note_entry_vars:
+            for subdiv_i, var, t_ms, _ in note_entry_vars:
                 make_handler(subdiv_i, var, t_ms)(None)
 
             if hasattr(self, "save_current_loop"):
@@ -4317,7 +4884,30 @@ class VideoPlayer:
             else:
                 Brint("[SAVE] ❌ Fonction save_current_loop non disponible")
 
-            popup.destroy()
+            on_popup_close()
+
+        # ---- Selection & toggle helpers ----
+        self.selected_subdiv_index = None
+        self.selected_subdiv_timestamp = None
+
+        def focus_handler(subdiv_i, t_ms, widget):
+            self.selected_subdiv_index = subdiv_i
+            self.selected_subdiv_timestamp = t_ms
+            self._selected_entry_widget = widget
+
+        def toggle_selected_subdiv(event=None):
+            if self.selected_subdiv_index is None:
+                Brint("[TOGGLE] No subdiv selected")
+                return
+            self.toggle_subdiv_state_manual(self.selected_subdiv_index, self.selected_subdiv_timestamp)
+            # update entry highlight
+            for si, _, _, entry in note_entry_vars:
+                if si == self.selected_subdiv_index:
+                    if self.subdivision_state.get(si, 0) == 2:
+                        entry.configure(highlightbackground="red", highlightcolor="red", highlightthickness=2)
+                    else:
+                        entry.configure(highlightthickness=0)
+                    break
 
 
         for measure_index in range(total_measures):
@@ -4451,9 +5041,10 @@ class VideoPlayer:
                 if has_hit_2 and getattr(self, "subdivision_state", {}).get(subdiv_index, 0) == 2:
                     note_entry.configure(highlightbackground="red", highlightcolor="red", highlightthickness=2)
 
+                note_entry.bind("<FocusIn>", lambda e, si=subdiv_index, tm=t_ms: focus_handler(si, tm, e.widget))
                 note_entry.bind("<FocusOut>", make_handler(subdiv_index, note_var, t_ms))
                 note_entry.pack()
-                note_entry_vars.append((subdiv_index, note_var, t_ms))
+                note_entry_vars.append((subdiv_index, note_var, t_ms, note_entry))
 
                 entry_vars.append((subdiv_index, note_var))
         # --- 🔧 PATCH COMPLÉTION AUTOMATIQUE PHANTOM UNIQUEMENT POUR LA DERNIÈRE MESURE ---
@@ -4515,6 +5106,10 @@ class VideoPlayer:
         btn_frame.pack(pady=10, anchor="e", padx=20)
 
         tk.Button(btn_frame, text="✅ Appliquer", command=apply_all_and_close).pack(side="right", padx=(10, 0))
+        tk.Button(btn_frame, text="Toggle Hit", command=toggle_selected_subdiv).pack(side="right", padx=(10, 0))
+        popup.bind('<Control-r>', toggle_selected_subdiv)
+        popup.bind('[', lambda e: self.offset_red_subdivisions(-1))
+        popup.bind(']', lambda e: self.offset_red_subdivisions(+1))
 
         def reset_all_chords():
             Brint("[RESET] 🔁 Réinitialisation de tous les accords")
@@ -4526,10 +5121,12 @@ class VideoPlayer:
 
         def reset_all_notes():
             Brint("[RESET] 🔁 Réinitialisation de toutes les notes")
-            for _, note_var, _ in note_entry_vars:
+            for _, note_var, _, _ in note_entry_vars:
                 note_var.set("")
 
         tk.Button(btn_frame, text="🗑️ Notes", command=reset_all_notes).pack(side="right", padx=(10, 0))
+
+        self.chord_editor_note_entries = note_entry_vars
 
 
 
@@ -4780,7 +5377,7 @@ class VideoPlayer:
 
 
     def dump_playhead_debug_log(self, n=10):
-        Brint(f"[TBD]\n[DEBUG LOG] Dernières {n} positions du playhead :")
+        Brint(f"\n[DEBUG LOG] Dernières {n} positions du playhead :")
         if not hasattr(self, "_debug_playhead_log"): self._debug_playhead_log = []
 
         for entry in self._debug_playhead_log[-n:]:
@@ -4793,7 +5390,7 @@ class VideoPlayer:
             if entry["frozen"]:
                 status += "❄️frozen "
             Brint(f"[TBD]  - t={t}ms | x={x} | mode={mode} {status}")
-            Brint(f"[TBD]\n[STATS] x min = {self._debug_x_min}, x max = {self._debug_x_max}")
+            Brint(f"\n[STATS] x min = {self._debug_x_min}, x max = {self._debug_x_max}")
 
 
 
@@ -4850,11 +5447,7 @@ class VideoPlayer:
             text="Pause each update",
             variable=self.pause_each_update,
         ).pack(anchor="w")
-        tk.Button(
-            self.state_window,
-            text="Step",
-            command=self.step_once,
-        ).pack(anchor="w")
+        # Step button removed (unused)
 
         tk.Label(self.state_window, text="Update delay (ms)").pack(anchor="w")
         tk.Entry(self.state_window, textvariable=self.update_delay_ms_var, width=6).pack(anchor="w")
@@ -4935,49 +5528,61 @@ class VideoPlayer:
         self.build_rhythm_grid()
         self.draw_rhythm_grid_canvas()
         self.compute_rhythm_grid_infos()
-
-        # Ensure current_loop has the updated grid information before mapping
-        if hasattr(self, "current_loop") and self.current_loop is not None:
+        # Ensure LoopData instance keeps its grid in sync with the player
+        if hasattr(self, "current_loop") and isinstance(self.current_loop, LoopData):
+            self.grid_subdivs = [(i, t) for i, t in enumerate(self.grid_times)]
             self.current_loop.grid_times = self.grid_times
             self.current_loop.grid_subdivs = self.grid_subdivs
 
         # Remap persistent validated hits to the new grid
-        Brint("[REMAP_VALIDATED_HITS] Clearing old subdivision_state before remapping.")
-        self.subdivision_state.clear()
-
-        if not hasattr(self, 'persistent_validated_hit_timestamps') or not self.persistent_validated_hit_timestamps:
-            Brint("[REMAP_VALIDATED_HITS] No persistent validated hit timestamps to remap.")
-        elif not hasattr(self, 'precomputed_grid_infos') or not self.precomputed_grid_infos:
-            Brint("[REMAP_VALIDATED_HITS_ERROR] precomputed_grid_infos not available for remapping.")
-        else:
-            Brint(f"[REMAP_VALIDATED_HITS] Remapping {len(self.persistent_validated_hit_timestamps)} persistent hit timestamps...")
-            current_grid_times_map = {idx: info['t_subdiv_sec'] for idx, info in self.precomputed_grid_infos.items()}
-
-            if not current_grid_times_map:
-                Brint("[REMAP_VALIDATED_HITS_ERROR] current_grid_times_map is empty.")
-            else:
-                grid_times_list = sorted(current_grid_times_map.values())
-                intervals = [t2 - t1 for t1, t2 in zip(grid_times_list[:-1], grid_times_list[1:])]
-                avg_interval_sec = sum(intervals) / len(intervals) if intervals else 0.5
-                tolerance = avg_interval_sec / 3.0
-
-                for timestamp_sec in self.persistent_validated_hit_timestamps:
-                    new_closest_subdiv_idx = None
-                    min_delta = float('inf')
-                    for subdiv_idx, subdiv_t_sec in current_grid_times_map.items():
-                        delta = abs(subdiv_t_sec - timestamp_sec)
-                        if delta < min_delta:
-                            min_delta = delta
-                            new_closest_subdiv_idx = subdiv_idx
-
-                    if new_closest_subdiv_idx is not None and min_delta <= tolerance:
-                        self.subdivision_state[new_closest_subdiv_idx] = 2
-                        Brint(f"[REMAP_VALIDATED_HITS] Timestamp {timestamp_sec:.3f}s remapped to new subdiv {new_closest_subdiv_idx} (state 2) with delta {min_delta:.3f}s.")
-                    else:
-                        Brint(f"[REMAP_VALIDATED_HITS_WARN] Timestamp {timestamp_sec:.3f}s (min_delta {min_delta:.3f}s > tol {tolerance:.3f}s) could not be reliably remapped to any subdiv in the new grid.")
+        self.remap_persistent_validated_hits()
 
         self.current_loop.map_notes_to_subdivs() # This should ideally happen after states are remapped if it depends on subdivision_state for any filtering
         self.refresh_note_display()
+
+
+    def remap_persistent_validated_hits(self):
+        """Map stored hit timestamps back to the current grid and set their states."""
+        # Verify grid data exists first so we don't clear the state unnecessarily
+        if not getattr(self, "precomputed_grid_infos", None):
+            Brint("[REMAP_VALIDATED_HITS_ERROR] precomputed_grid_infos not available for remapping.")
+            return
+
+        if not getattr(self, "persistent_validated_hit_timestamps", None):
+            Brint("[REMAP_VALIDATED_HITS] No persistent validated hit timestamps to remap.")
+            return
+
+        Brint("[REMAP_VALIDATED_HITS] Clearing old subdivision_state before remapping.")
+        if not hasattr(self, "subdivision_state"):
+            self.subdivision_state = {}
+        self.subdivision_state.clear()
+
+        Brint(f"[REMAP_VALIDATED_HITS] Remapping {len(self.persistent_validated_hit_timestamps)} persistent hit timestamps...")
+        current_grid_times_map = {idx: info['t_subdiv_sec'] for idx, info in self.precomputed_grid_infos.items()}
+        if not current_grid_times_map:
+            Brint("[REMAP_VALIDATED_HITS_ERROR] current_grid_times_map is empty.")
+            return
+
+        grid_times_list = sorted(current_grid_times_map.values())
+        intervals = [t2 - t1 for t1, t2 in zip(grid_times_list[:-1], grid_times_list[1:])]
+        avg_interval_sec = sum(intervals) / len(intervals) if intervals else 0.5
+        tolerance = avg_interval_sec / 2.0
+        Brint(f"[HIT WINDOW] ℹ️ Tolerance set to {tolerance:.3f}s (1/2 of {avg_interval_sec:.3f}s)")
+
+        for timestamp_sec in self.persistent_validated_hit_timestamps:
+            new_closest_subdiv_idx = None
+            min_delta = float('inf')
+            for subdiv_idx, subdiv_t_sec in current_grid_times_map.items():
+                delta = abs(subdiv_t_sec - timestamp_sec)
+                if delta < min_delta:
+                    min_delta = delta
+                    new_closest_subdiv_idx = subdiv_idx
+
+            if new_closest_subdiv_idx is not None and min_delta <= tolerance:
+                self.subdivision_state[new_closest_subdiv_idx] = 2
+                Brint(f"[REMAP_VALIDATED_HITS] Timestamp {timestamp_sec:.3f}s remapped to new subdiv {new_closest_subdiv_idx} (state 2) with delta {min_delta:.3f}s.")
+            else:
+                Brint(f"[REMAP_VALIDATED_HITS_WARN] Timestamp {timestamp_sec:.3f}s (min_delta {min_delta:.3f}s > tol {tolerance:.3f}s) could not be reliably remapped to any subdiv in the new grid.")
 
         
 
@@ -5030,6 +5635,14 @@ class VideoPlayer:
         else:
             self.grid_canvas.pack_forget()
             self.grid_toggle_button.config(text='Grille ▲')
+
+    def update_rhythm_grid_visibility(self):
+        self.rhythm_grid_enabled = self.show_rhythm_var.get()
+        self.draw_rhythm_grid_canvas()
+
+    def update_harmony_grid_visibility(self):
+        self.harmony_grid_enabled = self.show_harmony_var.get()
+        self.draw_harmony_grid_overlay()
 
     def toggle_mode_bar(self, event=None): # Add event=None if it's directly bound to a key
         self.mode_bar_enabled = not self.mode_bar_enabled
@@ -5348,9 +5961,9 @@ class VideoPlayer:
         #recentfiles
     def load_recent_files(self):
         try:
-            with open("recent_files.json", "r", encoding="utf-8") as f:
+            with open(RECENT_FILES_PATH, "r", encoding="utf-8") as f:
                 self.recent_files = json.load(f)
-        except:
+        except Exception:
             self.recent_files = []
 
     def quick_open_recent(self):
@@ -5370,7 +5983,7 @@ class VideoPlayer:
         """Ajoute un fichier média aux fichiers récents, enregistre la loop courante associée, et met à jour recent_files.json"""
         # 🔁 Chargement de la structure complète depuis le fichier JSON
         try:
-            with open("recent_files.json", "r", encoding="utf-8") as f:
+            with open(RECENT_FILES_PATH, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 if isinstance(data, list):  # support ancien format simple
                     data = {
@@ -5406,7 +6019,7 @@ class VideoPlayer:
 
         # 💾 Sauvegarde dans le fichier JSON
         try:
-            with open("recent_files.json", "w", encoding="utf-8") as f:
+            with open(RECENT_FILES_PATH, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
             Brint(f"[RECENT] ✅ Ajouté : {path} | Dernière loop = {loop_name}")
         except Exception as e:
@@ -5486,13 +6099,68 @@ class VideoPlayer:
             return
         try:
             path = self.abloops_json_path()
+            if os.path.exists(path):
+                backup_path = path + ".bak"
+                try:
+                    shutil.copy2(path, backup_path)
+                    Brint(f"[UNDO] Backup enregistré dans {backup_path}")
+                except Exception as e:
+                    Brint(f"[UNDO] ❌ Échec de la sauvegarde de backup: {e}")
             with open(path, "w", encoding="utf-8") as f:
                 json.dump({
                     "loops": self.saved_loops
                 }, f, indent=2)
             Brint(f"[TBD] 💾 Boucles sauvegardées dans {path}")
+            Brint(f"[NHIT] Saved hits with loop to file: {path} | {self.abph_stamp()}")
         except Exception as e:
             Brint(f"[TBD] ❌ Erreur sauvegarde boucles: {e}")
+
+    def restore_loops_from_backup(self, event=None):
+        if not hasattr(self, "current_path") or not self.current_path:
+            return
+        path = self.abloops_json_path()
+        backup_path = path + ".bak"
+        if not os.path.exists(backup_path):
+            self.log_to_console("❌ Aucun backup à restaurer")
+            Brint(f"[UNDO] Aucun backup trouvé à {backup_path}")
+            return
+        try:
+            shutil.copy2(backup_path, path)
+            self.load_saved_loops()
+            self.log_to_console("↩️ Boucles restaurées")
+            Brint(f"[UNDO] Boucles restaurées depuis {backup_path}")
+        except Exception as e:
+            Brint(f"[UNDO] ❌ Erreur restauration backup: {e}")
+
+    def save_temp_loop(self):
+        """Save current loop to a temporary JSON file."""
+        if not hasattr(self, "temp_loop_save_path") or not self.temp_loop_save_path:
+            return
+        if not hasattr(self, "current_loop") or not isinstance(self.current_loop, LoopData):
+            return
+        try:
+            with open(self.temp_loop_save_path, "w", encoding="utf-8") as f:
+                json.dump({"loops": [self.current_loop.to_dict()]}, f, indent=2)
+            Brint(f"[TEMP SAVE] Loop written to {self.temp_loop_save_path}")
+        except Exception as e:
+            Brint(f"[TEMP SAVE ERROR] {e}")
+
+    def cleanup_temp_loop(self):
+        if getattr(self, "temp_loop_save_path", None) and os.path.exists(self.temp_loop_save_path):
+            try:
+                os.remove(self.temp_loop_save_path)
+                Brint(f"[TEMP SAVE] Removed {self.temp_loop_save_path}")
+            except Exception as e:
+                Brint(f"[TEMP SAVE ERROR] Unable to remove temp file: {e}")
+
+    def on_subdiv_validated(self, subdiv_index):
+        """Called when a subdivision reaches red (state=2)."""
+        Brint(f"[AUTO SAVE] Subdiv {subdiv_index} validated → temp save")
+        self.save_temp_loop()
+
+    def on_app_close(self):
+        self.cleanup_temp_loop()
+        self.root.destroy()
 
 
 
@@ -5582,7 +6250,7 @@ class VideoPlayer:
         # self.save_zoom_prefs()
 
     def update_pan(self, user_action="UNKNOWN"):
-        Brint(f"[TBD] 🔵 [ACTION] Utilisateur a demandé : {user_action}")
+        Brint(f"🔵 [ACTION] Utilisateur a demandé : {user_action}")
         if hasattr(self, 'player') and self.player.get_media():
             video_w = self.player.video_get_width()
             video_h = self.player.video_get_height()
@@ -5608,7 +6276,7 @@ class VideoPlayer:
             # Brint(f"📐 [COMPARE] Aspect ratio → Crop: {aspect_crop:.2f} vs Video: {aspect_video:.2f}")
             # Brint(f"[TBD] 📏 Crop size: {crop_w}px x {crop_h}px")
             # Brint(f"📊 [VIEWPORT] % vidéo visible → {crop_percent_w:.1f}% largeur, {crop_percent_h:.1f}% hauteur")
-            Brint(f"[TBD] 🎯 [CENTER] Centre actuel du cadre crop: ({center_x}px, {center_y}px)")
+            Brint(f"🎯 [CENTER] Centre actuel du cadre crop: ({center_x}px, {center_y}px)")
 
 
 
@@ -5719,11 +6387,14 @@ class VideoPlayer:
         
     # --- Fonction pour charger une boucle sauvegardée quand on clique ---
     def load_saved_loop(self, index):
-        Brint(f"[TBD]\n[LOAD LOOP] 🔁 Chargement boucle index={index}")
+        Brint(f"\n[LOAD LOOP] 🔁 Chargement boucle index={index}")
         self.reset_rhythm_overlay()
 
         self.subdivision_state.clear()
-        self.persistent_validated_hit_timestamps.clear()
+        if not hasattr(self, "confirmed_red_subdivisions"):
+            self.confirmed_red_subdivisions = {}
+        else:
+            self.confirmed_red_subdivisions.clear()
         self.user_hit_timestamps.clear()  # Clearing raw user hits for the previous loop
         self.subdiv_last_hit_loop.clear() # Clearing which subdiv was hit in which pass of the old loop
         self.loop_pass_count = 0          # Resetting loop pass counter for the new loop
@@ -5749,6 +6420,30 @@ class VideoPlayer:
         self.loop_end = self.current_loop.loop_end
         self.auto_zoom_on_loop_markers(force=True)
 
+        # Restore confirmed hits context if present
+        ctx = loop.get("confirmed_hit_context", {})
+        timestamps = ctx.get("timestamps", [])
+        grid_mode = ctx.get("grid_mode")
+        self.confirmed_red_subdivisions = {}
+        for t in timestamps:
+            idx = self.timestamp_to_subdiv_index(t, self.grid_times)
+            if idx is not None:
+                self.confirmed_red_subdivisions.setdefault(idx, []).append(t * 1000)
+        if grid_mode:
+            self.subdivision_mode = grid_mode
+
+        hit_timestamps = loop.get("hit_timestamps")
+        if hit_timestamps is not None:
+            self.user_hit_timestamps = [(t / 1000.0, 0) for t in hit_timestamps]
+            self.current_loop.hit_timestamps = hit_timestamps
+            Brint(
+                f"[NHIT] Loaded {len(hit_timestamps)} hit_timestamps from loop | {self.abph_stamp()}"
+            )
+        else:
+            hit_timings = loop.get("hit_timings", [])
+            self.user_hit_timestamps = [(t, 0) for t in hit_timings]
+            self.current_loop.hit_timings = hit_timings
+
         if self.loop_start is None or self.loop_end is None:
             Brint("[ERROR] loop_start ou loop_end manquant après chargement")
             return
@@ -5772,6 +6467,11 @@ class VideoPlayer:
         # 🔁 Reconstruit le contexte (grille, mapping, etc.)
         Brint("[STEP] Reconstruction du contexte boucle")
         self.rebuild_loop_context()
+        # Apply persistent validated hits from the saved loop
+        self.remap_persistent_validated_hits()
+        self.associate_hits_to_subdivisions()
+        self.update_subdivision_states()
+        self.draw_rhythm_grid_canvas()
 
         # 🕓 Positionnement du playhead
         Brint("[STEP] Positionnement du playhead")
@@ -5948,7 +6648,7 @@ class VideoPlayer:
             try:
                 for f in proc.info['open_files'] or []:
                     if f.path == filepath:
-                        Brint(f"[TBD] 🔒 {proc.info['name']} (pid {proc.info['pid']}) verrouille {filepath}")
+                        Brint(f"🔒 {proc.info['name']} (pid {proc.info['pid']}) verrouille {filepath}")
             except (psutil.NoSuchProcess, psutil.AccessDenied):
                 continue
     
@@ -6333,14 +7033,19 @@ class VideoPlayer:
         self._debug_labels = {}
 
         #new timestamps on hits
+        self.raw_hit_memory = defaultdict(list)
+
         self.user_hit_timestamps = []
         self.impact_strikes = []
-        self.persistent_validated_hit_timestamps = set()
+        # self.persistent_validated_hit_timestamps = set()
 
         #new ph
         self._last_playhead_x = None
         self.after_id = None
         self.is_paused = False
+
+        self.temp_loop_save_path = os.path.join(tempfile.gettempdir(), "temp_loop_autosave.json")
+        atexit.register(self.cleanup_temp_loop)
 
 
         
@@ -6354,6 +7059,8 @@ class VideoPlayer:
         self.subdivision_state = {}  # clé = subdivision id, valeur = 0, 1 ou 2
         self.subdiv_last_hit_loop = {}  # clé = subdivision id, valeur = numéro de la dernière boucle où elle a été frappée
         self.loop_pass_count = 0  # compteur de boucles AB passées
+        self.selected_subdiv_index = None  # currently focused subdiv in editor
+        self.selected_subdiv_timestamp = None  # timestamp of that subdiv in ms
        
         #zoom screen 
         self.in_zoom_mode = False
@@ -6375,8 +7082,8 @@ class VideoPlayer:
         self.awaiting_vlc_resync = False   # Flag : en attente que VLC ait sauté et rejoue
         
         
-        #slider zoom
-        self.loop_zoom_ratio = 0.33  # Par défaut A–B = 1/3
+        # Zoom ratio controlling the visible portion of the loop
+        self.loop_zoom_ratio = 1.0
 
         
         import json
@@ -6387,6 +7094,10 @@ class VideoPlayer:
         self._grid_bounce_x = None
         self._grid_bounce_ts = 0
         self.grid_subdivs = []
+
+        # Grid visibility toggles
+        self.rhythm_grid_enabled = True
+        self.harmony_grid_enabled = True
 
 
 
@@ -6540,6 +7251,7 @@ class VideoPlayer:
         self.time_display = Label(self.controls_bottom, text="", anchor=W)
         self.time_display.pack(side=LEFT, padx=10)
 
+        # self.power_btn removed (unused)
                 
         #quickopen
         self.load_recent_files()
@@ -6572,7 +7284,6 @@ class VideoPlayer:
         self.awaiting_vlc_jump = False
         self.freeze_interpolation = False
         self.last_seek_time = 0
-        self.reset_zoom_next_frame = False
 
 
 
@@ -6612,10 +7323,12 @@ class VideoPlayer:
 
         # === MENUS ET CONTRÔLES BOTTOM ===
         self.loop_length_var = tk.IntVar(value=2)  # 2 mesures par défaut
+        # loop_length_menu removed (unused)
 
         self.label_subdivision = Label(self.controls_bottom, text="Subdivision: -", width=18)
         self.label_subdivision.pack(side=LEFT)
 
+        # self.conf_slider removed (unused)
 
         self.beat1_selector_var = tk.StringVar(value="Beat 1")
         self.beat1_selector = tk.OptionMenu(self.controls_bottom, self.beat1_selector_var, "Beat 1")
@@ -6656,6 +7369,7 @@ class VideoPlayer:
             btn = Button(self.controls_top, text=txt, command=cmd, width=5)
             btn.pack(side=LEFT)
             ToolTip(btn, tip)
+        # Step menu removed (unused)
         
 
         # === BOUTON RÉSULTATS ===
@@ -6721,42 +7435,55 @@ class VideoPlayer:
         # === TIMELINE EVENTS
         self.edit_mode = StringVar(value="playhead")
 
-        #zoomAB SLIDER
-        from tkinter import Scale
-
         # === RHYTHM CONTROLS FRAME ===
         self.rhythm_controls_frame = Frame(self.controls_top)
         self.rhythm_controls_frame.pack(side='left', padx=5)
-        # Extend available zoom ratios to allow larger zoom-out levels
-        self.zoom_levels = [0.33, 0.8, 1.0, 1.5, 2.0, 3.0, 4.0, 6.0, 8.0]
-        self.zoom_minus_btn = Button(
-            self.rhythm_controls_frame, text="-", command=self.decrease_loop_zoom, width=2
-        )
-        self.zoom_minus_btn.pack(side='left')
 
-        self.zoom_slider = Scale(
-            self.rhythm_controls_frame,
-            from_=0,
-            to=len(self.zoom_levels) - 1,
-            resolution=1,
-            orient='horizontal',
-            label='ZoomAB',
-            showvalue=False,
-            length=60,
-            sliderlength=10,
-            width=8,
-            font=("Arial", 6),
-            command=self.on_loop_zoom_change,
-        )
-        self.zoom_slider.bind("<Double-Button-1>", lambda e: self.reset_zoom_slider())
-        init_idx = self.zoom_levels.index(min(self.zoom_levels, key=lambda z: abs(z - self.loop_zoom_ratio)))
-        self.zoom_slider.set(init_idx)
-        self.zoom_slider.pack(side='left', padx=5)
+        # Zoom ratio selection
+        self.zoom_ratio_var = tk.DoubleVar(value=self.loop_zoom_ratio)
+        self.zoom_auto_code = -1.0  # special value meaning "4s"
 
-        self.zoom_plus_btn = Button(
-            self.rhythm_controls_frame, text="+", command=self.increase_loop_zoom, width=2
+        self.zoom_radio_frame = Frame(self.rhythm_controls_frame)
+        self.zoom_radio_frame.pack(side='left')
+
+        zoom_options = [
+            (0.5, "0.5x"),
+            (1.0, "1x"),
+            (self.zoom_auto_code, "4s"),
+        ]
+        for val, label in zoom_options:
+            rb = tk.Radiobutton(
+                self.zoom_radio_frame,
+                text=label,
+                variable=self.zoom_ratio_var,
+                value=val,
+                indicatoron=0,
+                width=3,
+                command=self.on_zoom_ratio_change,
+            )
+            rb.pack(side='left')
+
+        # Grid visibility toggles
+        self.grid_toggle_frame = Frame(self.rhythm_controls_frame)
+        self.grid_toggle_frame.pack(side='left', padx=5)
+
+        self.show_rhythm_var = tk.BooleanVar(value=self.rhythm_grid_enabled)
+        cb_rhythm = Checkbutton(
+            self.grid_toggle_frame,
+            text="Rhythm",
+            variable=self.show_rhythm_var,
+            command=self.update_rhythm_grid_visibility,
         )
-        self.zoom_plus_btn.pack(side='left')
+        cb_rhythm.pack(side='left')
+
+        self.show_harmony_var = tk.BooleanVar(value=self.harmony_grid_enabled)
+        cb_harmony = Checkbutton(
+            self.grid_toggle_frame,
+            text="Harmony",
+            variable=self.show_harmony_var,
+            command=self.update_harmony_grid_visibility,
+        )
+        cb_harmony.pack(side='left')
         
         
         # === BINDINGS CLAVIER PRINCIPAUX ===
@@ -6766,6 +7493,8 @@ class VideoPlayer:
         
         #quicksave
         self.root.bind("<Control-s>", self.quick_save_current_loop)
+        self.root.bind("<Control-z>", self.restore_loops_from_backup)
+        self.root.bind("<Shift-S>", self.reload_current_loop)
         self.root.bind("<Control-p>", self.toggle_mode_bar)
         self.root.bind("<asterisk>", self.increase_mode_bar_bars) # '*' key
         self.root.bind("<slash>", self.decrease_mode_bar_bars)   # '/' key
@@ -6773,6 +7502,8 @@ class VideoPlayer:
         
         #heatmap
         self.root.bind("<period>", lambda e: self.reset_syllabic_grid_hits())
+        self.root.bind_all("[", lambda e: self.offset_red_subdivisions(-1))
+        self.root.bind_all("]", lambda e: self.offset_red_subdivisions(+1))
 
         
         #zoom bindings screen
@@ -6789,8 +7520,7 @@ class VideoPlayer:
         self.root.bind("<F3>", lambda e: self.open_debug_flags_window())
         
         self.root.bind("<F10>", self.start_profiling_5s)
-        self.root.bind("<F6>", lambda e: self.open_chord_editor_all())
-        self.root.bind("<F5>", lambda e: self.open_chord_editor_all())
+        self.root.bind("<=>", lambda e: self.open_chord_editor_all())
         # self.root.bind("<F9>", self.dump_playhead_debug_log())
 
         self.root.bind('<F9>', lambda e: self.dump_playhead_debug_log())
@@ -7133,6 +7863,9 @@ class VideoPlayer:
             self.console.config(text=f"✏️ Mode édition : {label}")
             Brint(f"[TBD] ✏️ Passage en mode édition {label}")
 
+        # Keep focus on the main window so arrow keys work
+        self.root.focus_set()
+
         if hasattr(self, "btn_edit_A") and hasattr(self, "btn_edit_B"):
             self.btn_edit_A.config(relief="sunken" if mode == "loop_start" else "raised")
             self.btn_edit_B.config(relief="sunken" if mode == "loop_end" else "raised")
@@ -7196,7 +7929,7 @@ class VideoPlayer:
         else:
             current_time_ms = self.playhead_time * 1000
 
-        if not self.player.is_playing():
+        if forced_time_ms is None and not self.player.is_playing():
             return
 
         self.update_count += 1
@@ -7220,10 +7953,8 @@ class VideoPlayer:
             zoom_range = zoom_end - zoom_start
 
         t_sec = current_time_ms / 1000.0
-        x_raw = self.time_sec_to_canvas_x(t_sec)
-        Brint(f"[PH DRAW] ⏱ x = {x_raw}px pour t = {t_sec:.3f}s")
-
-        x = max(0, min(x_raw, width))
+        x = self.time_sec_to_canvas_x(t_sec)
+        Brint(f"[PH DRAW] ⏱ x = {x}px pour t = {t_sec:.3f}s")
 
 
         if self._last_playhead_x is not None and x < self._last_playhead_x:
@@ -7252,10 +7983,7 @@ class VideoPlayer:
             self.draw_count = 0
             self.last_stat_time = now
 
-        if 0 <= x_raw <= width:
-            self.playhead_canvas_x = x_raw
-        else:
-            self.playhead_canvas_x = -9999
+        self.playhead_canvas_x = self.time_sec_to_canvas_x(current_time_ms / 1000.0) if zoom_range > 0 else -9999
 
         # -- New behavior: auto-adjust zoom as playhead moves --
         old_zoom = self.get_zoom_context()
@@ -7264,6 +7992,20 @@ class VideoPlayer:
         if old_zoom != new_zoom:
             self.needs_refresh = True
         self.refresh_static_timeline_elements()
+
+    def refresh_chord_editor(self):
+        """Refresh highlight state in the chord editor based on subdivision_state."""
+        if not getattr(self, "chord_editor_popup", None):
+            return
+        if not getattr(self, "chord_editor_note_entries", None):
+            return
+        if not self.chord_editor_popup.winfo_exists():
+            return
+        for idx, _, _, entry in self.chord_editor_note_entries:
+            if self.subdivision_state.get(idx, 0) == 2:
+                entry.configure(highlightbackground="red", highlightcolor="red", highlightthickness=2)
+            else:
+                entry.configure(highlightthickness=0)
 
 
 
@@ -7318,28 +8060,45 @@ class VideoPlayer:
             self.timeline.create_text(x_label, 6, text=loop["name"], anchor='w', fill="cyan", tags=tags)
             self.timeline.tag_bind(tag, "<Button-1>", lambda e, i=idx: self.load_saved_loop(i))
 
-        if self.loop_start:
-            xa = self.time_sec_to_canvas_x(self.loop_start / 1000)
-            xa = max(0, min(xa, width))
+        if self.loop_start is not None:
+            xa_raw = self.time_sec_to_canvas_x(self.loop_start / 1000)
+            xa = min(max(0, xa_raw), width)
+            anchor_a = 'w' if xa < width - 40 else 'e'
+            offset_a = 10 if anchor_a == 'w' else -10
             self.timeline.create_line(xa, 0, xa, 24, fill="green", tags="loop_marker")
-            label = "A"
-            if zoom_start <= self.loop_start <= zoom_end:
-                label += f": {self.hms(self.loop_start)}"
-            self.timeline.create_text(xa + 10, 18, text=label, anchor='w', fill="white", tags="loop_marker")
+            text_a = (
+                f"A: {self.hms(self.loop_start)}"
+                if zoom_start <= self.loop_start <= zoom_end
+                else "A"
+            )
+            self.timeline.create_text(
+                xa + offset_a,
+                18,
+                text=text_a,
+                anchor=anchor_a,
+                fill="white",
+                tags="loop_marker",
+            )
 
-        if self.loop_end:
-            xb = self.time_sec_to_canvas_x(self.loop_end / 1000)
-            xb = max(0, min(xb, width))
+        if self.loop_end is not None:
+            xb_raw = self.time_sec_to_canvas_x(self.loop_end / 1000)
+            xb = min(max(0, xb_raw), width)
+            anchor_b = 'w' if xb < width - 40 else 'e'
+            offset_b = 10 if anchor_b == 'w' else -10
             self.timeline.create_line(xb, 0, xb, 24, fill="orange", tags="loop_marker")
-            label = "B"
-            if zoom_start <= self.loop_end <= zoom_end:
-                label += f": {self.hms(self.loop_end)}"
-            x_label = xb - 10
-            anchor = 'e'
-            if x_label < 0:
-                x_label = xb + 10
-                anchor = 'w'
-            self.timeline.create_text(x_label, 18, text=label, anchor=anchor, fill="white", tags="loop_marker")
+            text_b = (
+                f"B: {self.hms(self.loop_end)}"
+                if zoom_start <= self.loop_end <= zoom_end
+                else "B"
+            )
+            self.timeline.create_text(
+                xb + offset_b,
+                18,
+                text=text_b,
+                anchor=anchor_b,
+                fill="white",
+                tags="loop_marker",
+            )
 
         self.draw_audio_power_overlay()
 
@@ -7367,7 +8126,7 @@ class VideoPlayer:
         points = []
         for t, r in zip(times[::step], rms[::step]):
 
-            x = self.time_sec_to_canvas_x(t)
+            x = self.time_sec_to_canvas_x(t, use_margin=False)
             y = bottom - (r / self.audio_power_max) * height
             points.extend([x, y])
         if len(points) >= 4:
@@ -7684,23 +8443,23 @@ class VideoPlayer:
             Brint(f"[RLM]↔️ Inversion effectuée : A={temp_start}, B={temp_end}")
             self.console.config(text="↔️ Marqueurs A/B interchangés")
 
-            # 🔁 Bascule de mode actif (pour la souris et les flèches)
-            if mode == "loop_start":
-                self.mode = "loop_end"
-            elif mode == "loop_end":
-                self.mode = "loop_start"
+            # 🔁 Switch the active marker being edited
+            new_mode = "loop_end" if mode == "loop_start" else "loop_start"
             if hasattr(self, "edit_mode"):
-                self.edit_mode.set(self.mode)
-            self.btn_edit_A.config(relief=tk.SUNKEN if self.edit_mode.get() == "loop_start" else tk.RAISED)
-            self.btn_edit_B.config(relief=tk.SUNKEN if self.edit_mode.get() == "loop_end" else tk.RAISED)
+                self.edit_mode.set(new_mode)
+            self.btn_edit_A.config(relief=tk.SUNKEN if new_mode == "loop_start" else tk.RAISED)
+            self.btn_edit_B.config(relief=tk.SUNKEN if new_mode == "loop_end" else tk.RAISED)
 
-            Brint(f"[RLM] Mode basculé en {self.mode} après inversion")
+            Brint(f"[RLM] Edit mode basculé en {new_mode} après inversion")
 
-        # ✅ Affectati   
+        # ✅ Affectation finale des marqueurs
         if mode == "loop_start" or inversion:
             self.loop_start = temp_start
         if mode == "loop_end" or inversion:
             self.loop_end = temp_end
+
+        # Hits are kept in absolute time; do not shift when markers move
+
 
         Brint(f"[RLM]✅ Affectation finale : A={self.loop_start} | B={self.loop_end}")
 
@@ -7787,7 +8546,14 @@ class VideoPlayer:
         self.invalidate_jump_estimators()
         Brint("[RLM] ♻️ Cache precomputed_grid_infos invalidé à cause du déplacement de A ou B")
         self.precomputed_grid_infos = {}
-        self.compute_rhythm_grid_infos()  # 💡 À forcer sans reuse du cache
+
+        # Rebuild the rhythm grid to realign subdivisions with the new loop markers
+        self.build_rhythm_grid()
+        self.compute_rhythm_grid_infos()  # recompute using the fresh grid
+        self.remap_persistent_validated_hits()
+        if hasattr(self, "draw_rhythm_grid_canvas"):
+            self.draw_rhythm_grid_canvas()
+
         # self.draw_loop_markers()
         self.refresh_static_timeline_elements()
         Brint("[RLM] 🖍️ Redessin forcé des marqueurs après zoom")
@@ -7817,7 +8583,7 @@ class VideoPlayer:
         def pause_later():
             self.player.pause()
             self.label_subdivision.config(text=f"Subdivision: {label}")
-            Brint(f"[TBD] 🎧 Lecture {index+1}/{len(self.grid_times)} @ {start:.3f}s [{label}]")
+            Brint(f"🎧 Lecture {index+1}/{len(self.grid_times)} @ {start:.3f}s [{label}]")
             self.step_mode_index += 1
             if self.autostep_enabled:
                 self.root.after(duration_ms, self.step_play)
@@ -7843,7 +8609,7 @@ class VideoPlayer:
         def pause_later():
             self.player.pause()
             self.label_subdivision.config(text=f"Subdivision: {label}")
-            Brint(f"[TBD] 🔙 Lecture {index+1}/{len(self.grid_times)} @ {start:.3f}s [{label}]")
+            Brint(f"🔙 Lecture {index+1}/{len(self.grid_times)} @ {start:.3f}s [{label}]")
 
         self.root.after(duration_ms, pause_later)
     
@@ -7978,29 +8744,48 @@ class VideoPlayer:
             self.console.config(text=f"✏️ Mode édition : {label}")
             Brint(f"[EDIT MODE] Active le mode {label}")
 
+        # Ensure key bindings remain responsive when toggling edit mode
+        self.root.focus_set()
+
         # 🔄 Met à jour l’état visuel des boutons
         self.btn_edit_A.config(relief=tk.SUNKEN if self.edit_mode.get() == "loop_start" else tk.RAISED)
         self.btn_edit_B.config(relief=tk.SUNKEN if self.edit_mode.get() == "loop_end" else tk.RAISED)
     def clear_loop(self, _=None):
         Brint("[CLEAR]Clear Loop")
+        self.raw_hit_memory.clear()
+
         self.cached_canvas_width = self.grid_canvas.winfo_width()
-        if hasattr(self.current_loop, "chords"):
-            self.current_loop.chords = []
-            self.current_loop.mapped_notes = {}
-            Brint("[CLEAR LOOP] 🎵 Accords de la boucle supprimés")
+        if hasattr(self, "current_loop") and getattr(self, "current_loop", None):
+            if hasattr(self.current_loop, "chords"):
+                self.current_loop.chords = []
+                self.current_loop.mapped_notes = {}
+                Brint("[CLEAR LOOP] 🎵 Accords de la boucle supprimés")
 
 
         # Ensure zoom shows the entire file when clearing the loop
-        if hasattr(self, "zoom_slider"):
-            idx = self.zoom_levels.index(min(self.zoom_levels, key=lambda z: abs(z - 1.0)))
-            self.zoom_slider.set(idx)
-        self.loop_zoom_ratio = 1.0
+        if hasattr(self, "zoom_ratio_var"):
+            self.zoom_ratio_var.set(1.0)
+        self.apply_loop_zoom_ratio(1.0)
 
         if hasattr(self, "player"):
             self.player.audio_set_mute(False)
 
+        # 🔍 Durée via player.get_length()
+        full_duration = self.player.get_length() if hasattr(self, "player") else 0
+        Brint(f"[CLEAR LOOP] Durée vidéo détectée : {full_duration} ms")
+        if not full_duration or full_duration <= 0:
+            Brint("[CLEAR LOOP WARNING] Durée invalide, fallback 1000 ms")
+            full_duration = 1000
+
+        # Reset loop markers to cover full media
         self.loop_start = 0
-        self.loop_end = 0
+        self.loop_end = full_duration
+
+        # Reset loop related state to avoid stale interpolation behaviour
+        self.loop_pass_count = 0
+        self.loop_duration_s = None
+        self.awaiting_vlc_jump = False
+        self.freeze_interpolation = False
 
         self.edit_mode.set("playhead")
         if hasattr(self, "btn_edit_A"):
@@ -8008,17 +8793,9 @@ class VideoPlayer:
         if hasattr(self, "btn_edit_B"):
             self.btn_edit_B.config(relief="raised")
 
-        # Reset loop metadata if a current_loop is defined
-        if getattr(self, "current_loop", None) is not None:
+        if hasattr(self, "current_loop") and getattr(self, "current_loop", None):
             self.current_loop.loop_start = 0
-            self.current_loop.loop_end = 0
-
-        # 🔍 Durée via player.get_length()
-        full_duration = self.player.get_length()
-        Brint(f"[CLEAR LOOP] Durée vidéo détectée : {full_duration} ms")
-        if not full_duration or full_duration <= 0:
-            Brint("[CLEAR LOOP WARNING] Durée invalide, fallback 1000 ms")
-            full_duration = 1000
+            self.current_loop.loop_end = full_duration
 
         if not hasattr(self, "zoom_context"):
             self.zoom_context = {}
@@ -8182,15 +8959,22 @@ class VideoPlayer:
 
             if self.loop_start and self.loop_end:
                 if not hasattr(self, 'last_loop_jump_time'):
-                    self.loop_duration_s = (self.loop_end - self.loop_start) / 1000.0
                     self.last_loop_jump_time = time.perf_counter()
+
+                # Ensure loop_duration_s is defined whenever we have valid loop markers
+                if self.loop_duration_s is None or self.loop_duration_s <= 0:
+                    self.loop_duration_s = (self.loop_end - self.loop_start) / 1000.0
                     Brint(f"[INIT LOOP] loop_duration_s = {self.loop_duration_s:.3f}s")
 
-                if self.freeze_interpolation:
-                    self.safe_update_playhead(player_now, source="VLC loop raw")
-                    if abs(player_now - self.loop_start) <= 30 and is_playing:
+                # Resume interpolation once VLC confirms it is playing from A
+                if self.awaiting_vlc_jump and is_playing:
+                    if abs(player_now - self.loop_start) < 20:
+                        self.awaiting_vlc_jump = False
                         self.freeze_interpolation = False
-                elif self.interp_var.get():
+                        self.last_loop_jump_time = time.perf_counter()
+                        Brint("[LOOP RESYNC] Interpolation resumed after jump")
+
+                if self.interp_var.get() and not self.freeze_interpolation:
                     elapsed_since_last_jump = time.perf_counter() - self.last_loop_jump_time
                     loop_duration_corrected = self.loop_duration_s / player_rate
                     wrapped_elapsed = elapsed_since_last_jump % loop_duration_corrected
@@ -8200,11 +8984,14 @@ class VideoPlayer:
 
                     if elapsed_since_last_jump >= loop_duration_corrected:
                         self.safe_jump_to_time(self.loop_start, source="Jump B estim (all rates)")
-                        self.freeze_interpolation = True
                         self.last_loop_jump_time = time.perf_counter()
+                        self.freeze_interpolation = True
+                        self.awaiting_vlc_jump = True
                         self.loop_pass_count += 1
                         Brint(f"[LOOP PASS] Boucle AB passée {self.loop_pass_count} fois")
-                        self.evaluate_subdivision_states()
+                        self.decay_subdivision_states()
+                        self.associate_hits_to_subdivisions()
+                        self.update_subdivision_states()
                         self.last_playhead_time = self.playhead_time
                         for i in list(self.subdivision_counters.keys()):
                             last_hit_loop = self.subdiv_last_hit_loop.get(i, -1)
@@ -8218,11 +9005,12 @@ class VideoPlayer:
                     self.safe_update_playhead(player_now, source="VLC loop raw")
                     if player_now >= self.loop_end:
                         self.safe_jump_to_time(self.loop_start, source="Jump B raw")
-                        self.freeze_interpolation = True
                         self.last_loop_jump_time = time.perf_counter()
                         self.loop_pass_count += 1
                         Brint(f"[LOOP PASS] Boucle AB passée {self.loop_pass_count} fois (raw)")
-                        self.evaluate_subdivision_states()
+                        self.decay_subdivision_states()
+                        self.associate_hits_to_subdivisions()
+                        self.update_subdivision_states()
                         self.last_playhead_time = self.playhead_time
                         for i in list(self.subdivision_counters.keys()):
                             last_hit_loop = self.subdiv_last_hit_loop.get(i, -1)
@@ -8374,6 +9162,14 @@ class VideoPlayer:
 
     def draw_rhythm_grid_canvas(self):
         Brint("[RHYTHM GRID] ➡ Démarrage draw_rhythm_grid_canvas()")  # 💡 AJOUT DEBUG SYSTEMATIQUE
+        if not getattr(self, "rhythm_grid_enabled", True):
+            if self.grid_canvas:
+                self.grid_canvas.delete("rhythm_grid")
+                self.grid_canvas.delete("syllabic_label")
+                self.grid_canvas.delete("syllabic_hit")
+                self.grid_canvas.delete("heatmap_filtered")
+            Brint("[RHYTHM GRID] ⛔ Hidden")
+            return
         if not self.is_loop_effectively_defined():
             Brint("[RHYTHM GRID] ❌ Loop incomplète (A=0 ou B=duration) → grille non affichée")
             return
@@ -8444,9 +9240,7 @@ class VideoPlayer:
             canvas_height = self.grid_canvas.winfo_height()
 
             
-            loop_range = self.loop_end - self.loop_start
-            use_dynamic = zoom_range < loop_range
-            dynamic_factor = 0.90 if use_dynamic else 1.0
+            dynamic_factor = 0.90 if zoom_range < (self.loop_end - self.loop_start) else 1.0
             pixels_per_beat = 1000 * interval_sec * canvas_width * dynamic_factor / zoom_range
 
             # x_beat1 = time_to_x(self.loop_start / 1000.0)
@@ -8571,20 +9365,11 @@ class VideoPlayer:
         Brint(f"[HIT] 🎯 Fonction on_user_hit() appelée")
         Brint(f"[HIT] Frappe utilisateur à {self.hms(current_time_ms)} hms")
 
-        if not hasattr(self, "grid_subdivs") or not self.grid_subdivs:
-            Brint("[HIT] ⚠️ grid_subdivs vide → appel forcé build_rhythm_grid()")
-            self.build_rhythm_grid()
+        loop_dur_ms = (self.loop_end - self.loop_start) if self.loop_end and self.loop_start is not None else 0
+        absolute_ms = int(current_time_ms + self.loop_pass_count * loop_dur_ms)
+        self.record_user_hit(absolute_ms)
 
-        if not hasattr(self, "grid_subdivs") or not self.grid_subdivs:
-            Brint("[HIT ERROR] ❌ grid_subdivs toujours vide après build — frappe ignorée")
-            return
-
-        precomputed = self.compute_rhythm_grid_infos()
-        if not precomputed:
-            Brint("[HIT ERROR] ❌ compute_rhythm_grid_infos() a échoué — pas de grille")
-            Brint(f"[HIT DEBUG] grid_subdivs = {self.grid_subdivs[:3] if self.grid_subdivs else '[]'}")
-            return
-
+        precomputed = self.precomputed_grid_infos or self.compute_rhythm_grid_infos()
         self.precomputed_grid_infos = precomputed
 
         # 1. Calcul de l'espacement moyen entre subdivisions
@@ -8592,97 +9377,16 @@ class VideoPlayer:
         grid_times = sorted(grid_times)
         intervals = [t2 - t1 for t1, t2 in zip(grid_times[:-1], grid_times[1:])]
         avg_interval_sec = sum(intervals) / len(intervals) if intervals else 0.5  # fallback = 0.5s
-        tolerance = avg_interval_sec / 3.0
+        # Wider tolerance so hits always find a subdivision
+        tolerance = avg_interval_sec / 2.0
 
-        Brint(f"[HIT] ⏱ Tolérance dynamique = {tolerance:.3f}s (1/3 de {avg_interval_sec:.3f}s)")
+        Brint(f"[HIT WINDOW] ⏱ Dynamic tolerance = {tolerance:.3f}s (1/2 of {avg_interval_sec:.3f}s)")
 
         # 2. Étendre temporairement les subdivisions pour la détection (±2 subdivs)
-        n_extra = 2
-        extended_times = []
-        for i in range(n_extra, 0, -1):
-            extended_times.append(grid_times[0] - i * avg_interval_sec)
-        extended_times.extend(grid_times)
-        for i in range(1, n_extra + 1):
-            extended_times.append(grid_times[-1] + i * avg_interval_sec)
-
-        indexed_grid = list(enumerate(extended_times, start=-n_extra))
-
-        for idx, t in indexed_grid:
-            delta = abs(t - current_time_sec)
-            Brint(f"[DEBUG HIT EXT] Subdiv {idx:+d} → t = {t:.3f}s | Δ = {delta:.3f}s")
-
-
-        first_time = grid_times[0]
-        last_time = grid_times[-1]
-        subdiv_duration = avg_interval_sec
-        
-        
-        # Cas 1 : frappe juste avant A → rattacher à subdiv 0
-        if first_time - 0.5 * subdiv_duration < current_time_sec < first_time:
-            Brint(f"[HIT BORD A] 🔁 Hit à {current_time_sec:.3f}s rattaché à subdiv 0 (avant A)")
-            closest_i = 0
-
-        # Cas 2 : frappe juste après B → rattacher à dernière subdiv
-        elif last_time < current_time_sec < last_time + 0.5 * subdiv_duration:
-            Brint(f"[HIT BORD B] 🔁 Hit à {current_time_sec:.3f}s rattaché à subdiv {len(grid_times) - 1} (après B)")
-            closest_i = len(grid_times) - 1
-
-        # 3. Gestion des cas aux frontières A/B
-        if first_time - 0.5 * subdiv_duration < current_time_sec < first_time:
-            Brint(f"[HIT BORD A] 🔁 Hit à {current_time_sec:.3f}s rattaché à subdiv 0 (avant A)")
-            closest_i = 0
-
-        elif last_time < current_time_sec < last_time + 0.5 * subdiv_duration:
-            Brint(f"[HIT BORD B] 🔁 Hit à {current_time_sec:.3f}s rattaché à subdiv {len(grid_times) - 1} (après B)")
-            closest_i = len(grid_times) - 1
-
-        else:
-            # 4. Recherche du subdiv le plus proche (standard)
-            closest_i_ext, closest_t = min(indexed_grid, key=lambda item: abs(item[1] - current_time_sec))
-            delta = abs(closest_t - current_time_sec)
-
-            if delta > tolerance:
-                Brint(f"[HIT IGNORÉ] 🛑 Aucun subdiv proche (Δ = {delta:.3f}s > tolérance)")
-                return
-
-            if closest_i_ext < 0 or closest_i_ext >= len(grid_times):
-                Brint(f"[HIT HORS GRILLE] Subdiv virtuelle {closest_i_ext:+d} détectée | frappe hors A/B | non comptabilisée")
-                return
-
-            closest_i = closest_i_ext
     
         
-        last_hit = self.subdiv_last_hit_pass.get(closest_i, -1)
-        if last_hit == self.loop_pass_count:
-            Brint(f"[HIT IGNORÉ] Subdiv {closest_i} déjà frappée pendant la loop {self.loop_pass_count}")
-            return
 
-        Brint(f"[HIT VALIDÉ] Loop courante = {self.loop_pass_count}")
-        previous_hits = self.subdivision_counters.get(closest_i, 0)
-        # Brint(f"[HIT] Subdiv {closest_i} la plus proche détectée | Hits avant={previous_hits}")
-        Brint(f"[HIT MAP] 🎯 Frappe à {current_time_sec:.3f}s associée à subdiv {closest_i} → x={self.precomputed_grid_infos[closest_i]['x']:.1f}px | loop_pass={self.loop_pass_count}")
-
-        self.subdiv_last_hit_pass[closest_i] = self.loop_pass_count
-        self.subdivision_counters[closest_i] = previous_hits + 1
-        self.subdiv_last_hit_loop[closest_i] = self.loop_pass_count
-
-        # 🆕 Enregistrement du timestamp pour re-snapping visuel
-        if not hasattr(self, "user_hit_timestamps"):
-            self.user_hit_timestamps = []
-        self.user_hit_timestamps.append((current_time_sec, self.loop_pass_count))
-
-        Brint(f"[HIT] Subdiv {closest_i} MAJ : Hits après={self.subdivision_counters[closest_i]} | LastHitLoop={self.subdiv_last_hit_pass[closest_i]}")
-        # 🔍 Log final de validation complète du hit
-        x = self.precomputed_grid_infos[closest_i]["x"]
-        Brint(f"[HIT VALIDATED] ✅ Subdiv {closest_i} ← hit à {current_time_sec:.3f}s | x={x:.1f}px | loop_pass={self.loop_pass_count}")
-        # 🔴 Mise à jour immédiate du state = 2 pour affichage en rouge
-        if not hasattr(self, "subdivision_states"):
-            self.subdivision_states = {}
-        self.subdivision_states[closest_i] = 2
-        Brint(f"[HIT COLOR] 🔴 Subdiv {closest_i} marqué state=2 (rouge) immédiatement après frappe")
-
-        self.draw_rhythm_grid_canvas()
-
+        
        
                 
     def draw_syllabic_grid_heatmap(self):
@@ -8720,6 +9424,68 @@ class VideoPlayer:
                 canvas.create_oval(x - 10, canvas_height / 2 - 10, x + 10, canvas_height / 2 + 10,
                                    outline=color, width=2, tags=("syllabic_hit",))
                 Brint(f"[DRAW HIT] ✅ cercle hit sur Subdiv {i} (x={x:.1f}px)")
+    # def draw_syllabic_grid_heatmap(self):
+        # precomputed = self.precomputed_grid_infos or self.compute_rhythm_grid_infos()
+        # Brint("[DRAW HIT] Utilisation du cache precomputed_grid_infos")
+
+        # canvas = self.grid_canvas
+        # canvas_height = canvas.winfo_height()
+
+        # # 🔄 Supprimer les anciens labels/hits avant redraw
+        # canvas.delete("syllabic_label")
+        # canvas.delete("syllabic_hit")
+
+        # dynamic_hits = self.match_hits_to_subdivs()
+
+        # for i, subdiv_info in precomputed.items():
+            # x = subdiv_info['x']
+            # label = subdiv_info['label']
+            # state = subdiv_info['state']
+            # is_playhead = subdiv_info['is_playhead']
+            # user_hits = dynamic_hits.get(i, 0)
+
+            # if x < 0 or x > canvas.winfo_width():
+                # continue
+
+            # if i < 3:
+                # Brint(f"[HIT draw_syllabic_grid_heatmap] Subdiv {i} | X={x:.1f}px | Label={label} | State={state} | Hits={user_hits}")
+
+            # # 🎨 Couleurs en fonction du state
+            # if state == 3:
+                # color = "#FF0000"  # rouge validé
+                # font_size = 16
+            # elif state == 2:
+                # color = "#DAA520"  # orange (2e hit)
+                # font_size = 14
+            # elif state == 1:
+                # color = "#555555"  # gris foncé (1er hit)
+                # font_size = 12
+            # elif is_playhead:
+                # color = "#00FF00"  # vert fluo
+                # font_size = 14
+            # else:
+                # color = "#CCCCCC"  # gris clair neutre
+                # font_size = 10
+
+            # # 🏷️ Affichage du label
+            # canvas.create_text(
+                # x, canvas_height / 2,
+                # text=label,
+                # fill=color,
+                # font=("Arial", font_size, "bold"),
+                # tags=("syllabic_label",)
+            # )
+
+            # # 🟠 Cercle de hit (optionnel selon `user_hits`)
+            # if user_hits > 0:
+                # canvas.create_oval(
+                    # x - 10, canvas_height / 2 - 10,
+                    # x + 10, canvas_height / 2 + 10,
+                    # outline=color,
+                    # width=2,
+                    # tags=("syllabic_hit",)
+                # )
+                # Brint(f"[DRAW HIT] ✅ cercle hit sur Subdiv {i} (x={x:.1f}px)")
 
 
 
@@ -8752,7 +9518,12 @@ class VideoPlayer:
 
 
     def draw_harmony_grid_overlay(self):
-        
+        if not getattr(self, "harmony_grid_enabled", True):
+            if self.harmony_canvas:
+                self.harmony_canvas.delete("all")
+            Brint("[HARMONY] ⛔ Hidden")
+            return
+
         if self.is_loop_fully_cleared():
             self.harmony_canvas.delete("all")  # ou ".delete('overlay_harmony')" si tu as taggé
             # 🧽 Réinitialisation des labels pour éviter qu’ils soient redessinés
@@ -8789,7 +9560,6 @@ class VideoPlayer:
 
         
         canvas = self.harmony_canvas
-        canvas.delete("all")
         canvas_width = canvas.winfo_width()
         canvas_height = canvas.winfo_height()
 
@@ -8821,6 +9591,7 @@ class VideoPlayer:
         zoom_range = zoom["zoom_range"]
 
 
+
         Brint(f"[HARMONY DEBUG] zoom_start = {zoom_start:.1f} ms | zoom_end = {zoom_end:.1f} ms | zoom_range = {zoom_range:.1f} ms | canvas_width = {canvas_width}px")
 
         if canvas_width <= 10 or zoom_range <= 0:
@@ -8840,6 +9611,23 @@ class VideoPlayer:
         }
 
         display_mode = getattr(self, "harmony_chord_display_mode", "degree")
+
+        # --- Optimization: avoid heavy redraw when nothing changed ---
+        cache_key = (
+            int(zoom_start),
+            int(zoom_end),
+            display_mode,
+            getattr(self, "harmony_note_display_mode", "key"),
+            round(bpm, 4),  # include tempo to invalidate cache when feathering
+            hash(str(chords)),
+            hash(str(getattr(self.current_loop, "mapped_notes", {}))),
+        )
+        if getattr(self, "_harmony_overlay_cache_key", None) == cache_key:
+            # No change in zoom or data → skip redraw
+            return
+        self._harmony_overlay_cache_key = cache_key
+
+        canvas.delete("all")
 
         Brint("[HARMONY] 🎼 Affichage harmonique basé sur loop.chords")
 
@@ -9116,6 +9904,7 @@ if __name__ == "__main__":
 
     root = tk.Tk()
     app = VideoPlayer(root, autoload_index=index, autoload_path=path)
+    root.protocol("WM_DELETE_WINDOW", app.on_app_close)
 
     def run_for_5s():
         start = time.time()
