@@ -3196,6 +3196,25 @@ class VideoPlayer:
             Brint("[OFFSET HITS] tempo_bpm manquant – opération annulée")
             return
         interval = 60.0 / bpm / self.get_subdivisions_per_beat()
+        # Keep track of which subdivisions were confirmed (state = 2) prior to the shift
+        prev_confirmed = {
+            idx for idx, state in getattr(self, "subdivision_state", {}).items() if state == 2
+        }
+        force_state_indices = []
+        if prev_confirmed and getattr(self, "persistent_validated_hit_timestamps", None):
+            # Use the ordered grid_times list so indices correspond to subdivision_state keys
+            grid_times = getattr(self, "grid_times", [])
+            if not grid_times and getattr(self, "precomputed_grid_infos", None):
+                grid_times = [
+                    info["t_subdiv_sec"] for _, info in sorted(self.precomputed_grid_infos.items())
+                ]
+            for t in self.persistent_validated_hit_timestamps:
+                idx_old = self.current_loop.timestamp_to_subdiv_index(t, grid_times)
+                if idx_old in prev_confirmed:
+                    t_new = t + direction * interval
+                    idx_new = self.current_loop.timestamp_to_subdiv_index(t_new, grid_times)
+                    if idx_new is not None:
+                        force_state_indices.append(idx_new)
         if hasattr(self, "user_hit_timestamps"):
             self.user_hit_timestamps = [
                 (t + direction * interval, lp) for t, lp in self.user_hit_timestamps
@@ -3206,6 +3225,9 @@ class VideoPlayer:
             }
         # After shifting, remap persistent hits so that red subdivisions follow
         self.remap_persistent_validated_hits()
+        for idx in force_state_indices:
+            self.subdivision_state[idx] = 2
+            Brint(f"[OFFSET HITS] Forced state=2 on subdiv {idx} after offset")
         if hasattr(self, "refresh_chord_editor"):
             try:
                 self.refresh_chord_editor()
