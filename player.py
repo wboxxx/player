@@ -3142,6 +3142,11 @@ class VideoPlayer:
             }
         # After shifting, remap persistent hits so that red subdivisions follow
         self.remap_persistent_validated_hits()
+        if hasattr(self, "refresh_chord_editor"):
+            try:
+                self.refresh_chord_editor()
+            except AttributeError:
+                pass
         Brint(
             f"[OFFSET HITS] Décalage de {direction:+d} subdiv → Δ={direction*interval:.3f}s"
         )
@@ -4217,7 +4222,15 @@ class VideoPlayer:
         Brint(f"[DEBUG] → {len(subdiv_mapping)} subdivisions avec notes mappées")
 
         popup = tk.Toplevel(self.root)
+        self.chord_editor_popup = popup
         popup.title(f"Modifier accords/notes de '{self.current_loop.name}' (key={self.current_loop.key})")
+
+        def on_popup_close():
+            self.chord_editor_popup = None
+            self.chord_editor_note_entries = []
+            popup.destroy()
+
+        popup.protocol("WM_DELETE_WINDOW", on_popup_close)
 
         beats_per_measure = 4
         subdivs_per_beat = self.subdivs_per_beat
@@ -4450,7 +4463,7 @@ class VideoPlayer:
             else:
                 Brint("[SAVE] ❌ Fonction save_current_loop non disponible")
 
-            popup.destroy()
+            on_popup_close()
 
         # ---- Selection & toggle helpers ----
         self.selected_subdiv_index = None
@@ -4674,6 +4687,8 @@ class VideoPlayer:
         tk.Button(btn_frame, text="✅ Appliquer", command=apply_all_and_close).pack(side="right", padx=(10, 0))
         tk.Button(btn_frame, text="Toggle Hit", command=toggle_selected_subdiv).pack(side="right", padx=(10, 0))
         popup.bind('<Control-r>', toggle_selected_subdiv)
+        popup.bind('[', lambda e: self.offset_all_hit_timestamps(-1))
+        popup.bind(']', lambda e: self.offset_all_hit_timestamps(+1))
 
         def reset_all_chords():
             Brint("[RESET] 🔁 Réinitialisation de tous les accords")
@@ -4689,6 +4704,8 @@ class VideoPlayer:
                 note_var.set("")
 
         tk.Button(btn_frame, text="🗑️ Notes", command=reset_all_notes).pack(side="right", padx=(10, 0))
+
+        self.chord_editor_note_entries = note_entry_vars
 
 
 
@@ -6962,8 +6979,8 @@ class VideoPlayer:
         
         #heatmap
         self.root.bind("<period>", lambda e: self.reset_syllabic_grid_hits())
-        self.root.bind("[", lambda e: self.offset_all_hit_timestamps(-1))
-        self.root.bind("]", lambda e: self.offset_all_hit_timestamps(+1))
+        self.root.bind_all("[", lambda e: self.offset_all_hit_timestamps(-1))
+        self.root.bind_all("]", lambda e: self.offset_all_hit_timestamps(+1))
 
         
         #zoom bindings screen
@@ -7449,6 +7466,20 @@ class VideoPlayer:
         if old_zoom != new_zoom:
             self.needs_refresh = True
         self.refresh_static_timeline_elements()
+
+    def refresh_chord_editor(self):
+        """Refresh highlight state in the chord editor based on subdivision_state."""
+        if not getattr(self, "chord_editor_popup", None):
+            return
+        if not getattr(self, "chord_editor_note_entries", None):
+            return
+        if not self.chord_editor_popup.winfo_exists():
+            return
+        for idx, _, _, entry in self.chord_editor_note_entries:
+            if self.subdivision_state.get(idx, 0) == 2:
+                entry.configure(highlightbackground="red", highlightcolor="red", highlightthickness=2)
+            else:
+                entry.configure(highlightthickness=0)
 
 
 
