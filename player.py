@@ -5217,6 +5217,14 @@ class VideoPlayer:
             self.grid_canvas.pack_forget()
             self.grid_toggle_button.config(text='Grille ▲')
 
+    def update_rhythm_grid_visibility(self):
+        self.rhythm_grid_enabled = self.show_rhythm_var.get()
+        self.draw_rhythm_grid_canvas()
+
+    def update_harmony_grid_visibility(self):
+        self.harmony_grid_enabled = self.show_harmony_var.get()
+        self.draw_harmony_grid_overlay()
+
     def toggle_mode_bar(self, event=None): # Add event=None if it's directly bound to a key
         self.mode_bar_enabled = not self.mode_bar_enabled
         num_bars = getattr(self, 'mode_bar_bars', 1)
@@ -6587,6 +6595,10 @@ class VideoPlayer:
         self._grid_bounce_ts = 0
         self.grid_subdivs = []
 
+        # Grid visibility toggles
+        self.rhythm_grid_enabled = True
+        self.harmony_grid_enabled = True
+
 
 
         
@@ -6963,6 +6975,28 @@ class VideoPlayer:
                 command=self.on_zoom_ratio_change,
             )
             rb.pack(side='left')
+
+        # Grid visibility toggles
+        self.grid_toggle_frame = Frame(self.rhythm_controls_frame)
+        self.grid_toggle_frame.pack(side='left', padx=5)
+
+        self.show_rhythm_var = tk.BooleanVar(value=self.rhythm_grid_enabled)
+        cb_rhythm = Checkbutton(
+            self.grid_toggle_frame,
+            text="Rhythm",
+            variable=self.show_rhythm_var,
+            command=self.update_rhythm_grid_visibility,
+        )
+        cb_rhythm.pack(side='left')
+
+        self.show_harmony_var = tk.BooleanVar(value=self.harmony_grid_enabled)
+        cb_harmony = Checkbutton(
+            self.grid_toggle_frame,
+            text="Harmony",
+            variable=self.show_harmony_var,
+            command=self.update_harmony_grid_visibility,
+        )
+        cb_harmony.pack(side='left')
         
         
         # === BINDINGS CLAVIER PRINCIPAUX ===
@@ -8633,6 +8667,14 @@ class VideoPlayer:
 
     def draw_rhythm_grid_canvas(self):
         Brint("[RHYTHM GRID] ➡ Démarrage draw_rhythm_grid_canvas()")  # 💡 AJOUT DEBUG SYSTEMATIQUE
+        if not getattr(self, "rhythm_grid_enabled", True):
+            if self.grid_canvas:
+                self.grid_canvas.delete("rhythm_grid")
+                self.grid_canvas.delete("syllabic_label")
+                self.grid_canvas.delete("syllabic_hit")
+                self.grid_canvas.delete("heatmap_filtered")
+            Brint("[RHYTHM GRID] ⛔ Hidden")
+            return
         if not self.is_loop_effectively_defined():
             Brint("[RHYTHM GRID] ❌ Loop incomplète (A=0 ou B=duration) → grille non affichée")
             return
@@ -9016,7 +9058,12 @@ class VideoPlayer:
 
 
     def draw_harmony_grid_overlay(self):
-        
+        if not getattr(self, "harmony_grid_enabled", True):
+            if self.harmony_canvas:
+                self.harmony_canvas.delete("all")
+            Brint("[HARMONY] ⛔ Hidden")
+            return
+
         if self.is_loop_fully_cleared():
             self.harmony_canvas.delete("all")  # ou ".delete('overlay_harmony')" si tu as taggé
             # 🧽 Réinitialisation des labels pour éviter qu’ils soient redessinés
