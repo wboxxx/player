@@ -2906,7 +2906,7 @@ class VideoPlayer:
         self.console.config(text=f"💾 Boucle '{target_name}' sauvegardée ({'maj' if updated else 'nouvelle'})")
 
     def reload_current_loop(self, event=None):
-        """Reload the current loop from saved_loops (Ctrl+Shift+S)."""
+        """Reload the current loop from saved_loops (Shift+S)."""
         if not hasattr(self, "current_loop") or not isinstance(self.current_loop, LoopData):
             Brint("[RELOAD] ❌ Aucun current_loop valide")
             self.log_to_console("⚠️ Aucune boucle active à recharger")
@@ -7035,7 +7035,7 @@ class VideoPlayer:
         
         #quicksave
         self.root.bind("<Control-s>", self.quick_save_current_loop)
-        self.root.bind("<Control-Shift-s>", self.reload_current_loop)
+        self.root.bind("<Shift-S>", self.reload_current_loop)
         self.root.bind("<Control-p>", self.toggle_mode_bar)
         self.root.bind("<asterisk>", self.increase_mode_bar_bars) # '*' key
         self.root.bind("<slash>", self.decrease_mode_bar_bars)   # '/' key
