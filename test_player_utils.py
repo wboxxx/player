@@ -638,6 +638,74 @@ class TestRemapPersistentHitsHelper(unittest.TestCase):
         self.assertEqual(vp.subdivision_state.get(1), 2)
 
 
+class TestTempoChangeAndOffset(unittest.TestCase):
+    def _create_player(self):
+        vp = VideoPlayer.__new__(VideoPlayer)
+        vp.tempo_bpm = 120
+        vp.subdivision_mode = "binary8"
+        vp.get_subdivisions_per_beat = VideoPlayer.get_subdivisions_per_beat.__get__(vp)
+
+        vp.grid_canvas = MagicMock()
+        vp.grid_canvas.winfo_width.return_value = 1000
+        vp.get_zoom_context = lambda: {"zoom_start": 0, "zoom_end": 1, "zoom_range": 1}
+        vp.time_sec_to_canvas_x = lambda t, **kw: t * 100
+
+        vp.console = MagicMock()
+        vp.tempo_var = MagicMock()
+        vp.tempo_label = MagicMock()
+        vp.lock_tempo_var = MagicMock()
+        vp.lock_tempo_var.get.return_value = False
+        vp.adjust_b_marker_if_mode_bar_enabled = MagicMock()
+        vp.refresh_note_display = MagicMock()
+
+        vp.loop_start = 0
+        vp.loop_end = 1000
+        vp.current_loop = player.LoopData("t", 0, 1000, tempo_bpm=vp.tempo_bpm)
+
+        vp.grid_times = [0.0, 0.5]
+        vp.grid_subdivs = list(enumerate(vp.grid_times))
+        vp.precomputed_grid_infos = {i: {"t_subdiv_sec": t} for i, t in enumerate(vp.grid_times)}
+
+        vp.persistent_validated_hit_timestamps = {0.5}
+        vp.user_hit_timestamps = [(0.5, 0)]
+        vp.subdivision_state = {}
+
+        VideoPlayer.remap_persistent_validated_hits(vp)
+        return vp
+
+    def test_tempo_change_and_offset_remap_hits(self):
+        vp = self._create_player()
+
+        def fake_build_grid(self):
+            if self.tempo_bpm == 60:
+                self.grid_times = [0.0, 1.1]
+            else:
+                self.grid_times = [0.0, 0.5]
+            self.grid_subdivs = list(enumerate(self.grid_times))
+
+        def fake_compute_infos(self):
+            self.precomputed_grid_infos = {i: {"t_subdiv_sec": t} for i, t in enumerate(self.grid_times)}
+            return self.precomputed_grid_infos
+
+        with patch.object(VideoPlayer, "build_rhythm_grid", fake_build_grid), \
+             patch.object(VideoPlayer, "compute_rhythm_grid_infos", fake_compute_infos), \
+             patch.object(VideoPlayer, "draw_rhythm_grid_canvas"), \
+             patch.object(VideoPlayer, "draw_syllabic_grid_heatmap"):
+            VideoPlayer.set_tempo_bpm(vp, 60)
+
+        self.assertEqual(vp.tempo_bpm, 60)
+        self.assertEqual(vp.persistent_validated_hit_timestamps, {0.5})
+        self.assertEqual(vp.subdivision_state, {0: 2})
+
+        with patch.object(VideoPlayer, "draw_syllabic_grid_heatmap"):
+            VideoPlayer.offset_all_hit_timestamps(vp, 1)
+
+        interval = 60.0 / 60 / 2
+        self.assertEqual(vp.persistent_validated_hit_timestamps, {0.5 + interval})
+        self.assertEqual(vp.user_hit_timestamps[0][0], 0.5 + interval)
+        self.assertEqual(vp.subdivision_state, {1: 2})
+
+
 class TestRecordLoopMarkerShift(unittest.TestCase):
     @patch.object(VideoPlayer, "shift_all_hit_timestamps")
     def test_shift_not_called_when_moving_A(self, mock_shift):
