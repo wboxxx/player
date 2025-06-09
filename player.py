@@ -1811,7 +1811,7 @@ class LoopData:
     def __init__(self, name, loop_start, loop_end, key=None, mode=None,
                  chords=None, master_note_list=None, tempo_bpm=None,
                  loop_zoom_ratio=None, confirmed_hit_context=None,
-                 hit_timings=None):
+                 hit_timings=None, hit_timestamps=None):
         
         
         
@@ -1829,6 +1829,7 @@ class LoopData:
             "grid_mode": None
         }
         self.hit_timings = hit_timings or []
+        self.hit_timestamps = hit_timestamps or []
 
     @classmethod
     def from_dict(cls, data):
@@ -1852,7 +1853,8 @@ class LoopData:
             tempo_bpm=data.get("tempo_bpm") or 60.0,  # ✅ fallback à 60 bpm si None
             loop_zoom_ratio=data.get("loop_zoom_ratio"),
             confirmed_hit_context=data.get("confirmed_hit_context"),
-            hit_timings=data.get("hit_timings", [])
+            hit_timings=data.get("hit_timings", []),
+            hit_timestamps=data.get("hit_timestamps", [])
         )
 
     def to_dict(self):
@@ -1869,7 +1871,8 @@ class LoopData:
             "tempo_bpm": self.tempo_bpm,  # ✅ Ajouté ici
             "loop_zoom_ratio": self.loop_zoom_ratio,
             "confirmed_hit_context": self.confirmed_hit_context,
-            "hit_timings": self.hit_timings
+            "hit_timings": self.hit_timings,
+            "hit_timestamps": self.hit_timestamps
         }
         
         
@@ -2892,6 +2895,7 @@ class VideoPlayer:
             "grid_mode": self.subdivision_mode,
         }
         self.current_loop.hit_timings = self.get_current_hit_timings()
+        self.current_loop.hit_timestamps = self.get_current_hit_timestamps()
 
         for i, loop in enumerate(self.saved_loops):
             if loop["name"] == target_name:
@@ -3195,6 +3199,98 @@ class VideoPlayer:
                 self.draw_syllabic_grid_heatmap()
             except AttributeError:
                 pass
+
+    # === New Hit Management API ===
+    def record_user_hit(self, hit_time_ms):
+        Brint(f"[NHIT] Hit registered at {hit_time_ms} ms")
+        if not hasattr(self, "current_loop") or self.current_loop is None:
+            return
+        self.current_loop.hit_timestamps.append(hit_time_ms)
+        if not hasattr(self, "user_hit_timestamps"):
+            self.user_hit_timestamps = []
+        loop_dur_ms = (self.loop_end - self.loop_start) if self.loop_end and self.loop_start is not None else 0
+        loop_pass = int((hit_time_ms - self.loop_start) // loop_dur_ms) if loop_dur_ms else 0
+        self.user_hit_timestamps.append((hit_time_ms / 1000.0, loop_pass))
+        self.associate_hits_to_subdivisions()
+        self.update_subdivision_states()
+
+    def associate_hits_to_subdivisions(self):
+        self.subdivision_hits = {i: [] for i in range(len(getattr(self, "grid_times", [])))}
+        if not getattr(self, "grid_times", None):
+            return self.subdivision_hits
+        grid_ms = [t * 1000 for t in self.grid_times]
+        interval = grid_ms[1] - grid_ms[0] if len(grid_ms) > 1 else 0
+        window_start = self.loop_start - interval
+        window_end = self.loop_end + interval
+        for ts in getattr(self.current_loop, "hit_timestamps", []):
+            if ts < window_start or ts > window_end:
+                continue
+            idx = min(range(len(grid_ms)), key=lambda i: abs(grid_ms[i] - ts))
+            self.subdivision_hits[idx].append(ts)
+            Brint(f"[NHIT] Closest subdiv = {idx}, subdiv_time = {grid_ms[idx]}, Δ = {abs(grid_ms[idx]-ts)} ms")
+        return self.subdivision_hits
+
+    def update_subdivision_states(self):
+        if not hasattr(self, "subdivision_state"):
+            self.subdivision_state = {}
+        loop_dur_ms = self.loop_end - self.loop_start if self.loop_end and self.loop_start is not None else 0
+        for idx, hits in self.subdivision_hits.items():
+            prev_state = self.subdivision_state.get(idx, 0)
+            loops = [int((t - self.loop_start) // loop_dur_ms) if loop_dur_ms else 0 for t in hits]
+            cur = self.loop_pass_count
+            state = prev_state
+            if cur in loops:
+                if cur-1 in loops and cur-2 in loops:
+                    state = 3
+                elif cur-1 in loops:
+                    state = 2
+                else:
+                    state = 1
+            if state != prev_state:
+                self.subdivision_state[idx] = state
+                Brint(f"[NHIT] Subdiv {idx} → state updated to {state}")
+        return self.subdivision_state
+
+    def decay_subdivision_states(self):
+        grid_ms = [t * 1000 for t in getattr(self, "grid_times", [])]
+        if len(grid_ms) < 2:
+            return
+        interval = grid_ms[1] - grid_ms[0]
+        loop_dur_ms = self.loop_end - self.loop_start if self.loop_end and self.loop_start is not None else 0
+        now = self.loop_pass_count * loop_dur_ms
+        for idx, state in list(getattr(self, "subdivision_state", {}).items()):
+            if state in (0, 3):
+                continue
+            last_times = self.subdivision_hits.get(idx, [])
+            last_ts = max(last_times) if last_times else None
+            if last_ts is not None and now - last_ts > loop_dur_ms + interval:
+                new_state = max(0, state - 1)
+                self.subdivision_state[idx] = new_state
+                Brint(f"[NHIT] Decay check: Subdiv {idx} downgraded from {state} to {new_state}")
+
+    def offset_red_subdivisions(self, direction):
+        bpm = getattr(self, "tempo_bpm", 0)
+        if bpm <= 0 or not getattr(self, "grid_times", None):
+            return
+        interval = (60.0 / bpm / self.get_subdivisions_per_beat()) * 1000
+        self.associate_hits_to_subdivisions()
+        grid_ms = [t * 1000 for t in self.grid_times]
+        for idx, hits in list(self.subdivision_hits.items()):
+            if self.subdivision_state.get(idx) != 3:
+                continue
+            for h in hits:
+                new_ts = h + direction * interval
+                Brint(f"[NHIT] Offset: Subdiv {idx} → hit moved to {new_ts} ms")
+                pos = self.current_loop.hit_timestamps.index(h)
+                self.current_loop.hit_timestamps[pos] = new_ts
+                if hasattr(self, "user_hit_timestamps") and pos < len(self.user_hit_timestamps):
+                    lp = self.user_hit_timestamps[pos][1]
+                    self.user_hit_timestamps[pos] = (new_ts / 1000.0, lp)
+                if h in getattr(self, "persistent_validated_hit_timestamps", set()):
+                    self.persistent_validated_hit_timestamps.remove(h)
+                    self.persistent_validated_hit_timestamps.add(new_ts / 1000.0)
+        self.associate_hits_to_subdivisions()
+        self.update_subdivision_states()
 
     def offset_all_hit_timestamps(self, direction):
         """Shift all hit timestamps by one subdivision forward or backward."""
@@ -3609,6 +3705,7 @@ class VideoPlayer:
                 "grid_mode": self.subdivision_mode,
             },
             "hit_timings": self.get_current_hit_timings(),
+            "hit_timestamps": self.get_current_hit_timestamps(),
         }
 
         is_valid, reason = self.validate_loop_data(loop_data)
@@ -3636,6 +3733,12 @@ class VideoPlayer:
             if 0 <= t_norm <= loop_duration_s:
                 timings.append(t_norm)
         return sorted(timings)
+
+    def get_current_hit_timestamps(self):
+        """Return list of absolute hit timestamps in milliseconds."""
+        if not getattr(self, "user_hit_timestamps", None):
+            return []
+        return sorted(int(t_sec * 1000) for t_sec, _ in self.user_hit_timestamps)
 
 
     
@@ -4814,8 +4917,8 @@ class VideoPlayer:
         tk.Button(btn_frame, text="✅ Appliquer", command=apply_all_and_close).pack(side="right", padx=(10, 0))
         tk.Button(btn_frame, text="Toggle Hit", command=toggle_selected_subdiv).pack(side="right", padx=(10, 0))
         popup.bind('<Control-r>', toggle_selected_subdiv)
-        popup.bind('[', lambda e: self.offset_all_hit_timestamps(-1))
-        popup.bind(']', lambda e: self.offset_all_hit_timestamps(+1))
+        popup.bind('[', lambda e: self.offset_red_subdivisions(-1))
+        popup.bind(']', lambda e: self.offset_red_subdivisions(+1))
 
         def reset_all_chords():
             Brint("[RESET] 🔁 Réinitialisation de tous les accords")
@@ -5817,6 +5920,7 @@ class VideoPlayer:
                     "loops": self.saved_loops
                 }, f, indent=2)
             Brint(f"[TBD] 💾 Boucles sauvegardées dans {path}")
+            Brint(f"[NHIT] Saved hits with loop to file: {path}")
         except Exception as e:
             Brint(f"[TBD] ❌ Erreur sauvegarde boucles: {e}")
 
@@ -6130,9 +6234,15 @@ class VideoPlayer:
         if grid_mode:
             self.subdivision_mode = grid_mode
 
-        hit_timings = loop.get("hit_timings", [])
-        self.user_hit_timestamps = [(t, 0) for t in hit_timings]
-        self.current_loop.hit_timings = hit_timings
+        hit_timestamps = loop.get("hit_timestamps")
+        if hit_timestamps is not None:
+            self.user_hit_timestamps = [(t / 1000.0, 0) for t in hit_timestamps]
+            self.current_loop.hit_timestamps = hit_timestamps
+            Brint(f"[NHIT] Loaded {len(hit_timestamps)} hit_timestamps from loop")
+        else:
+            hit_timings = loop.get("hit_timings", [])
+            self.user_hit_timestamps = [(t, 0) for t in hit_timings]
+            self.current_loop.hit_timings = hit_timings
 
         if self.loop_start is None or self.loop_end is None:
             Brint("[ERROR] loop_start ou loop_end manquant après chargement")
@@ -6159,6 +6269,8 @@ class VideoPlayer:
         self.rebuild_loop_context()
         # Apply persistent validated hits from the saved loop
         self.remap_persistent_validated_hits()
+        self.associate_hits_to_subdivisions()
+        self.update_subdivision_states()
         self.draw_rhythm_grid_canvas()
 
         # 🕓 Positionnement du playhead
@@ -7188,8 +7300,8 @@ class VideoPlayer:
         
         #heatmap
         self.root.bind("<period>", lambda e: self.reset_syllabic_grid_hits())
-        self.root.bind_all("[", lambda e: self.offset_all_hit_timestamps(-1))
-        self.root.bind_all("]", lambda e: self.offset_all_hit_timestamps(+1))
+        self.root.bind_all("[", lambda e: self.offset_red_subdivisions(-1))
+        self.root.bind_all("]", lambda e: self.offset_red_subdivisions(+1))
 
         
         #zoom bindings screen
@@ -8673,7 +8785,9 @@ class VideoPlayer:
                         self.awaiting_vlc_jump = True
                         self.loop_pass_count += 1
                         Brint(f"[LOOP PASS] Boucle AB passée {self.loop_pass_count} fois")
-                        self.evaluate_subdivision_states()
+                        self.decay_subdivision_states()
+                        self.associate_hits_to_subdivisions()
+                        self.update_subdivision_states()
                         self.last_playhead_time = self.playhead_time
                         for i in list(self.subdivision_counters.keys()):
                             last_hit_loop = self.subdiv_last_hit_loop.get(i, -1)
@@ -8690,7 +8804,9 @@ class VideoPlayer:
                         self.last_loop_jump_time = time.perf_counter()
                         self.loop_pass_count += 1
                         Brint(f"[LOOP PASS] Boucle AB passée {self.loop_pass_count} fois (raw)")
-                        self.evaluate_subdivision_states()
+                        self.decay_subdivision_states()
+                        self.associate_hits_to_subdivisions()
+                        self.update_subdivision_states()
                         self.last_playhead_time = self.playhead_time
                         for i in list(self.subdivision_counters.keys()):
                             last_hit_loop = self.subdiv_last_hit_loop.get(i, -1)
@@ -9045,19 +9161,9 @@ class VideoPlayer:
         Brint(f"[HIT] 🎯 Fonction on_user_hit() appelée")
         Brint(f"[HIT] Frappe utilisateur à {self.hms(current_time_ms)} hms")
 
-        if not hasattr(self, "grid_subdivs") or not self.grid_subdivs:
-            Brint("[HIT] ⚠️ grid_subdivs vide → appel forcé build_rhythm_grid()")
-            self.build_rhythm_grid()
-
-        if not hasattr(self, "grid_subdivs") or not self.grid_subdivs:
-            Brint("[HIT ERROR] ❌ grid_subdivs toujours vide après build — frappe ignorée")
-            return
-
-        precomputed = self.compute_rhythm_grid_infos()
-        if not precomputed:
-            Brint("[HIT ERROR] ❌ compute_rhythm_grid_infos() a échoué — pas de grille")
-            Brint(f"[HIT DEBUG] grid_subdivs = {self.grid_subdivs[:3] if self.grid_subdivs else '[]'}")
-            return
+        loop_dur_ms = (self.loop_end - self.loop_start) if self.loop_end and self.loop_start is not None else 0
+        absolute_ms = int(current_time_ms + self.loop_pass_count * loop_dur_ms)
+        self.record_user_hit(absolute_ms)
 
         self.precomputed_grid_infos = precomputed
 
@@ -9072,123 +9178,10 @@ class VideoPlayer:
         Brint(f"[HIT WINDOW] ⏱ Dynamic tolerance = {tolerance:.3f}s (1/2 of {avg_interval_sec:.3f}s)")
 
         # 2. Étendre temporairement les subdivisions pour la détection (±2 subdivs)
-        n_extra = 2
-        extended_times = []
-        for i in range(n_extra, 0, -1):
-            extended_times.append(grid_times[0] - i * avg_interval_sec)
-        extended_times.extend(grid_times)
-        for i in range(1, n_extra + 1):
-            extended_times.append(grid_times[-1] + i * avg_interval_sec)
-
-        indexed_grid = list(enumerate(extended_times, start=-n_extra))
-
-        for idx, t in indexed_grid:
-            delta = abs(t - current_time_sec)
-            Brint(f"[DEBUG HIT EXT] Subdiv {idx:+d} → t = {t:.3f}s | Δ = {delta:.3f}s")
-
-
-        first_time = grid_times[0]
-        last_time = grid_times[-1]
-        subdiv_duration = avg_interval_sec
-        
-        
-        # Cas 1 : frappe juste avant A → rattacher à subdiv 0
-        if first_time - 0.5 * subdiv_duration < current_time_sec < first_time:
-            Brint(f"[HIT BORD A] 🔁 Hit à {current_time_sec:.3f}s rattaché à subdiv 0 (avant A)")
-            closest_i = 0
-
-        # Cas 2 : frappe juste après B → rattacher à dernière subdiv
-        elif last_time < current_time_sec < last_time + 0.5 * subdiv_duration:
-            Brint(f"[HIT BORD B] 🔁 Hit à {current_time_sec:.3f}s rattaché à subdiv {len(grid_times) - 1} (après B)")
-            closest_i = len(grid_times) - 1
-
-        # 3. Gestion des cas aux frontières A/B
-        if first_time - 0.5 * subdiv_duration < current_time_sec < first_time:
-            Brint(f"[HIT BORD A] 🔁 Hit à {current_time_sec:.3f}s rattaché à subdiv 0 (avant A)")
-            closest_i = 0
-
-        elif last_time < current_time_sec < last_time + 0.5 * subdiv_duration:
-            Brint(f"[HIT BORD B] 🔁 Hit à {current_time_sec:.3f}s rattaché à subdiv {len(grid_times) - 1} (après B)")
-            closest_i = len(grid_times) - 1
-
-        else:
-            # 4. Recherche du subdiv le plus proche (standard)
-            closest_i_ext, closest_t = min(indexed_grid, key=lambda item: abs(item[1] - current_time_sec))
-            delta = abs(closest_t - current_time_sec)
-
-            if delta > tolerance:
-                Brint(f"[HIT IGNORÉ] 🛑 Aucun subdiv proche (Δ = {delta:.3f}s > tolérance)")
-                return
-
-            if closest_i_ext < 0 or closest_i_ext >= len(grid_times):
-                Brint(f"[HIT HORS GRILLE] Subdiv virtuelle {closest_i_ext:+d} détectée | frappe hors A/B | non comptabilisée")
-                return
-
-            closest_i = closest_i_ext
     
         
-        last_hit = self.subdiv_last_hit_pass.get(closest_i, -1)
-        if last_hit == self.loop_pass_count:
-            Brint(f"[HIT IGNORÉ] Subdiv {closest_i} déjà frappée pendant la loop {self.loop_pass_count}")
-            return
 
-        Brint(f"[HIT VALIDÉ] Loop courante = {self.loop_pass_count}")
-        previous_hits = self.subdivision_counters.get(closest_i, 0)
-        # Brint(f"[HIT] Subdiv {closest_i} la plus proche détectée | Hits avant={previous_hits}")
-        Brint(f"[HIT MAP] 🎯 Frappe à {current_time_sec:.3f}s associée à subdiv {closest_i} → x={self.precomputed_grid_infos[closest_i]['x']:.1f}px | loop_pass={self.loop_pass_count}")
-
-        self.subdiv_last_hit_pass[closest_i] = self.loop_pass_count
-        self.subdivision_counters[closest_i] = previous_hits + 1
-        self.subdiv_last_hit_loop[closest_i] = self.loop_pass_count
-
-        # 🆕 Enregistrement du timestamp pour re-snapping visuel
-        if not hasattr(self, "user_hit_timestamps"):
-            self.user_hit_timestamps = []
-        loop_duration_s = (
-            self.loop_end - self.loop_start
-        ) / 1000.0 if self.loop_end is not None and self.loop_start is not None else 0.0
-
-        absolute_hit_time = current_time_sec + self.loop_pass_count * loop_duration_s
-
-        self.user_hit_timestamps.append((absolute_hit_time, self.loop_pass_count))
-
-        Brint(f"[HIT] Subdiv {closest_i} MAJ : Hits après={self.subdivision_counters[closest_i]} | LastHitLoop={self.subdiv_last_hit_pass[closest_i]}")
-        # 🔍 Log final de validation complète du hit
-        x = self.precomputed_grid_infos[closest_i]["x"]
-        Brint(f"[HIT VALIDATED] ✅ Subdiv {closest_i} ← hit à {current_time_sec:.3f}s | x={x:.1f}px | loop_pass={self.loop_pass_count}")
-        # 🔄 Mise à jour immédiate de l'état de la subdivision
-        if not hasattr(self, "subdivision_state"):
-            self.subdivision_state = {}
-
-        prev_hit_loop = self.subdiv_last_hit_loop.get(closest_i, -2)
-
-        current_state = self.subdivision_state.get(closest_i, -1)
-
-        self.subdiv_last_hit_time[closest_i] = absolute_hit_time
-
-
-        if current_state == 2:
-            Brint(f"[HIT COLOR] Subdiv {closest_i} déjà rouge (state=2) → inchangé")
-        elif current_state == 1 and prev_hit_loop == self.loop_pass_count - 1:
-            # Troisième frappe consécutive → validation rouge
-            self.subdivision_state[closest_i] = 2
-            Brint(f"[HIT COLOR] 🔴 Subdiv {closest_i} passe en state=2 (rouge) après 3e frappe")
-            self.on_subdiv_validated(closest_i)
-        elif current_state == 0 and prev_hit_loop == self.loop_pass_count - 1:
-            # Deuxième frappe consécutive → prévalidation orange
-            self.subdivision_state[closest_i] = 1
-            Brint(f"[HIT COLOR] 🟠 Subdiv {closest_i} passe en state=1 (orange) après 2e frappe")
-
-        elif current_state == -1:
-            # Première frappe
-            self.subdivision_state[closest_i] = 0
-            Brint(f"[HIT COLOR] ⚪ Subdiv {closest_i} passe en state=0 (gris) après 1ère frappe")
-        else:
-            Brint(f"[HIT COLOR] ⚪ Subdiv {closest_i} reste en state={current_state}")
-
-
-        self.draw_rhythm_grid_canvas()
-
+        
        
                 
     def draw_syllabic_grid_heatmap(self):

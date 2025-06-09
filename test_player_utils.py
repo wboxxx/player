@@ -584,19 +584,24 @@ class TestMatchHitsOrdering(unittest.TestCase):
 
 
 class TestOffsetHits(unittest.TestCase):
-    def test_offset_all_hit_timestamps(self):
+    def test_offset_red_subdivisions(self):
         vp = VideoPlayer.__new__(VideoPlayer)
         vp.tempo_bpm = 120
         vp.subdivision_mode = "binary8"
         vp.get_subdivisions_per_beat = VideoPlayer.get_subdivisions_per_beat.__get__(vp)
         vp.user_hit_timestamps = [(0.5, 0), (0.75, 1)]
-        vp.persistent_validated_hit_timestamps = {0.5}
+        vp.current_loop = player.LoopData("t", 0, 1000, tempo_bpm=120, hit_timestamps=[500])
+        vp.grid_times = [0.0]
+        vp.subdivision_state = {0: 3}
+        vp.loop_start = 0
+        vp.loop_end = 1000
+        vp.loop_pass_count = 0
 
-        VideoPlayer.offset_all_hit_timestamps(vp, 1)
+        VideoPlayer.offset_red_subdivisions(vp, 1)
 
         interval = 60.0 / 120 / 2
         self.assertAlmostEqual(vp.user_hit_timestamps[0][0], 0.5 + interval)
-        self.assertIn(0.5 + interval, vp.persistent_validated_hit_timestamps)
+        self.assertEqual(vp.current_loop.hit_timestamps[0], int((0.5 + interval) * 1000))
 
 
 class TestConfirmedHitContext(unittest.TestCase):
@@ -609,6 +614,7 @@ class TestConfirmedHitContext(unittest.TestCase):
 
         ld2 = player.LoopData.from_dict(d)
         self.assertEqual(ld2.confirmed_hit_context, ctx)
+        self.assertEqual(ld2.hit_timestamps, [])
 
     def test_build_loop_data_includes_hits(self):
         vp = VideoPlayer.__new__(VideoPlayer)
@@ -618,9 +624,12 @@ class TestConfirmedHitContext(unittest.TestCase):
         vp.loop_zoom_ratio = 1.0
         vp.persistent_validated_hit_timestamps = {0.25, 0.5}
         vp.subdivision_mode = "binary8"
+        vp.user_hit_timestamps = [(0.25, 0)]
+        vp.current_loop.hit_timestamps = [250]
         data = VideoPlayer.build_loop_data(vp, "t")
         self.assertEqual(sorted(data["confirmed_hit_context"]["timestamps"]), [0.25, 0.5])
         self.assertEqual(data["confirmed_hit_context"]["grid_mode"], "binary8")
+        self.assertEqual(data["hit_timestamps"], [250])
 
 
 class TestRemapPersistentHitsHelper(unittest.TestCase):
@@ -669,17 +678,19 @@ class TestTempoChangeAndOffset(unittest.TestCase):
 
         vp.loop_start = 0
         vp.loop_end = 1000
-        vp.current_loop = player.LoopData("t", 0, 1000, tempo_bpm=vp.tempo_bpm)
-
-        vp.grid_times = [0.0, 0.5]
+        vp.current_loop = player.LoopData("t", 0, 1000, tempo_bpm=vp.tempo_bpm, hit_timestamps=[500])
+        
+        vp.grid_times = [0.0]
         vp.grid_subdivs = list(enumerate(vp.grid_times))
         vp.precomputed_grid_infos = {i: {"t_subdiv_sec": t} for i, t in enumerate(vp.grid_times)}
 
         vp.persistent_validated_hit_timestamps = {0.5}
         vp.user_hit_timestamps = [(0.5, 0)]
         vp.subdivision_state = {}
+        vp.loop_pass_count = 0
 
         VideoPlayer.remap_persistent_validated_hits(vp)
+        vp.subdivision_state = {1: 3}
         return vp
 
     def test_tempo_change_and_offset_remap_hits(self):
@@ -707,12 +718,36 @@ class TestTempoChangeAndOffset(unittest.TestCase):
         self.assertEqual(vp.subdivision_state, {0: 2})
 
         with patch.object(VideoPlayer, "draw_syllabic_grid_heatmap"):
-            VideoPlayer.offset_all_hit_timestamps(vp, 1)
+            VideoPlayer.offset_red_subdivisions(vp, 1)
 
         interval = 60.0 / 60 / 2
-        self.assertEqual(vp.persistent_validated_hit_timestamps, {0.5 + interval})
-        self.assertEqual(vp.user_hit_timestamps[0][0], 0.5 + interval)
-        self.assertEqual(vp.subdivision_state, {1: 2})
+        self.assertEqual(vp.persistent_validated_hit_timestamps, {0.5})
+        self.assertEqual(vp.user_hit_timestamps[0][0], 0.5)
+        self.assertEqual(vp.current_loop.hit_timestamps[0], 500)
+
+
+class TestRecordUserHit(unittest.TestCase):
+    def test_state_transitions(self):
+        vp = VideoPlayer.__new__(VideoPlayer)
+        vp.loop_start = 0
+        vp.loop_end = 1000
+        vp.loop_pass_count = 0
+        vp.grid_times = [0.0]
+        vp.current_loop = player.LoopData("t", 0, 1000, tempo_bpm=60, hit_timestamps=[])
+        vp.subdivision_state = {}
+        vp.get_subdivisions_per_beat = VideoPlayer.get_subdivisions_per_beat.__get__(vp)
+        vp.tempo_bpm = 60
+        vp.user_hit_timestamps = []
+        with patch('player.Brint') as mock_brint:
+            VideoPlayer.record_user_hit(vp, 0)
+            self.assertEqual(vp.subdivision_state.get(0), 1)
+            vp.loop_pass_count = 1
+            VideoPlayer.record_user_hit(vp, 1000)
+            self.assertEqual(vp.subdivision_state.get(0), 2)
+            vp.loop_pass_count = 2
+            VideoPlayer.record_user_hit(vp, 2000)
+            self.assertEqual(vp.subdivision_state.get(0), 2)
+            self.assertTrue(any('[NHIT]' in str(call[0][0]) for call in mock_brint.call_args_list))
 
 
 class TestRecordLoopMarkerShift(unittest.TestCase):
