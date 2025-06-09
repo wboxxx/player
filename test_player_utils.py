@@ -581,6 +581,22 @@ class TestMatchHitsOrdering(unittest.TestCase):
         self.assertNotIn(0, hits)
 
 
+class TestOffsetHits(unittest.TestCase):
+    def test_offset_all_hit_timestamps(self):
+        vp = VideoPlayer.__new__(VideoPlayer)
+        vp.tempo_bpm = 120
+        vp.subdivision_mode = "binary8"
+        vp.get_subdivisions_per_beat = VideoPlayer.get_subdivisions_per_beat.__get__(vp)
+        vp.user_hit_timestamps = [(0.5, 0), (0.75, 1)]
+        vp.persistent_validated_hit_timestamps = {0.5}
+
+        VideoPlayer.offset_all_hit_timestamps(vp, 1)
+
+        interval = 60.0 / 120 / 2
+        self.assertAlmostEqual(vp.user_hit_timestamps[0][0], 0.5 + interval)
+        self.assertIn(0.5 + interval, vp.persistent_validated_hit_timestamps)
+
+
 if __name__ == '__main__':
     unittest.main(argv=['first-arg-is-ignored'], exit=False)
 
