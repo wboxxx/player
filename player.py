@@ -2905,6 +2905,25 @@ class VideoPlayer:
         self.save_loops_to_file()
         self.console.config(text=f"💾 Boucle '{target_name}' sauvegardée ({'maj' if updated else 'nouvelle'})")
 
+    def reload_current_loop(self, event=None):
+        """Reload the current loop from saved_loops (Ctrl+Shift+S)."""
+        if not hasattr(self, "current_loop") or not isinstance(self.current_loop, LoopData):
+            Brint("[RELOAD] ❌ Aucun current_loop valide")
+            self.console.config(text="⚠️ Aucune boucle active à recharger")
+            return
+
+        target_name = self.current_loop.name
+        for i, loop in enumerate(self.saved_loops):
+            if loop.get("name") == target_name:
+                Brint(f"[RELOAD] 🔄 Boucle trouvée : {target_name} (index {i})")
+                self.load_saved_loop(i)
+                self.console.config(text=f"🔄 Boucle '{target_name}' rechargée")
+                return
+
+        Brint(f"[RELOAD] ❌ Boucle '{target_name}' introuvable dans saved_loops")
+        self.console.config(text=f"⚠️ Boucle '{target_name}' non trouvée")
+
+
     
         
 
@@ -7002,6 +7021,7 @@ class VideoPlayer:
         
         #quicksave
         self.root.bind("<Control-s>", self.quick_save_current_loop)
+        self.root.bind("<Control-Shift-s>", self.reload_current_loop)
         self.root.bind("<Control-p>", self.toggle_mode_bar)
         self.root.bind("<asterisk>", self.increase_mode_bar_bars) # '*' key
         self.root.bind("<slash>", self.decrease_mode_bar_bars)   # '/' key
