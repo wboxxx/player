@@ -70,6 +70,7 @@ main shortcuts and what they do:
 | --- | --- |
 | `Shift+Tab` | Cycle note display mode |
 | `Ctrl+S` | Quick save the current loop |
+| `Ctrl+Z` | Restore previous loop backup |
 | `Shift+S` | Reload the current loop |
 | `Ctrl+P` | Toggle "mode bar" playback |
 | `*` | Increase bars in mode bar |

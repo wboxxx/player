@@ -4,6 +4,8 @@ from lib_switch import np, librosa, scipy, sf
 import os  # For os.path.exists checks in _util_extract_audio_segment tests
 import sys
 import types
+import tempfile
+import json
 
 # Provide dummy external modules for player import
 sys.modules.setdefault('vlc', MagicMock())
@@ -668,6 +670,42 @@ class TestRecordLoopMarkerShift(unittest.TestCase):
 
         VideoPlayer.record_loop_marker(vp, "loop_start", milliseconds=1500, auto_exit=True)
         mock_shift.assert_called_with((1500 - 1000)/1000.0)
+
+
+class TestLoopBackupRestore(unittest.TestCase):
+    def _create_player(self, tmpdir):
+        vp = VideoPlayer.__new__(VideoPlayer)
+        vp.current_path = os.path.join(tmpdir, "video.mp4")
+        vp.saved_loops = []
+        vp.log_to_console = MagicMock()
+        vp.refresh_static_timeline_elements = MagicMock()
+        vp.sanitize_filename = lambda x: x
+        vp.set_selected_loop_name = MagicMock()
+        return vp
+
+    def test_backup_and_restore(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            vp = self._create_player(tmpdir)
+
+            vp.saved_loops = [{"name": "orig", "loop_start": 0, "loop_end": 1000}]
+            vp.save_loops_to_file()
+
+            vp.saved_loops = [{"name": "new", "loop_start": 0, "loop_end": 2000}]
+            vp.save_loops_to_file()
+
+            backup_path = vp.abloops_json_path() + ".bak"
+            self.assertTrue(os.path.exists(backup_path))
+
+            def simple_load():
+                with open(vp.abloops_json_path(), "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                vp.saved_loops = data.get("loops", data)
+
+            vp.load_saved_loops = simple_load
+            vp.saved_loops = []
+            vp.restore_loops_from_backup()
+
+            self.assertEqual(vp.saved_loops[0]["name"], "orig")
 
 
 if __name__ == '__main__':

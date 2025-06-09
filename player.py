@@ -5722,6 +5722,13 @@ class VideoPlayer:
             return
         try:
             path = self.abloops_json_path()
+            if os.path.exists(path):
+                backup_path = path + ".bak"
+                try:
+                    shutil.copy2(path, backup_path)
+                    Brint(f"[UNDO] Backup enregistré dans {backup_path}")
+                except Exception as e:
+                    Brint(f"[UNDO] ❌ Échec de la sauvegarde de backup: {e}")
             with open(path, "w", encoding="utf-8") as f:
                 json.dump({
                     "loops": self.saved_loops
@@ -5729,6 +5736,23 @@ class VideoPlayer:
             Brint(f"[TBD] 💾 Boucles sauvegardées dans {path}")
         except Exception as e:
             Brint(f"[TBD] ❌ Erreur sauvegarde boucles: {e}")
+
+    def restore_loops_from_backup(self, event=None):
+        if not hasattr(self, "current_path") or not self.current_path:
+            return
+        path = self.abloops_json_path()
+        backup_path = path + ".bak"
+        if not os.path.exists(backup_path):
+            self.log_to_console("❌ Aucun backup à restaurer")
+            Brint(f"[UNDO] Aucun backup trouvé à {backup_path}")
+            return
+        try:
+            shutil.copy2(backup_path, path)
+            self.load_saved_loops()
+            self.log_to_console("↩️ Boucles restaurées")
+            Brint(f"[UNDO] Boucles restaurées depuis {backup_path}")
+        except Exception as e:
+            Brint(f"[UNDO] ❌ Erreur restauration backup: {e}")
 
 
 
@@ -7035,6 +7059,7 @@ class VideoPlayer:
         
         #quicksave
         self.root.bind("<Control-s>", self.quick_save_current_loop)
+        self.root.bind("<Control-z>", self.restore_loops_from_backup)
         self.root.bind("<Shift-S>", self.reload_current_loop)
         self.root.bind("<Control-p>", self.toggle_mode_bar)
         self.root.bind("<asterisk>", self.increase_mode_bar_bars) # '*' key
