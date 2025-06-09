@@ -2987,6 +2987,20 @@ class VideoPlayer:
         parts = list(map(float, hms.split(":")))
         return sum(t * 60**i for i, t in enumerate(reversed(parts)))
 
+    def abph_stamp(self):
+        """Return current A/B/playhead times in seconds."""
+        a = getattr(self, "loop_start", None)
+        b = getattr(self, "loop_end", None)
+        ph = getattr(self, "playhead_time", None)
+
+        def fmt(val):
+            return f"{val / 1000.0:.3f}" if isinstance(val, (int, float)) else "N/A"
+
+        a_s = fmt(a)
+        b_s = fmt(b)
+        ph_s = f"{ph:.3f}" if isinstance(ph, (int, float)) else "N/A"
+        return f"A({a_s}) B({b_s}) PH({ph_s})"
+
 
     
     def compute_rhythm_grid_infos(self):
@@ -3205,7 +3219,9 @@ class VideoPlayer:
 
     # === New Hit Management API ===
     def record_user_hit(self, hit_time_ms):
-        Brint(f"[NHIT] Hit registered at {hit_time_ms} ms")
+        Brint(
+            f"[NHIT] Hit registered at {self.hms(hit_time_ms)} | {self.abph_stamp()}"
+        )
         if not hasattr(self, "current_loop") or self.current_loop is None:
             return
         self.current_loop.hit_timestamps.append(hit_time_ms)
@@ -3230,7 +3246,9 @@ class VideoPlayer:
                 continue
             idx = min(range(len(grid_ms)), key=lambda i: abs(grid_ms[i] - ts))
             self.subdivision_hits[idx].append(ts)
-            Brint(f"[NHIT] Closest subdiv = {idx}, subdiv_time = {grid_ms[idx]}, Δ = {abs(grid_ms[idx]-ts)} ms")
+            Brint(
+                f"[NHIT] Closest subdiv = {idx}, subdiv_time = {self.hms(grid_ms[idx])}, Δ = {self.hms(abs(grid_ms[idx]-ts))} | {self.abph_stamp()}"
+            )
         return self.subdivision_hits
 
     def update_subdivision_states(self):
@@ -3251,7 +3269,9 @@ class VideoPlayer:
                     state = 1
             if state != prev_state:
                 self.subdivision_state[idx] = state
-                Brint(f"[NHIT] Subdiv {idx} → state updated to {state}")
+                Brint(
+                    f"[NHIT] Subdiv {idx} → state updated to {state} | {self.abph_stamp()}"
+                )
         return self.subdivision_state
 
     def decay_subdivision_states(self):
@@ -3269,7 +3289,9 @@ class VideoPlayer:
             if last_ts is not None and now - last_ts > loop_dur_ms + interval:
                 new_state = max(0, state - 1)
                 self.subdivision_state[idx] = new_state
-                Brint(f"[NHIT] Decay check: Subdiv {idx} downgraded from {state} to {new_state}")
+                Brint(
+                    f"[NHIT] Decay check: Subdiv {idx} downgraded from {state} to {new_state} | {self.abph_stamp()}"
+                )
 
     def offset_red_subdivisions(self, direction):
         bpm = getattr(self, "tempo_bpm", 0)
@@ -3283,7 +3305,9 @@ class VideoPlayer:
                 continue
             for h in hits:
                 new_ts = h + direction * interval
-                Brint(f"[NHIT] Offset: Subdiv {idx} → hit moved to {new_ts} ms")
+                Brint(
+                    f"[NHIT] Offset: Subdiv {idx} → hit moved to {self.hms(new_ts)} | {self.abph_stamp()}"
+                )
                 pos = self.current_loop.hit_timestamps.index(h)
                 self.current_loop.hit_timestamps[pos] = new_ts
                 if hasattr(self, "user_hit_timestamps") and pos < len(self.user_hit_timestamps):
@@ -5923,7 +5947,7 @@ class VideoPlayer:
                     "loops": self.saved_loops
                 }, f, indent=2)
             Brint(f"[TBD] 💾 Boucles sauvegardées dans {path}")
-            Brint(f"[NHIT] Saved hits with loop to file: {path}")
+            Brint(f"[NHIT] Saved hits with loop to file: {path} | {self.abph_stamp()}")
         except Exception as e:
             Brint(f"[TBD] ❌ Erreur sauvegarde boucles: {e}")
 
@@ -6241,7 +6265,9 @@ class VideoPlayer:
         if hit_timestamps is not None:
             self.user_hit_timestamps = [(t / 1000.0, 0) for t in hit_timestamps]
             self.current_loop.hit_timestamps = hit_timestamps
-            Brint(f"[NHIT] Loaded {len(hit_timestamps)} hit_timestamps from loop")
+            Brint(
+                f"[NHIT] Loaded {len(hit_timestamps)} hit_timestamps from loop | {self.abph_stamp()}"
+            )
         else:
             hit_timings = loop.get("hit_timings", [])
             self.user_hit_timestamps = [(t, 0) for t in hit_timings]
