@@ -2026,7 +2026,9 @@ class VideoPlayer:
 
         intervals = [t2 - t1 for t1, t2 in zip(sorted_times[:-1], sorted_times[1:])]
         avg_interval_sec = sum(intervals) / len(intervals) if intervals else 0.5
-        tolerance = avg_interval_sec / 3.0
+        # Widen the detection window so every hit can match a subdivision
+        tolerance = avg_interval_sec / 2.0
+        Brint(f"[HIT WINDOW] ℹ️ Tolerance set to {tolerance:.3f}s (1/2 of {avg_interval_sec:.3f}s)")
 
         for t_hit, loop_pass in self.user_hit_timestamps:
             closest_pos, closest_t = min(
@@ -2994,7 +2996,9 @@ class VideoPlayer:
                             grid_times_list = sorted(current_grid_times_map.values())
                             intervals = [t2 - t1 for t1, t2 in zip(grid_times_list[:-1], grid_times_list[1:])]
                             avg_interval_sec = sum(intervals) / len(intervals) if intervals else 0.5
-                            tolerance = avg_interval_sec / 3.0
+                            # Wider window: half of the average subdivision interval
+                            tolerance = avg_interval_sec / 2.0
+                            Brint(f"[HIT WINDOW] ℹ️ Tolerance set to {tolerance:.3f}s (1/2 of {avg_interval_sec:.3f}s)")
 
                             for t_hit, pass_count in self.user_hit_timestamps:
                                 if pass_count == self.loop_pass_count - 1: # Hit from the pass that just confirmed validation
@@ -3851,7 +3855,9 @@ class VideoPlayer:
                 grid_times_list = sorted(current_grid_times_map.values())
                 intervals = [t2 - t1 for t1, t2 in zip(grid_times_list[:-1], grid_times_list[1:])]
                 avg_interval_sec = sum(intervals) / len(intervals) if intervals else 0.5
-                tolerance = avg_interval_sec / 3.0
+                # Wider window to avoid losing hits during remapping
+                tolerance = avg_interval_sec / 2.0
+                Brint(f"[HIT WINDOW] ℹ️ Tolerance set to {tolerance:.3f}s (1/2 of {avg_interval_sec:.3f}s)")
 
                 for timestamp_sec in self.persistent_validated_hit_timestamps:
                     new_closest_subdiv_idx = None
@@ -3914,7 +3920,9 @@ class VideoPlayer:
                 grid_times_list = sorted(current_grid_times_map.values())
                 intervals = [t2 - t1 for t1, t2 in zip(grid_times_list[:-1], grid_times_list[1:])]
                 avg_interval_sec = sum(intervals) / len(intervals) if intervals else 0.5
-                tolerance = avg_interval_sec / 3.0
+                # Wider window for remapping to preserve hits
+                tolerance = avg_interval_sec / 2.0
+                Brint(f"[HIT WINDOW] ℹ️ Tolerance set to {tolerance:.3f}s (1/2 of {avg_interval_sec:.3f}s)")
 
                 for timestamp_sec in self.persistent_validated_hit_timestamps:
                     new_closest_subdiv_idx = None
@@ -5049,7 +5057,9 @@ class VideoPlayer:
                 grid_times_list = sorted(current_grid_times_map.values())
                 intervals = [t2 - t1 for t1, t2 in zip(grid_times_list[:-1], grid_times_list[1:])]
                 avg_interval_sec = sum(intervals) / len(intervals) if intervals else 0.5
-                tolerance = avg_interval_sec / 3.0
+                # Wider window when remapping in normal mode
+                tolerance = avg_interval_sec / 2.0
+                Brint(f"[HIT WINDOW] ℹ️ Tolerance set to {tolerance:.3f}s (1/2 of {avg_interval_sec:.3f}s)")
 
                 for timestamp_sec in self.persistent_validated_hit_timestamps:
                     new_closest_subdiv_idx = None
@@ -8713,9 +8723,10 @@ class VideoPlayer:
         grid_times = sorted(grid_times)
         intervals = [t2 - t1 for t1, t2 in zip(grid_times[:-1], grid_times[1:])]
         avg_interval_sec = sum(intervals) / len(intervals) if intervals else 0.5  # fallback = 0.5s
-        tolerance = avg_interval_sec / 3.0
+        # Wider tolerance so hits always find a subdivision
+        tolerance = avg_interval_sec / 2.0
 
-        Brint(f"[HIT] ⏱ Tolérance dynamique = {tolerance:.3f}s (1/3 de {avg_interval_sec:.3f}s)")
+        Brint(f"[HIT WINDOW] ⏱ Dynamic tolerance = {tolerance:.3f}s (1/2 of {avg_interval_sec:.3f}s)")
 
         # 2. Étendre temporairement les subdivisions pour la détection (±2 subdivs)
         n_extra = 2
