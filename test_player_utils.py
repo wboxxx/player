@@ -621,6 +621,21 @@ class TestConfirmedHitContext(unittest.TestCase):
         self.assertEqual(data["confirmed_hit_context"]["grid_mode"], "binary8")
 
 
+class TestRemapPersistentHitsHelper(unittest.TestCase):
+    def test_remap_persistent_hits_sets_state(self):
+        vp = VideoPlayer.__new__(VideoPlayer)
+        vp.precomputed_grid_infos = {
+            0: {"t_subdiv_sec": 0.0},
+            1: {"t_subdiv_sec": 0.5},
+        }
+        vp.persistent_validated_hit_timestamps = {0.5}
+        vp.subdivision_state = {}
+
+        VideoPlayer.remap_persistent_validated_hits(vp)
+
+        self.assertEqual(vp.subdivision_state.get(1), 2)
+
+
 if __name__ == '__main__':
     unittest.main(argv=['first-arg-is-ignored'], exit=False)
 
