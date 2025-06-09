@@ -8020,7 +8020,14 @@ class VideoPlayer:
         self.invalidate_jump_estimators()
         Brint("[RLM] ♻️ Cache precomputed_grid_infos invalidé à cause du déplacement de A ou B")
         self.precomputed_grid_infos = {}
-        self.compute_rhythm_grid_infos()  # 💡 À forcer sans reuse du cache
+
+        # Rebuild the rhythm grid to realign subdivisions with the new loop markers
+        self.build_rhythm_grid()
+        self.compute_rhythm_grid_infos()  # recompute using the fresh grid
+        self.remap_persistent_validated_hits()
+        if hasattr(self, "draw_rhythm_grid_canvas"):
+            self.draw_rhythm_grid_canvas()
+
         # self.draw_loop_markers()
         self.refresh_static_timeline_elements()
         Brint("[RLM] 🖍️ Redessin forcé des marqueurs après zoom")
