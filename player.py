@@ -3056,17 +3056,21 @@ class VideoPlayer:
             now_abs = self.loop_pass_count * self.loop_duration_s
 
         for i in self.grid_subdivs:
+
             idx = i[0]
             last_hit_loop = self.subdiv_last_hit_loop.get(idx, -1)
             state = self.subdivision_state.get(idx, -1)
             hit_count = self.subdivision_counters.get(idx, 0)
             last_hit_time = self.subdiv_last_hit_time.get(idx)
 
+
             if last_hit_loop == self.loop_pass_count - 1:
                 # Si déjà pré-validée -> passe en validé rouge
                 if state == 1 and hit_count >= 3:
+
                     self.subdivision_state[idx] = 2
                     promoted_subdiv_idx = idx
+
                     Brint(f"[VALIDATED] Subdiv {promoted_subdiv_idx} passe en ROUGE (confirmée)")
                     # Add logic to store the original hit timestamp
                     if hasattr(self, "precomputed_grid_infos") and self.precomputed_grid_infos and \
@@ -3118,8 +3122,10 @@ class VideoPlayer:
 
                 # Sinon devient pré-validée orange
                 elif state == 0 and hit_count >= 2:
+
                     self.subdivision_state[idx] = 1
                     Brint(f"[PRE-VALIDATE] Subdiv {idx} passe en ORANGE")
+
             else:
                 decay_threshold = None
                 if now_abs is not None and last_hit_time is not None:
@@ -9069,9 +9075,11 @@ class VideoPlayer:
             self.subdivision_state = {}
 
         prev_hit_loop = self.subdiv_last_hit_loop.get(closest_i, -2)
+
         current_state = self.subdivision_state.get(closest_i, -1)
 
         self.subdiv_last_hit_time[closest_i] = absolute_hit_time
+
 
         if current_state == 2:
             Brint(f"[HIT COLOR] Subdiv {closest_i} déjà rouge (state=2) → inchangé")
@@ -9083,12 +9091,14 @@ class VideoPlayer:
             # Deuxième frappe consécutive → prévalidation orange
             self.subdivision_state[closest_i] = 1
             Brint(f"[HIT COLOR] 🟠 Subdiv {closest_i} passe en state=1 (orange) après 2e frappe")
+
         elif current_state == -1:
             # Première frappe
             self.subdivision_state[closest_i] = 0
             Brint(f"[HIT COLOR] ⚪ Subdiv {closest_i} passe en state=0 (gris) après 1ère frappe")
         else:
             Brint(f"[HIT COLOR] ⚪ Subdiv {closest_i} reste en state={current_state}")
+
 
         self.draw_rhythm_grid_canvas()
 
