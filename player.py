@@ -3046,10 +3046,11 @@ class VideoPlayer:
             # On vérifie si la subdivision a été frappée lors de la dernière boucle
             last_hit_loop = self.subdiv_last_hit_loop.get(i[0], -1)
             state = self.subdivision_state.get(i[0], 0)
+            hit_count = self.subdivision_counters.get(i[0], 0)
 
             if last_hit_loop == self.loop_pass_count - 1:
                 # Si déjà pré-validée -> passe en validé rouge
-                if state == 1:
+                if state == 1 and hit_count >= 3:
                     self.subdivision_state[i[0]] = 2
                     promoted_subdiv_idx = i[0]
                     Brint(f"[VALIDATED] Subdiv {promoted_subdiv_idx} passe en ROUGE (confirmée)")
@@ -3102,7 +3103,7 @@ class VideoPlayer:
                         Brint("[PERSIST_HIT_ADD] Missing precomputed_grid_infos or user_hit_timestamps, cannot associate timestamp.")
 
                 # Sinon devient pré-validée orange
-                elif state == 0:
+                elif state == 0 and hit_count >= 2:
                     self.subdivision_state[i[0]] = 1
                     Brint(f"[PRE-VALIDATE] Subdiv {i[0]} passe en ORANGE")
             else:
@@ -9038,11 +9039,25 @@ class VideoPlayer:
         # 🔍 Log final de validation complète du hit
         x = self.precomputed_grid_infos[closest_i]["x"]
         Brint(f"[HIT VALIDATED] ✅ Subdiv {closest_i} ← hit à {current_time_sec:.3f}s | x={x:.1f}px | loop_pass={self.loop_pass_count}")
-        # 🔴 Mise à jour immédiate du state = 2 pour affichage en rouge
+        # 🔄 Mise à jour immédiate de l'état de la subdivision
         if not hasattr(self, "subdivision_state"):
             self.subdivision_state = {}
-        self.subdivision_state[closest_i] = 2
-        Brint(f"[HIT COLOR] 🔴 Subdiv {closest_i} marqué state=2 (rouge) immédiatement après frappe")
+
+        prev_hit_loop = self.subdiv_last_hit_loop.get(closest_i, -2)
+        current_state = self.subdivision_state.get(closest_i, 0)
+
+        if current_state == 2:
+            Brint(f"[HIT COLOR] Subdiv {closest_i} déjà rouge (state=2) → inchangé")
+        elif current_state == 1 and prev_hit_loop == self.loop_pass_count - 1:
+            # Troisième frappe consécutive → validation rouge
+            self.subdivision_state[closest_i] = 2
+            Brint(f"[HIT COLOR] 🔴 Subdiv {closest_i} passe en state=2 (rouge) après 3e frappe")
+        elif current_state == 0 and prev_hit_loop == self.loop_pass_count - 1:
+            # Deuxième frappe consécutive → prévalidation orange
+            self.subdivision_state[closest_i] = 1
+            Brint(f"[HIT COLOR] 🟠 Subdiv {closest_i} passe en state=1 (orange) après 2e frappe")
+        else:
+            Brint(f"[HIT COLOR] ⚪ Subdiv {closest_i} reste en state=0 (gris) après 1ère frappe")
 
         self.draw_rhythm_grid_canvas()
 
