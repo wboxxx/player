@@ -5172,6 +5172,11 @@ class VideoPlayer:
         self.build_rhythm_grid()
         self.draw_rhythm_grid_canvas()
         self.compute_rhythm_grid_infos()
+        # Ensure LoopData instance keeps its grid in sync with the player
+        if hasattr(self, "current_loop") and isinstance(self.current_loop, LoopData):
+            self.grid_subdivs = [(i, t) for i, t in enumerate(self.grid_times)]
+            self.current_loop.grid_times = self.grid_times
+            self.current_loop.grid_subdivs = self.grid_subdivs
 
         # Remap persistent validated hits to the new grid
         Brint("[REMAP_VALIDATED_HITS] Clearing old subdivision_state before remapping.")
