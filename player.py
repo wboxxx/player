@@ -1432,7 +1432,9 @@ def loopdata_to_dict(loop_data):
         "master_note_list": loop_data.master_note_list if hasattr(loop_data, "master_note_list") else [],
         "chords": loop_data.chords if hasattr(loop_data, "chords") else [],
         "tempo_bpm": getattr(loop_data, "tempo_bpm", None),
-        "key": getattr(loop_data, "key", None)
+        "key": getattr(loop_data, "key", None),
+        "loop_zoom_ratio": getattr(loop_data, "loop_zoom_ratio", None),
+        "confirmed_hit_context": getattr(loop_data, "confirmed_hit_context", None),
     }
 
     Brint(f"[OK] Boucle prête : start={loop_dict['loop_start']}, end={loop_dict['loop_end']}, bpm={loop_dict['tempo_bpm']}")
@@ -1800,7 +1802,9 @@ class LoopData:
         
     #LOOPDATA INIT
 
-    def __init__(self, name, loop_start, loop_end, key=None, mode=None, chords=None, master_note_list=None, tempo_bpm=None,loop_zoom_ratio=None):
+    def __init__(self, name, loop_start, loop_end, key=None, mode=None,
+                 chords=None, master_note_list=None, tempo_bpm=None,
+                 loop_zoom_ratio=None, confirmed_hit_context=None):
         
         
         
@@ -1813,6 +1817,10 @@ class LoopData:
         self.master_note_list = master_note_list if master_note_list else []
         self.tempo_bpm = tempo_bpm  # ✅ Important
         self.loop_zoom_ratio = loop_zoom_ratio if loop_zoom_ratio is not None else .33
+        self.confirmed_hit_context = confirmed_hit_context or {
+            "timestamps": [],
+            "grid_mode": None
+        }
 
     @classmethod
     def from_dict(cls, data):
@@ -1831,10 +1839,12 @@ class LoopData:
             loop_end=data.get("loop_end"),
             key=data.get("key"),
             mode=data.get("mode"),
-            chords = normalized_chords ,
+            chords=normalized_chords,
             master_note_list=data.get("master_note_list", []),
-            tempo_bpm=data.get("tempo_bpm") or 60.0  # ✅ fallback à 60 bpm si None        
-            )
+            tempo_bpm=data.get("tempo_bpm") or 60.0,  # ✅ fallback à 60 bpm si None
+            loop_zoom_ratio=data.get("loop_zoom_ratio"),
+            confirmed_hit_context=data.get("confirmed_hit_context")
+        )
 
     def to_dict(self):
         Brint(f"[TO_DICT DEBUG] tempo_bpm exporté = {self.tempo_bpm}")
@@ -1847,7 +1857,9 @@ class LoopData:
             "mode": self.mode,
             "chords": self.chords,
             "master_note_list": self.master_note_list,
-            "tempo_bpm": self.tempo_bpm  # ✅ Ajouté ici
+            "tempo_bpm": self.tempo_bpm,  # ✅ Ajouté ici
+            "loop_zoom_ratio": self.loop_zoom_ratio,
+            "confirmed_hit_context": self.confirmed_hit_context
         }
         
         
@@ -2841,6 +2853,12 @@ class VideoPlayer:
         target_name = self.current_loop.name
         updated = False
 
+        # Synchronize confirmed hits context before exporting
+        self.current_loop.confirmed_hit_context = {
+            "timestamps": sorted(self.persistent_validated_hit_timestamps),
+            "grid_mode": self.subdivision_mode,
+        }
+
         for i, loop in enumerate(self.saved_loops):
             if loop["name"] == target_name:
                 Brint(f"[SAVE DEBUG] current_loop.tempo_bpm = {getattr(self.current_loop, 'tempo_bpm', '❌ None')}")
@@ -3264,6 +3282,15 @@ class VideoPlayer:
             return False, "Loop start ou end non numériques"
         if loop["loop_start"] >= loop["loop_end"]:
             return False, f"Loop start >= loop end ({loop['loop_start']} >= {loop['loop_end']})"
+
+        ctx = loop.get("confirmed_hit_context")
+        if ctx is not None:
+            if not isinstance(ctx, dict):
+                return False, "confirmed_hit_context invalide"
+            if "timestamps" in ctx and not isinstance(ctx["timestamps"], list):
+                return False, "timestamps doit être une liste"
+            if "grid_mode" in ctx and ctx["grid_mode"] is not None and not isinstance(ctx["grid_mode"], str):
+                return False, "grid_mode doit être une chaîne ou None"
         return True, None
 
     
@@ -3472,7 +3499,11 @@ class VideoPlayer:
             "tempo_bpm": self.current_loop.tempo_bpm,
             "key": self.current_loop.key,
             "mode": self.current_loop.mode,
-            "loop_zoom_ratio": getattr(self, "loop_zoom_ratio", None)  # ✅ new field
+            "loop_zoom_ratio": getattr(self, "loop_zoom_ratio", None),  # ✅ new field
+            "confirmed_hit_context": {
+                "timestamps": sorted(self.persistent_validated_hit_timestamps),
+                "grid_mode": self.subdivision_mode,
+            }
         }
 
         is_valid, reason = self.validate_loop_data(loop_data)
@@ -5951,6 +5982,14 @@ class VideoPlayer:
         self.loop_start = self.current_loop.loop_start
         self.loop_end = self.current_loop.loop_end
         self.auto_zoom_on_loop_markers(force=True)
+
+        # Restore confirmed hits context if present
+        ctx = loop.get("confirmed_hit_context", {})
+        timestamps = ctx.get("timestamps", [])
+        grid_mode = ctx.get("grid_mode")
+        self.persistent_validated_hit_timestamps = set(timestamps)
+        if grid_mode:
+            self.subdivision_mode = grid_mode
 
         if self.loop_start is None or self.loop_end is None:
             Brint("[ERROR] loop_start ou loop_end manquant après chargement")
