@@ -597,6 +597,30 @@ class TestOffsetHits(unittest.TestCase):
         self.assertIn(0.5 + interval, vp.persistent_validated_hit_timestamps)
 
 
+class TestConfirmedHitContext(unittest.TestCase):
+    def test_loopdata_round_trip(self):
+        ctx = {"timestamps": [0.5, 1.0], "grid_mode": "binary8"}
+        ld = player.LoopData("t", 0, 1000, tempo_bpm=60, loop_zoom_ratio=1.0,
+                             confirmed_hit_context=ctx)
+        d = ld.to_dict()
+        self.assertEqual(d["confirmed_hit_context"], ctx)
+
+        ld2 = player.LoopData.from_dict(d)
+        self.assertEqual(ld2.confirmed_hit_context, ctx)
+
+    def test_build_loop_data_includes_hits(self):
+        vp = VideoPlayer.__new__(VideoPlayer)
+        vp.current_loop = player.LoopData("t", 0, 1000, tempo_bpm=60)
+        vp.loop_start = 0
+        vp.loop_end = 1000
+        vp.loop_zoom_ratio = 1.0
+        vp.persistent_validated_hit_timestamps = {0.25, 0.5}
+        vp.subdivision_mode = "binary8"
+        data = VideoPlayer.build_loop_data(vp, "t")
+        self.assertEqual(sorted(data["confirmed_hit_context"]["timestamps"]), [0.25, 0.5])
+        self.assertEqual(data["confirmed_hit_context"]["grid_mode"], "binary8")
+
+
 if __name__ == '__main__':
     unittest.main(argv=['first-arg-is-ignored'], exit=False)
 
