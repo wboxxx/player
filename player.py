@@ -2014,22 +2014,36 @@ class VideoPlayer:
         if not self.precomputed_grid_infos:
             self.compute_rhythm_grid_infos()
 
-        grid_times = [info['t_subdiv_sec'] for info in self.precomputed_grid_infos.values()]
-        if not grid_times:
+        if not self.precomputed_grid_infos:
             return dynamic_hits
 
-        intervals = [t2 - t1 for t1, t2 in zip(grid_times[:-1], grid_times[1:])]
+        sorted_items = sorted(
+            self.precomputed_grid_infos.items(),
+            key=lambda item: item[1]['t_subdiv_sec']
+        )
+        sorted_times = [info['t_subdiv_sec'] for _, info in sorted_items]
+        sorted_indices = [idx for idx, _ in sorted_items]
+
+        intervals = [t2 - t1 for t1, t2 in zip(sorted_times[:-1], sorted_times[1:])]
         avg_interval_sec = sum(intervals) / len(intervals) if intervals else 0.5
         tolerance = avg_interval_sec / 3.0
 
         for t_hit, loop_pass in self.user_hit_timestamps:
-            closest_i, closest_t = min(enumerate(grid_times), key=lambda item: abs(item[1] - t_hit))
+            closest_pos, closest_t = min(
+                enumerate(sorted_times),
+                key=lambda item: abs(item[1] - t_hit)
+            )
             delta = abs(closest_t - t_hit)
             if delta <= tolerance:
+                closest_i = sorted_indices[closest_pos]
                 dynamic_hits[closest_i] += 1
-                Brint(f"[HIT MAP] 🟠 t_hit={t_hit:.3f}s → Subdiv {closest_i} (Δ={delta:.3f}s)")
+                Brint(
+                    f"[HIT MAP] 🟠 t_hit={t_hit:.3f}s → Subdiv {closest_i} (Δ={delta:.3f}s)"
+                )
             else:
-                Brint(f"[HIT MAP] ⛔ t_hit={t_hit:.3f}s ignoré (Δ={delta:.3f}s > tolérance)")
+                Brint(
+                    f"[HIT MAP] ⛔ t_hit={t_hit:.3f}s ignoré (Δ={delta:.3f}s > tolérance)"
+                )
 
         return dynamic_hits
 

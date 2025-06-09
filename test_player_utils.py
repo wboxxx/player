@@ -564,6 +564,23 @@ class TestZoomRatioControls(unittest.TestCase):
         self.assertEqual(ratio, 2.0)
 
 
+class TestMatchHitsOrdering(unittest.TestCase):
+    class Dummy(VideoPlayer):
+        def __init__(self):
+            # Precomputed grid infos inserted out of chronological order
+            self.precomputed_grid_infos = {
+                1: {"t_subdiv_sec": 0.5},
+                0: {"t_subdiv_sec": 0.0},
+            }
+            self.user_hit_timestamps = [(0.5, 0)]
+
+    def test_match_hits_sorted_by_time(self):
+        d = self.Dummy()
+        hits = VideoPlayer.match_hits_to_subdivs(d)
+        self.assertEqual(hits.get(1, 0), 1)
+        self.assertNotIn(0, hits)
+
+
 if __name__ == '__main__':
     unittest.main(argv=['first-arg-is-ignored'], exit=False)
 
