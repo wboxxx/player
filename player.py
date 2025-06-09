@@ -3108,51 +3108,7 @@ class VideoPlayer:
                 t + direction * interval for t in self.persistent_validated_hit_timestamps
             }
         # After shifting, remap persistent hits so that red subdivisions follow
-        if not hasattr(self, "subdivision_state"):
-            self.subdivision_state = {}
-        self.subdivision_state.clear()
-
-        if (
-            hasattr(self, "persistent_validated_hit_timestamps")
-            and self.persistent_validated_hit_timestamps
-            and hasattr(self, "precomputed_grid_infos")
-            and self.precomputed_grid_infos
-        ):
-            current_grid_times_map = {
-                idx: info["t_subdiv_sec"] for idx, info in self.precomputed_grid_infos.items()
-            }
-            if not current_grid_times_map:
-                Brint("[REMAP_VALIDATED_HITS_ERROR offset] current_grid_times_map is empty.")
-            else:
-                grid_times_list = sorted(current_grid_times_map.values())
-                intervals = [t2 - t1 for t1, t2 in zip(grid_times_list[:-1], grid_times_list[1:])]
-                avg_interval_sec = sum(intervals) / len(intervals) if intervals else 0.5
-                tolerance = avg_interval_sec / 2.0
-                Brint(
-                    f"[HIT WINDOW] \u2139\ufe0f Tolerance set to {tolerance:.3f}s (1/2 of {avg_interval_sec:.3f}s)"
-                )
-                for timestamp_sec in self.persistent_validated_hit_timestamps:
-                    new_closest_subdiv_idx = None
-                    min_delta = float("inf")
-                    for subdiv_idx, subdiv_t_sec in current_grid_times_map.items():
-                        delta = abs(subdiv_t_sec - timestamp_sec)
-                        if delta < min_delta:
-                            min_delta = delta
-                            new_closest_subdiv_idx = subdiv_idx
-
-                    if new_closest_subdiv_idx is not None and min_delta <= tolerance:
-                        self.subdivision_state[new_closest_subdiv_idx] = 2
-                        Brint(
-                            f"[REMAP_VALIDATED_HITS offset] Timestamp {timestamp_sec:.3f}s remapped to new subdiv {new_closest_subdiv_idx} (state 2) with delta {min_delta:.3f}s."
-                        )
-                    else:
-                        Brint(
-                            f"[REMAP_VALIDATED_HITS_WARN offset] Timestamp {timestamp_sec:.3f}s (min_delta {min_delta:.3f}s > tol {tolerance:.3f}s) could not be reliably remapped to any subdiv in the new grid."
-                        )
-        else:
-            Brint(
-                "[REMAP_VALIDATED_HITS offset] No persistent validated hit timestamps to remap or grid info unavailable."
-            )
+        self.remap_persistent_validated_hits()
         Brint(
             f"[OFFSET HITS] Décalage de {direction:+d} subdiv → Δ={direction*interval:.3f}s"
         )
@@ -3946,41 +3902,7 @@ class VideoPlayer:
         Brint(f"[DEBUG CYCLE] Après update notes → accords = {len(self.current_loop.chords)}")
 
         # Remap persistent validated hits to the new grid
-        Brint("[REMAP_VALIDATED_HITS cycle_subdivision_mode_backward] Clearing old subdivision_state.")
-        self.subdivision_state.clear()
-
-        if not hasattr(self, 'persistent_validated_hit_timestamps') or not self.persistent_validated_hit_timestamps:
-            Brint("[REMAP_VALIDATED_HITS cycle_subdivision_mode_backward] No persistent validated hit timestamps to remap.")
-        elif not hasattr(self, 'precomputed_grid_infos') or not self.precomputed_grid_infos:
-            Brint("[REMAP_VALIDATED_HITS_ERROR cycle_subdivision_mode_backward] precomputed_grid_infos not available for remapping.")
-        else:
-            Brint(f"[REMAP_VALIDATED_HITS cycle_subdivision_mode_backward] Remapping {len(self.persistent_validated_hit_timestamps)} persistent hit timestamps...")
-            current_grid_times_map = {idx: info['t_subdiv_sec'] for idx, info in self.precomputed_grid_infos.items()}
-
-            if not current_grid_times_map:
-                Brint("[REMAP_VALIDATED_HITS_ERROR cycle_subdivision_mode_backward] current_grid_times_map is empty.")
-            else:
-                grid_times_list = sorted(current_grid_times_map.values())
-                intervals = [t2 - t1 for t1, t2 in zip(grid_times_list[:-1], grid_times_list[1:])]
-                avg_interval_sec = sum(intervals) / len(intervals) if intervals else 0.5
-                # Wider window to avoid losing hits during remapping
-                tolerance = avg_interval_sec / 2.0
-                Brint(f"[HIT WINDOW] ℹ️ Tolerance set to {tolerance:.3f}s (1/2 of {avg_interval_sec:.3f}s)")
-
-                for timestamp_sec in self.persistent_validated_hit_timestamps:
-                    new_closest_subdiv_idx = None
-                    min_delta = float('inf')
-                    for subdiv_idx, subdiv_t_sec in current_grid_times_map.items():
-                        delta = abs(subdiv_t_sec - timestamp_sec)
-                        if delta < min_delta:
-                            min_delta = delta
-                            new_closest_subdiv_idx = subdiv_idx
-
-                    if new_closest_subdiv_idx is not None and min_delta <= tolerance:
-                        self.subdivision_state[new_closest_subdiv_idx] = 2
-                        Brint(f"[REMAP_VALIDATED_HITS cycle_subdivision_mode_backward] Timestamp {timestamp_sec:.3f}s remapped to new subdiv {new_closest_subdiv_idx} (state 2) with delta {min_delta:.3f}s.")
-                    else:
-                        Brint(f"[REMAP_VALIDATED_HITS_WARN cycle_subdivision_mode_backward] Timestamp {timestamp_sec:.3f}s (min_delta {min_delta:.3f}s > tol {tolerance:.3f}s) could not be reliably remapped to any subdiv in the new grid.")
+        self.remap_persistent_validated_hits()
 
         # 🔍 Debug : affichage des 10 premières notes de la master list
         Brint("[DEBUG] 🔍 master_note_list (extrait) :")
@@ -4011,41 +3933,7 @@ class VideoPlayer:
         self.rebuild_loop_context()  # ← met à jour self.grid_subdivs ET chords si tu les relies dedans
 
         # Remap persistent validated hits to the new grid
-        Brint("[REMAP_VALIDATED_HITS cycle_subdivision_mode] Clearing old subdivision_state.")
-        self.subdivision_state.clear()
-
-        if not hasattr(self, 'persistent_validated_hit_timestamps') or not self.persistent_validated_hit_timestamps:
-            Brint("[REMAP_VALIDATED_HITS cycle_subdivision_mode] No persistent validated hit timestamps to remap.")
-        elif not hasattr(self, 'precomputed_grid_infos') or not self.precomputed_grid_infos:
-            Brint("[REMAP_VALIDATED_HITS_ERROR cycle_subdivision_mode] precomputed_grid_infos not available for remapping.")
-        else:
-            Brint(f"[REMAP_VALIDATED_HITS cycle_subdivision_mode] Remapping {len(self.persistent_validated_hit_timestamps)} persistent hit timestamps...")
-            current_grid_times_map = {idx: info['t_subdiv_sec'] for idx, info in self.precomputed_grid_infos.items()}
-
-            if not current_grid_times_map:
-                Brint("[REMAP_VALIDATED_HITS_ERROR cycle_subdivision_mode] current_grid_times_map is empty.")
-            else:
-                grid_times_list = sorted(current_grid_times_map.values())
-                intervals = [t2 - t1 for t1, t2 in zip(grid_times_list[:-1], grid_times_list[1:])]
-                avg_interval_sec = sum(intervals) / len(intervals) if intervals else 0.5
-                # Wider window for remapping to preserve hits
-                tolerance = avg_interval_sec / 2.0
-                Brint(f"[HIT WINDOW] ℹ️ Tolerance set to {tolerance:.3f}s (1/2 of {avg_interval_sec:.3f}s)")
-
-                for timestamp_sec in self.persistent_validated_hit_timestamps:
-                    new_closest_subdiv_idx = None
-                    min_delta = float('inf')
-                    for subdiv_idx, subdiv_t_sec in current_grid_times_map.items():
-                        delta = abs(subdiv_t_sec - timestamp_sec)
-                        if delta < min_delta:
-                            min_delta = delta
-                            new_closest_subdiv_idx = subdiv_idx
-
-                    if new_closest_subdiv_idx is not None and min_delta <= tolerance:
-                        self.subdivision_state[new_closest_subdiv_idx] = 2
-                        Brint(f"[REMAP_VALIDATED_HITS cycle_subdivision_mode] Timestamp {timestamp_sec:.3f}s remapped to new subdiv {new_closest_subdiv_idx} (state 2) with delta {min_delta:.3f}s.")
-                    else:
-                        Brint(f"[REMAP_VALIDATED_HITS_WARN cycle_subdivision_mode] Timestamp {timestamp_sec:.3f}s (min_delta {min_delta:.3f}s > tol {tolerance:.3f}s) could not be reliably remapped to any subdiv in the new grid.")
+        self.remap_persistent_validated_hits()
 
         self.update_all_detected_notes_from_master()  # ← très important
 
@@ -5181,44 +5069,52 @@ class VideoPlayer:
             self.current_loop.grid_subdivs = self.grid_subdivs
 
         # Remap persistent validated hits to the new grid
-        Brint("[REMAP_VALIDATED_HITS] Clearing old subdivision_state before remapping.")
-        self.subdivision_state.clear()
-
-        if not hasattr(self, 'persistent_validated_hit_timestamps') or not self.persistent_validated_hit_timestamps:
-            Brint("[REMAP_VALIDATED_HITS] No persistent validated hit timestamps to remap.")
-        elif not hasattr(self, 'precomputed_grid_infos') or not self.precomputed_grid_infos:
-            Brint("[REMAP_VALIDATED_HITS_ERROR] precomputed_grid_infos not available for remapping.")
-        else:
-            Brint(f"[REMAP_VALIDATED_HITS] Remapping {len(self.persistent_validated_hit_timestamps)} persistent hit timestamps...")
-            current_grid_times_map = {idx: info['t_subdiv_sec'] for idx, info in self.precomputed_grid_infos.items()}
-
-            if not current_grid_times_map:
-                Brint("[REMAP_VALIDATED_HITS_ERROR] current_grid_times_map is empty.")
-            else:
-                grid_times_list = sorted(current_grid_times_map.values())
-                intervals = [t2 - t1 for t1, t2 in zip(grid_times_list[:-1], grid_times_list[1:])]
-                avg_interval_sec = sum(intervals) / len(intervals) if intervals else 0.5
-                # Wider window when remapping in normal mode
-                tolerance = avg_interval_sec / 2.0
-                Brint(f"[HIT WINDOW] ℹ️ Tolerance set to {tolerance:.3f}s (1/2 of {avg_interval_sec:.3f}s)")
-
-                for timestamp_sec in self.persistent_validated_hit_timestamps:
-                    new_closest_subdiv_idx = None
-                    min_delta = float('inf')
-                    for subdiv_idx, subdiv_t_sec in current_grid_times_map.items():
-                        delta = abs(subdiv_t_sec - timestamp_sec)
-                        if delta < min_delta:
-                            min_delta = delta
-                            new_closest_subdiv_idx = subdiv_idx
-
-                    if new_closest_subdiv_idx is not None and min_delta <= tolerance:
-                        self.subdivision_state[new_closest_subdiv_idx] = 2
-                        Brint(f"[REMAP_VALIDATED_HITS] Timestamp {timestamp_sec:.3f}s remapped to new subdiv {new_closest_subdiv_idx} (state 2) with delta {min_delta:.3f}s.")
-                    else:
-                        Brint(f"[REMAP_VALIDATED_HITS_WARN] Timestamp {timestamp_sec:.3f}s (min_delta {min_delta:.3f}s > tol {tolerance:.3f}s) could not be reliably remapped to any subdiv in the new grid.")
+        self.remap_persistent_validated_hits()
 
         self.current_loop.map_notes_to_subdivs() # This should ideally happen after states are remapped if it depends on subdivision_state for any filtering
         self.refresh_note_display()
+
+
+    def remap_persistent_validated_hits(self):
+        """Map stored hit timestamps back to the current grid and set their states."""
+        Brint("[REMAP_VALIDATED_HITS] Clearing old subdivision_state before remapping.")
+        if not hasattr(self, "subdivision_state"):
+            self.subdivision_state = {}
+        self.subdivision_state.clear()
+
+        if not getattr(self, "persistent_validated_hit_timestamps", None):
+            Brint("[REMAP_VALIDATED_HITS] No persistent validated hit timestamps to remap.")
+            return
+        if not getattr(self, "precomputed_grid_infos", None):
+            Brint("[REMAP_VALIDATED_HITS_ERROR] precomputed_grid_infos not available for remapping.")
+            return
+
+        Brint(f"[REMAP_VALIDATED_HITS] Remapping {len(self.persistent_validated_hit_timestamps)} persistent hit timestamps...")
+        current_grid_times_map = {idx: info['t_subdiv_sec'] for idx, info in self.precomputed_grid_infos.items()}
+        if not current_grid_times_map:
+            Brint("[REMAP_VALIDATED_HITS_ERROR] current_grid_times_map is empty.")
+            return
+
+        grid_times_list = sorted(current_grid_times_map.values())
+        intervals = [t2 - t1 for t1, t2 in zip(grid_times_list[:-1], grid_times_list[1:])]
+        avg_interval_sec = sum(intervals) / len(intervals) if intervals else 0.5
+        tolerance = avg_interval_sec / 2.0
+        Brint(f"[HIT WINDOW] ℹ️ Tolerance set to {tolerance:.3f}s (1/2 of {avg_interval_sec:.3f}s)")
+
+        for timestamp_sec in self.persistent_validated_hit_timestamps:
+            new_closest_subdiv_idx = None
+            min_delta = float('inf')
+            for subdiv_idx, subdiv_t_sec in current_grid_times_map.items():
+                delta = abs(subdiv_t_sec - timestamp_sec)
+                if delta < min_delta:
+                    min_delta = delta
+                    new_closest_subdiv_idx = subdiv_idx
+
+            if new_closest_subdiv_idx is not None and min_delta <= tolerance:
+                self.subdivision_state[new_closest_subdiv_idx] = 2
+                Brint(f"[REMAP_VALIDATED_HITS] Timestamp {timestamp_sec:.3f}s remapped to new subdiv {new_closest_subdiv_idx} (state 2) with delta {min_delta:.3f}s.")
+            else:
+                Brint(f"[REMAP_VALIDATED_HITS_WARN] Timestamp {timestamp_sec:.3f}s (min_delta {min_delta:.3f}s > tol {tolerance:.3f}s) could not be reliably remapped to any subdiv in the new grid.")
 
         
 
@@ -6021,6 +5917,9 @@ class VideoPlayer:
         # 🔁 Reconstruit le contexte (grille, mapping, etc.)
         Brint("[STEP] Reconstruction du contexte boucle")
         self.rebuild_loop_context()
+        # Apply persistent validated hits from the saved loop
+        self.remap_persistent_validated_hits()
+        self.draw_rhythm_grid_canvas()
 
         # 🕓 Positionnement du playhead
         Brint("[STEP] Positionnement du playhead")
