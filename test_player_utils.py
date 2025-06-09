@@ -518,6 +518,33 @@ class TestZoomResetAfterLoop(unittest.TestCase):
         self.assertFalse(vp.reset_zoom_next_frame)
 
 
+class TestInvertedLoopMarkers(unittest.TestCase):
+    def _create_player(self):
+        vp = VideoPlayer.__new__(VideoPlayer)
+        vp.loop_start = 8000
+        vp.loop_end = 2000
+        vp.loop_zoom_ratio = 2.0
+        vp.zoom_context = {"zoom_start": 0, "zoom_end": 5000, "zoom_range": 5000}
+        vp.playhead_time = 4.0
+        vp.player = MagicMock()
+        vp.player.get_length.return_value = 10000
+        vp.grid_canvas = MagicMock()
+        vp.grid_canvas.winfo_width.return_value = 1000
+        vp.cached_canvas_width = 1000
+        return vp
+
+    def test_get_zoom_context_handles_inversion(self):
+        vp = self._create_player()
+        zoom = VideoPlayer.get_zoom_context(vp)
+        self.assertLess(zoom["zoom_start"], zoom["zoom_end"])
+        self.assertEqual(vp.loop_zoom_ratio, 2.0)
+
+    def test_time_to_x_does_not_change_zoom_ratio(self):
+        vp = self._create_player()
+        VideoPlayer.time_sec_to_canvas_x(vp, 3.0)
+        self.assertEqual(vp.loop_zoom_ratio, 2.0)
+
+
 class DummySlider:
     def __init__(self, max_idx):
         self.value = 0
