@@ -4044,7 +4044,7 @@ class VideoPlayer:
             "beat": base_beat,
             "8th": base_beat / (3 if rhythm_type == "ternary" else 2),
             "16th": base_beat / (6 if rhythm_type == "ternary" else 4),
-            "64th": base_beat / (24 if rhythm_type == "ternary" else 16)
+            "64th": base_beat / (48 if rhythm_type == "ternary" else 32)
 
         }
         Brint(f"[SCORE jumps] RHYTHMe jump → BPM={bpm:.2f} | bar={levels['bar']} | beat={levels['beat']}")
@@ -4110,8 +4110,7 @@ class VideoPlayer:
                 delta_ms = self.get_jump_duration_ms(level)
         else:
             delta_ms = self.get_jump_duration_ms(level)
-            if level == "64th":
-                delta_ms = int(delta_ms / 2)
+       
 
         mode = self.edit_mode.get() if hasattr(self, "edit_mode") else None
 
