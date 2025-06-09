@@ -636,6 +636,40 @@ class TestRemapPersistentHitsHelper(unittest.TestCase):
         self.assertEqual(vp.subdivision_state.get(1), 2)
 
 
+class TestRecordLoopMarkerShift(unittest.TestCase):
+    @patch.object(VideoPlayer, "shift_all_hit_timestamps")
+    def test_shift_called_when_moving_A(self, mock_shift):
+        vp = VideoPlayer.__new__(VideoPlayer)
+        vp.loop_start = 1000
+        vp.loop_end = 2000
+        vp.player = MagicMock()
+        vp.player.get_length.return_value = 3000
+        vp.snap_to_keyframes_enabled = False
+        vp.selected_loop_name = "t"
+        vp.current_loop = player.LoopData("t", 1000, 2000, tempo_bpm=60)
+        vp.mode_bar_enabled = False
+        vp.btn_edit_A = MagicMock()
+        vp.btn_edit_B = MagicMock()
+        vp.console = MagicMock()
+        vp.edit_mode = MagicMock()
+        vp.edit_mode.set = MagicMock()
+        vp.maybe_adjust_zoom_if_out_of_frame = MagicMock()
+        vp.adjust_b_marker_if_mode_bar_enabled = MagicMock()
+        vp.build_rhythm_grid = MagicMock()
+        vp.compute_rhythm_grid_infos = MagicMock()
+        vp.remap_persistent_validated_hits = MagicMock()
+        vp.draw_rhythm_grid_canvas = MagicMock()
+        vp.refresh_static_timeline_elements = MagicMock()
+        vp.invalidate_jump_estimators = MagicMock()
+        vp.clear_edit_mode = MagicMock()
+        vp.set_playhead_time = MagicMock()
+        vp.loop_zoom_ratio = 1.0
+        vp.auto_zoom_on_loop_markers = MagicMock()
+
+        VideoPlayer.record_loop_marker(vp, "loop_start", milliseconds=1500, auto_exit=True)
+        mock_shift.assert_called_with((1500 - 1000)/1000.0)
+
+
 if __name__ == '__main__':
     unittest.main(argv=['first-arg-is-ignored'], exit=False)
 
