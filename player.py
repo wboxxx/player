@@ -2988,19 +2988,29 @@ class VideoPlayer:
         return sum(t * 60**i for i, t in enumerate(reversed(parts)))
 
     def abph_stamp(self):
-        """Return current A/B/playhead times in seconds."""
+        """Return current A/B/playhead times in h:mm:ss.1 format."""
+        from datetime import timedelta
+    
+        def fmt_ms(ms):
+            if not isinstance(ms, (int, float)):
+                return "N/A"
+            td = timedelta(seconds=ms / 1000.0)
+            total_seconds = int(td.total_seconds())
+            hours = total_seconds // 3600
+            minutes = (total_seconds % 3600) // 60
+            seconds = total_seconds % 60
+            tenths = int((ms % 1000) / 100)  # dixièmes
+            return f"{hours}:{minutes:02d}:{seconds:02d}.{tenths}"
+    
         a = getattr(self, "loop_start", None)
         b = getattr(self, "loop_end", None)
         ph = getattr(self, "playhead_time", None)
-
-        def fmt(val):
-            return f"{val / 1000.0:.3f}" if isinstance(val, (int, float)) else "N/A"
-
-        a_s = fmt(a)
-        b_s = fmt(b)
-        ph_s = f"{ph:.3f}" if isinstance(ph, (int, float)) else "N/A"
+    
+        a_s = fmt_ms(a)
+        b_s = fmt_ms(b)
+        ph_s = fmt_ms(ph)
+    
         return f"A({a_s}) B({b_s}) PH({ph_s})"
-
 
     
     def compute_rhythm_grid_infos(self):
