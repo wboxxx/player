@@ -2303,6 +2303,11 @@ class VideoPlayer:
 
         loop_start = self.loop_start or 0
         loop_end = self.loop_end or self.duration or 10000  # fallback sécurité
+
+        # Handle inverted markers gracefully without altering instance values
+        if loop_end < loop_start:
+            loop_start, loop_end = loop_end, loop_start
+
         loop_width = loop_end - loop_start
         zoom_ratio = self.loop_zoom_ratio or 1.0
         zoom_width = int(loop_width / zoom_ratio)
@@ -2544,11 +2549,14 @@ class VideoPlayer:
         loop_start = self.loop_start or 0
         loop_end = self.loop_end or 0
 
-        if loop_end <= loop_start:
+        if loop_end < loop_start:
+            Brint(f"[WARN Time2X] Inverted markers A={self.loop_start} B={self.loop_end}")
+            loop_start, loop_end = loop_end, loop_start
+
+        if loop_end == loop_start:
             loop_start = 0
             loop_end = self.player.get_length()
-            self.loop_zoom_ratio = 1.0
-            Brint(f"[INFO Time2X] Pas de loop active, fallback à toute la durée ({loop_end} ms) avec zoom_ratio=1.0")
+            Brint(f"[INFO Time2X] Pas de loop active, fallback à toute la durée ({loop_end} ms)")
 
         loop_range = loop_end - loop_start
         zoom = self.get_zoom_context()
