@@ -637,6 +637,15 @@ class TestRemapPersistentHitsHelper(unittest.TestCase):
 
         self.assertEqual(vp.subdivision_state.get(1), 2)
 
+    def test_remap_without_grid_keeps_state(self):
+        vp = VideoPlayer.__new__(VideoPlayer)
+        vp.persistent_validated_hit_timestamps = {0.5}
+        vp.subdivision_state = {0: 2}
+
+        VideoPlayer.remap_persistent_validated_hits(vp)
+
+        self.assertEqual(vp.subdivision_state, {0: 2})
+
 
 class TestTempoChangeAndOffset(unittest.TestCase):
     def _create_player(self):
