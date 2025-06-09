@@ -3304,9 +3304,15 @@ class VideoPlayer:
         Brint(f"[NHIT] raw_hit_memory[{idx}] += {hit_time_ms / 1000:.3f}s")
         self.update_subdivision_states()
         
+
+        
     def update_subdivision_states(self):
         Brint(f"[NHIT] 🔄 update_subdivision_states() called | loop_pass_count = {self.loop_pass_count}")
-        self.subdiv_states = {}  # idx → 1, 2, 3
+
+        if not hasattr(self, "subdivision_state"):
+            self.subdivision_state = {}
+        else:
+            self.subdivision_state.clear()
 
         for idx, hits in self.raw_hit_memory.items():
             valid_hits = [(t, lp) for (t, lp) in hits if isinstance(t, (int, float)) and isinstance(lp, int)]
@@ -3316,24 +3322,21 @@ class VideoPlayer:
             loop_ids = sorted(set(lp for _, lp in valid_hits))
 
             if len(loop_ids) >= 3 and loop_ids[-3:] == list(range(loop_ids[-3], loop_ids[-3] + 3)):
-                self.subdiv_states[idx] = 3
+                self.subdivision_state[idx] = 3
                 self.confirmed_red_subdivisions[idx] = valid_hits[-3:]
                 Brint(f"[NHIT] Subdiv {idx} → RED (3) | loops = {loop_ids[-3:]}")
             elif len(loop_ids) >= 2 and loop_ids[-2:] == list(range(loop_ids[-2], loop_ids[-2] + 2)):
-                self.subdiv_states[idx] = 2
+                self.subdivision_state[idx] = 2
                 Brint(f"[NHIT] Subdiv {idx} → ORANGE (2) | loops = {loop_ids[-2:]}")
             else:
-                self.subdiv_states[idx] = 1
+                self.subdivision_state[idx] = 1
                 Brint(f"[NHIT] Subdiv {idx} → GRIS FONCÉ (1) | loops = {loop_ids}")
-
-
 
     def decay_subdivision_states(self):
         if not hasattr(self, "raw_hit_memory") or not self.raw_hit_memory:
             return
 
         current_loop = self.loop_pass_count
-        loop_duration = (self.loop_end - self.loop_start) if self.loop_start and self.loop_end else 0
         decay_threshold = 1.2  # en nombre de boucles
 
         for idx, hits in list(self.raw_hit_memory.items()):
@@ -3343,14 +3346,17 @@ class VideoPlayer:
 
             last_loop = max(lp for _, lp in filtered)
             delta_loops = current_loop - last_loop
+
             if delta_loops > decay_threshold:
                 Brint(f"[NHIT] Subdiv {idx} → decay triggered (last seen loop {last_loop}, now {current_loop})")
                 self.raw_hit_memory[idx] = []
-                if idx in self.subdiv_states and self.subdiv_states[idx] < 3:
-                    del self.subdiv_states[idx]
-                if idx in self.confirmed_red_subdivisions:
-                    continue  # red = figé
 
+                if self.subdivision_state.get(idx, 0) < 3:
+                    del self.subdivision_state[idx]
+
+
+
+    
 
 
 
