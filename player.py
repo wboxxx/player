@@ -3084,6 +3084,37 @@ class VideoPlayer:
         else:
             return "?"
 
+    def toggle_subdiv_state_manual(self, subdiv_index, t_ms):
+        """Manually toggle a subdivision's validated (red) state.
+
+        Parameters
+        ----------
+        subdiv_index : int
+            Index of the subdivision in the current grid.
+        t_ms : float
+            Timestamp of that subdivision in milliseconds.
+        """
+        if not hasattr(self, "subdivision_state"):
+            self.subdivision_state = {}
+        if not hasattr(self, "persistent_validated_hit_timestamps"):
+            self.persistent_validated_hit_timestamps = set()
+
+        current_state = self.subdivision_state.get(subdiv_index, 0)
+        t_sec = t_ms / 1000.0
+
+        if current_state == 2:
+            self.subdivision_state[subdiv_index] = 0
+            self.persistent_validated_hit_timestamps.discard(t_sec)
+            Brint(f"[TOGGLE] Subdiv {subdiv_index} reset (removed {t_sec:.3f}s)")
+        else:
+            self.subdivision_state[subdiv_index] = 2
+            self.persistent_validated_hit_timestamps.add(t_sec)
+            Brint(f"[TOGGLE] Subdiv {subdiv_index} set RED (added {t_sec:.3f}s)")
+
+        # Refresh grid display if canvas exists
+        if hasattr(self, "draw_rhythm_grid_canvas"):
+            self.draw_rhythm_grid_canvas()
+
 
 
     def apply_all_chords(self, entry_vars, popup):
@@ -4360,7 +4391,7 @@ class VideoPlayer:
                 Brint("[UI] 🔁 Redessin harmonique post-reset notes")
                 self.draw_harmony_grid_overlay()
 
-            for subdiv_i, var, t_ms in note_entry_vars:
+            for subdiv_i, var, t_ms, _ in note_entry_vars:
                 make_handler(subdiv_i, var, t_ms)(None)
 
             if hasattr(self, "save_current_loop"):
@@ -4385,6 +4416,29 @@ class VideoPlayer:
                 Brint("[SAVE] ❌ Fonction save_current_loop non disponible")
 
             popup.destroy()
+
+        # ---- Selection & toggle helpers ----
+        self.selected_subdiv_index = None
+        self.selected_subdiv_timestamp = None
+
+        def focus_handler(subdiv_i, t_ms, widget):
+            self.selected_subdiv_index = subdiv_i
+            self.selected_subdiv_timestamp = t_ms
+            self._selected_entry_widget = widget
+
+        def toggle_selected_subdiv(event=None):
+            if self.selected_subdiv_index is None:
+                Brint("[TOGGLE] No subdiv selected")
+                return
+            self.toggle_subdiv_state_manual(self.selected_subdiv_index, self.selected_subdiv_timestamp)
+            # update entry highlight
+            for si, _, _, entry in note_entry_vars:
+                if si == self.selected_subdiv_index:
+                    if self.subdivision_state.get(si, 0) == 2:
+                        entry.configure(highlightbackground="red", highlightcolor="red", highlightthickness=2)
+                    else:
+                        entry.configure(highlightthickness=0)
+                    break
 
 
         for measure_index in range(total_measures):
@@ -4518,9 +4572,10 @@ class VideoPlayer:
                 if has_hit_2 and getattr(self, "subdivision_state", {}).get(subdiv_index, 0) == 2:
                     note_entry.configure(highlightbackground="red", highlightcolor="red", highlightthickness=2)
 
+                note_entry.bind("<FocusIn>", lambda e, si=subdiv_index, tm=t_ms: focus_handler(si, tm, e.widget))
                 note_entry.bind("<FocusOut>", make_handler(subdiv_index, note_var, t_ms))
                 note_entry.pack()
-                note_entry_vars.append((subdiv_index, note_var, t_ms))
+                note_entry_vars.append((subdiv_index, note_var, t_ms, note_entry))
 
                 entry_vars.append((subdiv_index, note_var))
         # --- 🔧 PATCH COMPLÉTION AUTOMATIQUE PHANTOM UNIQUEMENT POUR LA DERNIÈRE MESURE ---
@@ -4582,6 +4637,8 @@ class VideoPlayer:
         btn_frame.pack(pady=10, anchor="e", padx=20)
 
         tk.Button(btn_frame, text="✅ Appliquer", command=apply_all_and_close).pack(side="right", padx=(10, 0))
+        tk.Button(btn_frame, text="Toggle Hit", command=toggle_selected_subdiv).pack(side="right", padx=(10, 0))
+        popup.bind('<Control-r>', toggle_selected_subdiv)
 
         def reset_all_chords():
             Brint("[RESET] 🔁 Réinitialisation de tous les accords")
@@ -4593,7 +4650,7 @@ class VideoPlayer:
 
         def reset_all_notes():
             Brint("[RESET] 🔁 Réinitialisation de toutes les notes")
-            for _, note_var, _ in note_entry_vars:
+            for _, note_var, _, _ in note_entry_vars:
                 note_var.set("")
 
         tk.Button(btn_frame, text="🗑️ Notes", command=reset_all_notes).pack(side="right", padx=(10, 0))
@@ -6416,6 +6473,8 @@ class VideoPlayer:
         self.subdivision_state = {}  # clé = subdivision id, valeur = 0, 1 ou 2
         self.subdiv_last_hit_loop = {}  # clé = subdivision id, valeur = numéro de la dernière boucle où elle a été frappée
         self.loop_pass_count = 0  # compteur de boucles AB passées
+        self.selected_subdiv_index = None  # currently focused subdiv in editor
+        self.selected_subdiv_timestamp = None  # timestamp of that subdiv in ms
        
         #zoom screen 
         self.in_zoom_mode = False
