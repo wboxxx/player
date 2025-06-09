@@ -5026,11 +5026,7 @@ class VideoPlayer:
             text="Pause each update",
             variable=self.pause_each_update,
         ).pack(anchor="w")
-        tk.Button(
-            self.state_window,
-            text="Step",
-            command=self.step_once,
-        ).pack(anchor="w")
+        # Step button removed (unused)
 
         tk.Label(self.state_window, text="Update delay (ms)").pack(anchor="w")
         tk.Entry(self.state_window, textvariable=self.update_delay_ms_var, width=6).pack(anchor="w")
@@ -6751,8 +6747,7 @@ class VideoPlayer:
         self.time_display = Label(self.controls_bottom, text="", anchor=W)
         self.time_display.pack(side=LEFT, padx=10)
 
-        self.power_btn = Button(self.controls_bottom, text="📈 Power", command=self.open_audio_power_window)
-        self.power_btn.pack(side='right', padx=5)
+        # self.power_btn removed (unused)
                 
         #quickopen
         self.load_recent_files()
@@ -6824,17 +6819,12 @@ class VideoPlayer:
 
         # === MENUS ET CONTRÔLES BOTTOM ===
         self.loop_length_var = tk.IntVar(value=2)  # 2 mesures par défaut
-        loop_length_menu = tk.OptionMenu(self.controls_bottom, self.loop_length_var, *range(1, 21))
-        loop_length_menu.config(width=5)
-        loop_length_menu.pack(side=LEFT)
-        ToolTip(loop_length_menu, "Définir la longueur de la boucle (en mesures)")
+        # loop_length_menu removed (unused)
 
         self.label_subdivision = Label(self.controls_bottom, text="Subdivision: -", width=18)
         self.label_subdivision.pack(side=LEFT)
 
-        self.conf_slider = tk.Scale(self.controls_bottom, from_=0, to=100, resolution=1, orient=tk.HORIZONTAL, command=self.update_threshold)
-        self.conf_slider.set(50)
-        self.conf_slider.pack(side=LEFT)
+        # self.conf_slider removed (unused)
 
         self.beat1_selector_var = tk.StringVar(value="Beat 1")
         self.beat1_selector = tk.OptionMenu(self.controls_bottom, self.beat1_selector_var, "Beat 1")
@@ -6875,14 +6865,7 @@ class VideoPlayer:
             btn = Button(self.controls_top, text=txt, command=cmd, width=5)
             btn.pack(side=LEFT)
             ToolTip(btn, tip)
-        # === Sous-menu STEP ===
-        self.step_menu_button = tk.Menubutton(self.controls_top, text="🎬 Step", relief=tk.RAISED)
-        self.step_menu = tk.Menu(self.step_menu_button, tearoff=0)
-        self.step_menu.add_command(label="◀◀ Retour en arrière", command=self.step_back)
-        self.step_menu.add_command(label="▶▶ Lecture pas à pas", command=self.step_play)
-        self.step_menu.add_command(label="🔁 Lecture auto steps", command=self.toggle_autostep)
-        self.step_menu_button.config(menu=self.step_menu)
-        self.step_menu_button.pack(side=LEFT, padx=5)
+        # Step menu removed (unused)
         
 
         # === BOUTON RÉSULTATS ===
