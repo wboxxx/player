@@ -2675,7 +2675,8 @@ class VideoPlayer:
         if loop_end <= loop_start:
             loop_start = 0
             loop_end = self.player.get_length()
-            Brint(f"[INFO Time2X] Pas de loop active, fallback à toute la durée ({loop_end} ms)")
+   			self.loop_zoom_ratio = 1.0
+            Brint(f"[INFO Time2X] Pas de loop active, fallback à toute la durée ({loop_end} ms) avec zoom_ratio=1.0")
 
         loop_range = loop_end - loop_start
         if zoom is None:
