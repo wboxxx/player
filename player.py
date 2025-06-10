@@ -3374,6 +3374,9 @@ class VideoPlayer:
                 self.subdivision_state[ridx] = 3
 
         for idx, hits in self.raw_hit_memory.items():
+            if self.subdivision_state.get(idx) == 3:
+                # Skip updates for persistent red subdivisions
+                continue
             valid_hits = [
                 (t, lp)
                 for (t, lp) in hits
