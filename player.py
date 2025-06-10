@@ -2675,8 +2675,7 @@ class VideoPlayer:
         if loop_end <= loop_start:
             loop_start = 0
             loop_end = self.player.get_length()
-   			self.loop_zoom_ratio = 1.0
-            Brint(f"[INFO Time2X] Pas de loop active, fallback à toute la durée ({loop_end} ms) avec zoom_ratio=1.0")
+            Brint(f"[INFO Time2X] Pas de loop active, fallback à toute la durée ({loop_end} ms) avec zoom_ratio={self.loop_zoom_ratio}")
 
         loop_range = loop_end - loop_start
         if zoom is None:
@@ -3297,16 +3296,16 @@ class VideoPlayer:
         grid_ms = [t * 1000 for t in grid_sec]
         interval = grid_ms[1] - grid_ms[0] if len(grid_ms) > 1 else 0
 
-        if (
-            interval and
-            getattr(self, "loop_start", None) is not None and
-            getattr(self, "loop_end", None) is not None and
-            (hit_time_ms < self.loop_start - interval or hit_time_ms > self.loop_end + interval)
-        ):
-            Brint(
-                f"[NHIT] Hit ignored (out of range) {self.hms(hit_time_ms)} | {self.abph_stamp()}"
-            )
-            return
+        if interval and getattr(self, "loop_start", None) is not None and getattr(self, "loop_end", None) is not None:
+            loop_dur = self.loop_end - self.loop_start
+            loop_offset = self.loop_pass_count * loop_dur
+            loop_start_ms = self.loop_start + loop_offset
+            loop_end_ms = self.loop_end + loop_offset
+            if hit_time_ms < loop_start_ms - interval or hit_time_ms > loop_end_ms + interval:
+                Brint(
+                    f"[NHIT] Hit ignored (out of range) {self.hms(hit_time_ms)} | {self.abph_stamp()}"
+                )
+                return
 
         # Find closest subdivision
         idx = min(range(len(grid_ms)), key=lambda i: abs(grid_ms[i] - hit_time_ms))
