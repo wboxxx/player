@@ -3353,6 +3353,7 @@ class VideoPlayer:
 
             loop_ids = sorted(set(lp for _, lp in valid_hits))
 
+            # Red state is reached when hits occur in three consecutive loop passes
             if len(loop_ids) >= 3 and loop_ids[-3:] == list(range(loop_ids[-3], loop_ids[-3] + 3)):
                 self.subdivision_state[idx] = 3
                 self.confirmed_red_subdivisions[idx] = valid_hits[-3:]
@@ -3396,63 +3397,6 @@ class VideoPlayer:
 
 
 
-    def _update_red_subdivisions(self, hit_time_ms):
-        if not hasattr(self, "confirmed_red_subdivisions"):
-            self.confirmed_red_subdivisions = {}
-
-        if not hasattr(self, "raw_hit_memory"):
-            self.raw_hit_memory = {}
-
-        grid_sec = getattr(self, "grid_times", [])
-        if not grid_sec:
-            return
-
-        grid_ms = [t * 1000 for t in grid_sec]
-        interval = grid_ms[1] - grid_ms[0] if len(grid_ms) > 1 else 0
-        loop_dur_ms = self.loop_end - self.loop_start if self.loop_end and self.loop_start is not None else 0
-
-        # Exclude hits far outside the loop
-        if hit_time_ms < self.loop_start - interval or hit_time_ms > self.loop_end + interval:
-            return
-
-        # Find closest subdivision
-        idx = min(range(len(grid_ms)), key=lambda i: abs(grid_ms[i] - hit_time_ms))
-
-        # Determine loop pass
-        loop_pass = int((hit_time_ms - self.loop_start) // loop_dur_ms) if loop_dur_ms else 0
-
-        # Init list
-        if idx not in self.raw_hit_memory:
-            self.raw_hit_memory[idx] = []
-
-        # Nettoyage préventif (évite les floats seuls ou mauvais formats)
-        self.raw_hit_memory[idx] = [
-            hit for hit in self.raw_hit_memory[idx]
-            if isinstance(hit, tuple) and len(hit) == 2 and isinstance(hit[1], int)
-        ]
-
-        # Ajout du nouveau hit
-        self.raw_hit_memory[idx].append((hit_time_ms, loop_pass))
-        self.raw_hit_memory[idx] = [
-            (t, lp) for (t, lp) in self.raw_hit_memory[idx]
-            if isinstance(t, (int, float)) and isinstance(lp, int)
-        ][-5:]  # garde les 5 derniers
-
-
-        # Limite mémoire à 5 hits
-        self.raw_hit_memory[idx] = self.raw_hit_memory[idx][-5:]
-
-        # Vérifie s’il y a 3 loop_pass consécutifs
-        recent_passes = sorted(set(lp for _, lp in self.raw_hit_memory[idx]))
-        for i in range(len(recent_passes) - 2):
-            if (recent_passes[i+1] == recent_passes[i] + 1 and
-                recent_passes[i+2] == recent_passes[i] + 2):
-                target_passes = {recent_passes[i], recent_passes[i+1], recent_passes[i+2]}
-                red_hits = [t for t, lp in self.raw_hit_memory[idx] if lp in target_passes]
-                if len(red_hits) >= 3:
-                    self.confirmed_red_subdivisions[idx] = red_hits[:3]
-                    Brint(f"[NHIT] Subdiv {idx} → RED with hits: {red_hits[:3]}")
-                    break
 
     def offset_red_subdivisions(self, direction):
         """Shift all red subdivision hits up/down by one subdivision unit."""
