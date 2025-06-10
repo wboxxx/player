@@ -3433,6 +3433,14 @@ class VideoPlayer:
                     new_state = state - 1
                     self.subdivision_state[idx] = new_state
                     Brint(f"[NHIT] Subdiv {idx} decayed from state {prev} to {new_state}")
+                    # purge old hit info so this subdivision isn't promoted
+                    if hasattr(self, "raw_hit_memory") and idx in self.raw_hit_memory:
+                        del self.raw_hit_memory[idx]
+                    self.subdiv_last_hit_time.pop(idx, None)
+                    if hasattr(self, "subdiv_last_hit_loop") and idx in self.subdiv_last_hit_loop:
+                        del self.subdiv_last_hit_loop[idx]
+                    if hasattr(self, "subdivision_counters") and idx in self.subdivision_counters:
+                        self.subdivision_counters[idx] = 0
 
 
 
