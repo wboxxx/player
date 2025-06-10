@@ -3226,7 +3226,9 @@ class VideoPlayer:
         if hasattr(self, "confirmed_red_subdivisions"):
             self.confirmed_red_subdivisions.clear()
 
-        if hasattr(self, "subdivision_state"):
+        if not hasattr(self, "subdivision_state"):
+            self.subdivision_state = {}
+        else:
             self.subdivision_state.clear()
 
         if hasattr(self, "raw_hit_memory"):
