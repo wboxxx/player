@@ -8536,6 +8536,11 @@ class VideoPlayer:
         if mode == "loop_end" or inversion:
             self.loop_end = temp_end
 
+        # Reset loop pass count when loop markers change to ensure
+        # decay logic uses the correct time reference
+        self.loop_pass_count = 0
+        Brint("[RLM] 🔄 loop_pass_count reset to 0 after marker update")
+
         # Hits are kept in absolute time; do not shift when markers move
 
 
