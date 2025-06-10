@@ -3413,7 +3413,7 @@ class VideoPlayer:
 
         loop_duration = self.loop_end - self.loop_start
         subdiv_interval = getattr(self, "avg_subdiv_interval_sec", 0.5) * 1000
-        now = self.loop_pass_count * loop_duration
+        now = self.loop_start + self.loop_pass_count * loop_duration
 
         for idx, state in list(self.subdivision_state.items()):
             if state in (1, 2):
