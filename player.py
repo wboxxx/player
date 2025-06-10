@@ -3313,7 +3313,9 @@ class VideoPlayer:
 
         self.raw_hit_memory[idx].append((hit_time_ms, loop_id))
         self.raw_hit_memory[idx] = self.raw_hit_memory[idx][-5:]
-        Brint(f"[NHIT] raw_hit_memory[{idx}] += {hit_time_ms / 1000:.3f}s")
+        Brint(
+            f"[NHIT] raw_hit_memory[{idx}] += {self.hms(hit_time_ms)} | {self.abph_stamp()}"
+        )
 
         if not hasattr(self, "subdiv_last_hit_time"):
             self.subdiv_last_hit_time = {}
