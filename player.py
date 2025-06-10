@@ -3294,6 +3294,18 @@ class VideoPlayer:
         if not grid_sec:
             return
         grid_ms = [t * 1000 for t in grid_sec]
+        interval = grid_ms[1] - grid_ms[0] if len(grid_ms) > 1 else 0
+
+        if (
+            interval and
+            getattr(self, "loop_start", None) is not None and
+            getattr(self, "loop_end", None) is not None and
+            (hit_time_ms < self.loop_start - interval or hit_time_ms > self.loop_end + interval)
+        ):
+            Brint(
+                f"[NHIT] Hit ignored (out of range) {self.hms(hit_time_ms)} | {self.abph_stamp()}"
+            )
+            return
 
         # Find closest subdivision
         idx = min(range(len(grid_ms)), key=lambda i: abs(grid_ms[i] - hit_time_ms))
