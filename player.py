@@ -3363,12 +3363,15 @@ class VideoPlayer:
     def update_subdivision_states(self):
         Brint(f"[NHIT] 🔄 update_subdivision_states() called | loop_pass_count = {self.loop_pass_count}")
 
-        self.prune_old_hit_memory()
-
         if not hasattr(self, "subdivision_state"):
             self.subdivision_state = {}
         else:
             self.subdivision_state.clear()
+
+        # Preserve existing red subdivisions
+        if hasattr(self, "confirmed_red_subdivisions"):
+            for ridx in self.confirmed_red_subdivisions.keys():
+                self.subdivision_state[ridx] = 3
 
         for idx, hits in self.raw_hit_memory.items():
             valid_hits = [
@@ -3392,6 +3395,9 @@ class VideoPlayer:
             else:
                 self.subdivision_state[idx] = 1
                 Brint(f"[NHIT] Subdiv {idx} → GRIS FONCÉ (1) | loops = {loop_ids}")
+
+        # Prune old hits after computing state
+        self.prune_old_hit_memory()
 
     def decay_subdivision_states(self):
         if self.loop_start is None or self.loop_end is None:
