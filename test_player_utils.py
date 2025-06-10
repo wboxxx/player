@@ -678,6 +678,61 @@ class TestHitMemoryPruning(unittest.TestCase):
         self.assertEqual(d.subdivision_state.get(0), 3)
 
 
+class TestDecayTimingWithOffset(unittest.TestCase):
+    class Dummy(VideoPlayer):
+        def __init__(self):
+            self.current_loop = True
+            self.loop_start = 10000
+            self.loop_end = 12000  # 2s loop
+            self.loop_duration_s = 2.0
+            self.grid_times = [10.0, 10.5, 11.0, 11.5, 12.0]
+            self.grid_subdivs = list(enumerate(self.grid_times))
+            self.avg_subdiv_interval_sec = 0.5
+            self.raw_hit_memory = {}
+            self.user_hit_timestamps = []
+            self.subdiv_last_hit_time = {}
+            self.subdivision_state = {}
+            self.confirmed_red_subdivisions = {}
+            self.loop_pass_count = 0
+
+        def hms(self, ms):
+            return str(ms)
+
+        def abph_stamp(self):
+            return ""
+
+        def prune_old_hit_memory(self, max_loops=2):
+            threshold = self.loop_pass_count - (max_loops - 1)
+            for idx in list(self.raw_hit_memory.keys()):
+                self.raw_hit_memory[idx] = [
+                    (t, lp) for t, lp in self.raw_hit_memory[idx] if lp >= threshold
+                ]
+                if not self.raw_hit_memory[idx]:
+                    del self.raw_hit_memory[idx]
+
+    def test_decay_after_expected_loops(self):
+        d = self.Dummy()
+        # Hit near the end of first loop (at 11.8s => 11800ms)
+        d.record_user_hit(11800)
+        idx = 4  # closest subdivision at 12.0s
+        self.assertEqual(d.get_subdivision_state(idx), 1)
+
+        # Loop 1 -> just after hit
+        d.loop_pass_count = 1
+        d.decay_subdivision_states()
+        self.assertEqual(d.get_subdivision_state(idx), 1)
+
+        # Loop 2 -> time since hit < loop + subdiv
+        d.loop_pass_count = 2
+        d.decay_subdivision_states()
+        self.assertEqual(d.get_subdivision_state(idx), 1)
+
+        # Loop 3 -> should decay
+        d.loop_pass_count = 3
+        d.decay_subdivision_states()
+        self.assertEqual(d.get_subdivision_state(idx), 0)
+
+
 if __name__ == '__main__':
     unittest.main(argv=['first-arg-is-ignored'], exit=False)
 
