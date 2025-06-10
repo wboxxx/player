@@ -578,6 +578,44 @@ class TestZoomSliderButtons(unittest.TestCase):
         self.assertEqual(vp.on_loop_zoom_change.call_args_list[-1][0][0], 1)
 
 
+class TestHitMemoryPruning(unittest.TestCase):
+    class Dummy(VideoPlayer):
+        def __init__(self):
+            self.loop_start = 0
+            self.loop_end = 1000
+            self.loop_duration_s = 1.0
+            self.grid_times = [0.0, 0.5, 1.0]
+            self.current_loop = MagicMock()
+            self.raw_hit_memory = {}
+            self.user_hit_timestamps = []
+            self.subdivision_state = {}
+            self.subdiv_last_hit_time = {}
+            self.confirmed_red_subdivisions = {}
+            self.loop_pass_count = 0
+
+        def hms(self, ms):
+            return str(ms)
+
+        def abph_stamp(self):
+            return str(self.loop_pass_count)
+
+    def test_state_three_and_persist_after_prune(self):
+        d = self.Dummy()
+        # Record three hits on the same subdivision across consecutive loops
+        for lp in range(3):
+            d.loop_pass_count = lp
+            d.record_user_hit(100)
+
+        # Should reach state 3 after third hit
+        self.assertEqual(d.subdivision_state.get(0), 3)
+
+        # Advance one loop and prune
+        d.loop_pass_count = 3
+        d.prune_old_hit_memory()
+        # State should persist without additional decay
+        self.assertEqual(d.subdivision_state.get(0), 3)
+
+
 if __name__ == '__main__':
     unittest.main(argv=['first-arg-is-ignored'], exit=False)
 
