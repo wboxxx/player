@@ -10,19 +10,27 @@ import re
 import json
 import time
 
-_real_perf_counter = time.perf_counter
+# Time provider used for Brint timing. Can be overridden for debugging.
+_brint_time_provider = time.perf_counter
 _last_brint_time = None
 
 def _print_with_time(*args, **kwargs):
     """Print message and show time since last Brint call."""
     global _last_brint_time
-    now = _real_perf_counter()
+    now = _brint_time_provider()
     if _last_brint_time is None:
         print(*args, **kwargs)
     else:
         delta = now - _last_brint_time
         print(f"[+{delta:.3f}s]", *args, **kwargs)
     _last_brint_time = now
+
+
+def set_brint_time_provider(provider):
+    """Override the time source used for Brint elapsed calculations."""
+    global _brint_time_provider
+    if callable(provider):
+        _brint_time_provider = provider
 
 import tempfile
 import ctypes
