@@ -545,6 +545,68 @@ class TestInvertedLoopMarkers(unittest.TestCase):
         self.assertEqual(vp.loop_zoom_ratio, 2.0)
 
 
+class TestHitStateProgression(unittest.TestCase):
+    class DummyPlayer(VideoPlayer):
+        def __init__(self):
+            # Minimal attributes for hit management
+            self.current_loop = True
+            self.loop_start = 0
+            self.loop_end = 1000
+            self.loop_pass_count = 0
+            self.grid_times = [0.0, 0.5, 1.0]
+            self.grid_subdivs = list(enumerate(self.grid_times))
+            self.avg_subdiv_interval_sec = 0.5
+            self.raw_hit_memory = {}
+            self.user_hit_timestamps = []
+            self.subdiv_last_hit_time = {}
+            self.subdivision_state = {}
+            self.confirmed_red_subdivisions = {}
+
+        def hms(self, ms):
+            return str(ms)
+
+        def abph_stamp(self):
+            return ""
+
+        def prune_old_hit_memory(self, max_loops=2):
+            threshold = self.loop_pass_count - (max_loops - 1)
+            for idx in list(self.raw_hit_memory.keys()):
+                self.raw_hit_memory[idx] = [
+                    (t, lp)
+                    for t, lp in self.raw_hit_memory[idx]
+                    if lp >= threshold
+                ]
+                if not self.raw_hit_memory[idx]:
+                    del self.raw_hit_memory[idx]
+
+    def test_sequential_hits_reach_state_three(self):
+        p = self.DummyPlayer()
+
+        # Pass 1
+        p.record_user_hit(0)
+        self.assertEqual(p.get_subdivision_state(0), 1)
+        p.prune_old_hit_memory()
+        p.decay_subdivision_states()
+        p.loop_pass_count += 1
+
+        # Pass 2
+        p.record_user_hit(0)
+        self.assertEqual(p.get_subdivision_state(0), 2)
+        p.prune_old_hit_memory()
+        p.decay_subdivision_states()
+        p.loop_pass_count += 1
+
+        # Pass 3
+        p.record_user_hit(0)
+        self.assertEqual(p.get_subdivision_state(0), 3)
+
+        # Prune after reaching state 3 should not drop to 2
+        p.prune_old_hit_memory()
+        self.assertEqual(len(p.raw_hit_memory[0]), 2)
+        p.decay_subdivision_states()
+        self.assertEqual(p.get_subdivision_state(0), 3)
+
+
 class DummySlider:
     def __init__(self, max_idx):
         self.value = 0
