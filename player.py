@@ -3107,7 +3107,7 @@ class VideoPlayer:
 
 
             if last_hit_loop == self.loop_pass_count - 1:
-                # Si déjà pré-validée -> passe en validé rouge
+                # Si déjà orange -> passe en rouge validé
                 if state == 1 and hit_count >= 3:
 
                     self.subdivision_state[idx] = 2
@@ -3164,7 +3164,7 @@ class VideoPlayer:
                             Brint("[PERSIST_HIT_ADD] Missing precomputed_grid_infos or user_hit_timestamps, cannot associate timestamp.")
                     self.on_subdiv_validated(promoted_subdiv_idx)
 
-                # Sinon devient pré-validée orange
+                # Sinon devient orange pré-validée
                 elif state == 0 and hit_count >= 2:
 
                     self.subdivision_state[idx] = 1
@@ -3476,7 +3476,7 @@ class VideoPlayer:
             Brint("[OFFSET HITS] tempo_bpm manquant – opération annulée")
             return
         interval = 60.0 / bpm / self.get_subdivisions_per_beat()
-        # Keep track of which subdivisions were confirmed (state = 2) prior to the shift
+        # Keep track of which subdivisions were confirmed (state = 3) prior to the shift
 
         prev_confirmed = {
             idx for idx, state in getattr(self, "subdivision_state", {}).items() if state == 2
@@ -6180,7 +6180,7 @@ class VideoPlayer:
                 Brint(f"[TEMP SAVE ERROR] Unable to remove temp file: {e}")
 
     def on_subdiv_validated(self, subdiv_index):
-        """Called when a subdivision reaches red (state=2)."""
+        """Called when a subdivision reaches red (state=3)."""
         Brint(f"[AUTO SAVE] Subdiv {subdiv_index} validated → temp save")
         self.save_temp_loop()
 
@@ -9435,8 +9435,21 @@ class VideoPlayer:
             if x < 0 or x > canvas.winfo_width():
                 continue
 
-            color = "#FF0000" if state == 2 else "#DAA520" if state == 1 else "#00FF00" if is_playhead else "#CCCCCC"
-            font_size = 16 if state == 2 else 12 if state == 1 else 14 if is_playhead else 10
+            # Color and font size depend on subdivision state
+            color = (
+                "#FF0000" if state == 3 else
+                "#DAA520" if state == 2 else
+                "#555555" if state == 1 else
+                "#00FF00" if is_playhead else
+                "#CCCCCC"
+            )
+            font_size = (
+                16 if state == 3 else
+                14 if state == 2 else
+                12 if state == 1 else
+                14 if is_playhead else
+                10
+            )
 
             canvas.create_text(x, canvas_height / 2,
                                text=label,
