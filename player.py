@@ -3210,7 +3210,32 @@ class VideoPlayer:
                 self.raw_hit_memory[idx] = cleaned
             else:
                 del self.raw_hit_memory[idx]  # supprime les vides
-    
+
+
+    def prune_old_hit_memory(self):
+        """Prune raw_hit_memory to keep hits from the last three loop passes."""
+        if not hasattr(self, "raw_hit_memory"):
+            return
+
+        cutoff = max(0, self.loop_pass_count - 2)
+        Brint(f"[NHIT] prune_old_hit_memory(cutoff={cutoff})")
+
+        for idx in list(self.raw_hit_memory.keys()):
+            hits = [
+                (t, lp)
+                for (t, lp) in self.raw_hit_memory.get(idx, [])
+                if isinstance(lp, int) and lp >= cutoff
+            ]
+            if hits:
+                self.raw_hit_memory[idx] = hits
+            else:
+                del self.raw_hit_memory[idx]
+
+        if hasattr(self, "user_hit_timestamps"):
+            self.user_hit_timestamps = [
+                (t, lp) for (t, lp) in self.user_hit_timestamps if lp >= cutoff
+            ]
+
     
     
     def reset_syllabic_grid_hits(self):
@@ -3337,6 +3362,8 @@ class VideoPlayer:
         
     def update_subdivision_states(self):
         Brint(f"[NHIT] 🔄 update_subdivision_states() called | loop_pass_count = {self.loop_pass_count}")
+
+        self.prune_old_hit_memory()
 
         if not hasattr(self, "subdivision_state"):
             self.subdivision_state = {}
