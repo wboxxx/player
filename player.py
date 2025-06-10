@@ -2675,8 +2675,7 @@ class VideoPlayer:
         if loop_end <= loop_start:
             loop_start = 0
             loop_end = self.player.get_length()
-            self.loop_zoom_ratio = 1.0
-            Brint(f"[INFO Time2X] Pas de loop active, fallback à toute la durée ({loop_end} ms) avec zoom_ratio=1.0")
+            Brint(f"[INFO Time2X] Pas de loop active, fallback à toute la durée ({loop_end} ms)")
 
         loop_range = loop_end - loop_start
         if zoom is None:
@@ -3287,6 +3286,10 @@ class VideoPlayer:
         if not hasattr(self, "raw_hit_memory"):
             self.raw_hit_memory = {}  # idx → List[(timestamp_ms, loop_id)]
 
+        # Ensure we have a list to store raw hit timestamps in seconds for drawing
+        if not hasattr(self, "user_hit_timestamps"):
+            self.user_hit_timestamps = []
+
         grid_sec = getattr(self, "grid_times", [])
         if not grid_sec:
             return
@@ -3304,6 +3307,17 @@ class VideoPlayer:
         self.raw_hit_memory[idx].append((hit_time_ms, loop_id))
         self.raw_hit_memory[idx] = self.raw_hit_memory[idx][-5:]
         Brint(f"[NHIT] raw_hit_memory[{idx}] += {hit_time_ms / 1000:.3f}s")
+
+        # Record hit for matching and drawing routines (seconds, loop_id)
+        if len(self.user_hit_timestamps) >= 200:
+            Brint("[NHIT] Max hits reached, clear hits to resume")
+            try:
+                self.log_to_console("⚠️ Max hits reached. Clear hits to resume")
+            except Exception:
+                pass
+        else:
+            self.user_hit_timestamps.append((hit_time_ms / 1000.0, loop_id))
+
         self.update_subdivision_states()
         
 
@@ -4083,6 +4097,40 @@ class VideoPlayer:
             return 1.0
         loop_width_ms = max(float(MIN_ZOOM_RANGE_MS), self.loop_end - self.loop_start)
         return loop_width_ms / float(MIN_ZOOM_RANGE_MS)
+
+    def increase_loop_zoom(self):
+        """Move the zoom slider up one step and trigger the change callback."""
+        if not hasattr(self, "zoom_slider"):
+            return
+        try:
+            max_idx = int(self.zoom_slider["to"])
+        except Exception:
+            max_idx = len(getattr(self, "zoom_levels", [])) - 1
+        current = getattr(self.zoom_slider, "value", 0)
+        new_idx = min(current + 1, max_idx)
+        self.zoom_slider.set(new_idx)
+        if hasattr(self, "on_loop_zoom_change"):
+            try:
+                self.on_loop_zoom_change(new_idx)
+            except Exception:
+                pass
+
+    def decrease_loop_zoom(self):
+        """Move the zoom slider down one step and trigger the change callback."""
+        if not hasattr(self, "zoom_slider"):
+            return
+        try:
+            min_idx = int(self.zoom_slider["from"])
+        except Exception:
+            min_idx = 0
+        current = getattr(self.zoom_slider, "value", 0)
+        new_idx = max(current - 1, min_idx)
+        self.zoom_slider.set(new_idx)
+        if hasattr(self, "on_loop_zoom_change"):
+            try:
+                self.on_loop_zoom_change(new_idx)
+            except Exception:
+                pass
 
     def on_zoom_ratio_change(self):
         val = self.zoom_ratio_var.get()
