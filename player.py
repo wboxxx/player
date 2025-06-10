@@ -2071,12 +2071,8 @@ class VideoPlayer:
         ):
             loop_duration_s = (self.loop_end - self.loop_start) / 1000.0
 
-        for t_hit, loop_pass in self.user_hit_timestamps:
-            t_norm = (
-                t_hit - loop_pass * loop_duration_s
-                if loop_duration_s is not None
-                else t_hit
-            )
+        for t_hit, _loop_pass in self.user_hit_timestamps:
+            t_norm = t_hit
 
             closest_pos, closest_t = min(
                 enumerate(sorted_times),
@@ -3017,6 +3013,7 @@ class VideoPlayer:
 
         a_s = fmt_ms(a)
         b_s = fmt_ms(b)
+
         ph_s = fmt_ms(ph * 1000) if isinstance(ph, (int, float)) else "N/A"
 
         return f"A({a_s}) B({b_s}) PH({ph_s})"
@@ -3297,10 +3294,8 @@ class VideoPlayer:
         interval = grid_ms[1] - grid_ms[0] if len(grid_ms) > 1 else 0
 
         if interval and getattr(self, "loop_start", None) is not None and getattr(self, "loop_end", None) is not None:
-            loop_dur = self.loop_end - self.loop_start
-            loop_offset = self.loop_pass_count * loop_dur
-            loop_start_ms = self.loop_start + loop_offset
-            loop_end_ms = self.loop_end + loop_offset
+            loop_start_ms = self.loop_start
+            loop_end_ms = self.loop_end
             if hit_time_ms < loop_start_ms - interval or hit_time_ms > loop_end_ms + interval:
                 Brint(
                     f"[NHIT] Hit ignored (out of range) {self.hms(hit_time_ms)} | {self.abph_stamp()}"
@@ -9394,9 +9389,7 @@ class VideoPlayer:
         Brint(f"[HIT] 🎯 Fonction on_user_hit() appelée")
         Brint(f"[HIT] Frappe utilisateur à {self.hms(current_time_ms)} hms")
 
-        loop_dur_ms = (self.loop_end - self.loop_start) if self.loop_end and self.loop_start is not None else 0
-        absolute_ms = int(current_time_ms + self.loop_pass_count * loop_dur_ms)
-        self.record_user_hit(absolute_ms)
+        self.record_user_hit(int(current_time_ms))
 
         precomputed = self.precomputed_grid_infos or self.compute_rhythm_grid_infos()
         self.precomputed_grid_infos = precomputed
