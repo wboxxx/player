@@ -3347,7 +3347,11 @@ class VideoPlayer:
             self.subdivision_state.clear()
 
         for idx, hits in self.raw_hit_memory.items():
-            valid_hits = [(t, lp) for (t, lp) in hits if isinstance(t, (int, float)) and isinstance(lp, int)]
+            valid_hits = [
+                (t, lp)
+                for (t, lp) in hits
+                if isinstance(t, (int, float)) and isinstance(lp, int)
+            ]
             if not valid_hits:
                 continue
 
@@ -3356,7 +3360,7 @@ class VideoPlayer:
             # Red state is reached when hits occur in three consecutive loop passes
             if len(loop_ids) >= 3 and loop_ids[-3:] == list(range(loop_ids[-3], loop_ids[-3] + 3)):
                 self.subdivision_state[idx] = 3
-                self.confirmed_red_subdivisions[idx] = valid_hits[-3:]
+                self.confirmed_red_subdivisions[idx] = [t for (t, _) in valid_hits[-3:]]
                 Brint(f"[NHIT] Subdiv {idx} → RED (3) | loops = {loop_ids[-3:]}")
             elif len(loop_ids) >= 2 and loop_ids[-2:] == list(range(loop_ids[-2], loop_ids[-2] + 2)):
                 self.subdivision_state[idx] = 2
@@ -3442,14 +3446,16 @@ class VideoPlayer:
             return self.confirmed_red_subdivisions
 
         reassociated = {}
-        for t in [ts for hits in self.confirmed_red_subdivisions.values() for ts in hits]:
-
-
-            idx = min(range(len(grid_ms)), key=lambda i: abs(grid_ms[i] - t))
-            if idx not in reassociated:
-                reassociated[idx] = []
-            reassociated[idx].append(t)
-            Brint(f"[RED REASSOC] Hit {t:.1f}ms reassocié à subdiv {idx} (grille @ {grid_ms[idx]:.1f}ms)")
+        for hit_list in self.confirmed_red_subdivisions.values():
+            for raw_t in hit_list:
+                t = raw_t[0] if isinstance(raw_t, tuple) else raw_t
+                idx = min(range(len(grid_ms)), key=lambda i: abs(grid_ms[i] - t))
+                if idx not in reassociated:
+                    reassociated[idx] = []
+                reassociated[idx].append(t)
+                Brint(
+                    f"[RED REASSOC] Hit {t:.1f}ms reassocié à subdiv {idx} (grille @ {grid_ms[idx]:.1f}ms)"
+                )
 
         self.confirmed_red_subdivisions = reassociated
         Brint(f"[RED REASSOC] ✅ {len(reassociated)} subdivisions rouges mises à jour")
@@ -3560,7 +3566,12 @@ class VideoPlayer:
         """Renvoie tous les timestamps (en secondes) des subdivisions rouges."""
         if not hasattr(self, "confirmed_red_subdivisions"):
             return set()
-        return set(t / 1000.0 for hits in self.confirmed_red_subdivisions.values() for t in hits)
+        timestamps = set()
+        for hits in self.confirmed_red_subdivisions.values():
+            for raw_t in hits:
+                t = raw_t[0] if isinstance(raw_t, tuple) else raw_t
+                timestamps.add(t / 1000.0)
+        return timestamps
 
 
     def toggle_subdiv_state_manual(self, subdiv_index, t_ms):
