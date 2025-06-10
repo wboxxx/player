@@ -3320,6 +3320,10 @@ class VideoPlayer:
         self.raw_hit_memory[idx] = self.raw_hit_memory[idx][-5:]
         Brint(f"[NHIT] raw_hit_memory[{idx}] += {hit_time_ms / 1000:.3f}s")
 
+        if not hasattr(self, "subdiv_last_hit_time"):
+            self.subdiv_last_hit_time = {}
+        self.subdiv_last_hit_time[idx] = hit_time_ms
+
         # Record hit for matching and drawing routines (seconds, loop_id)
         if len(self.user_hit_timestamps) >= 200:
             Brint("[NHIT] Max hits reached, clear hits to resume")
@@ -3361,26 +3365,28 @@ class VideoPlayer:
                 Brint(f"[NHIT] Subdiv {idx} → GRIS FONCÉ (1) | loops = {loop_ids}")
 
     def decay_subdivision_states(self):
-        if not hasattr(self, "raw_hit_memory") or not self.raw_hit_memory:
+        if self.loop_start is None or self.loop_end is None:
             return
 
-        current_loop = self.loop_pass_count
-        decay_threshold = 1.2  # en nombre de boucles
+        if not hasattr(self, "subdiv_last_hit_time"):
+            self.subdiv_last_hit_time = {}
+        if not hasattr(self, "subdivision_state"):
+            self.subdivision_state = {}
 
-        for idx, hits in list(self.raw_hit_memory.items()):
-            filtered = [(t, lp) for (t, lp) in hits if isinstance(lp, int)]
-            if not filtered:
-                continue
+        loop_duration = self.loop_end - self.loop_start
+        subdiv_interval = getattr(self, "avg_subdiv_interval_sec", 0.5) * 1000
+        now = self.loop_pass_count * loop_duration
 
-            last_loop = max(lp for _, lp in filtered)
-            delta_loops = current_loop - last_loop
-
-            if delta_loops > decay_threshold:
-                Brint(f"[NHIT] Subdiv {idx} → decay triggered (last seen loop {last_loop}, now {current_loop})")
-                self.raw_hit_memory[idx] = []
-
-                if self.subdivision_state.get(idx, 0) < 3:
-                    del self.subdivision_state[idx]
+        for idx, state in list(self.subdivision_state.items()):
+            if state in (1, 2):
+                last_hit_time = self.subdiv_last_hit_time.get(idx)
+                if last_hit_time is None:
+                    continue
+                if now - last_hit_time > loop_duration + subdiv_interval:
+                    prev = state
+                    new_state = state - 1
+                    self.subdivision_state[idx] = new_state
+                    Brint(f"[NHIT] Subdiv {idx} decayed from state {prev} to {new_state}")
 
 
 
