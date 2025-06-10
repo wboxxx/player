@@ -3365,7 +3365,96 @@ class VideoPlayer:
             self.user_hit_timestamps.append((hit_time_ms / 1000.0, loop_id))
 
         self.update_subdivision_states()
+    def find_nearest_subdivision_idx(self, t_sec):
+        """
+        Retourne l'index de subdivision le plus proche de t_sec.
+        Utilise une tolérance élargie basée sur la grille.
+        """
+        if not self.precomputed_grid_infos:
+            self.compute_rhythm_grid_infos()
+        if not self.precomputed_grid_infos:
+            return None
+
+        sorted_items = sorted(
+            self.precomputed_grid_infos.items(),
+            key=lambda item: item[1]['t_subdiv_sec']
+        )
+        sorted_times = [info['t_subdiv_sec'] for _, info in sorted_items]
+        sorted_indices = [idx for idx, _ in sorted_items]
+
+        intervals = [t2 - t1 for t1, t2 in zip(sorted_times[:-1], sorted_times[1:])]
+        avg_interval_sec = sum(intervals) / len(intervals) if intervals else 0.5
+        tolerance = avg_interval_sec / 2.0
+
+        closest_pos, closest_t = min(
+            enumerate(sorted_times),
+            key=lambda item: abs(item[1] - t_sec)
+        )
+        delta = abs(closest_t - t_sec)
+        if delta <= tolerance:
+            return sorted_indices[closest_pos]
+        else:
+            Brint(f"[HIT MAP] ❌ Hit à {t_sec:.3f}s trop éloigné de toute subdivision (Δ={delta:.3f}s)")
+            return None
+       
+       
+    def on_user_hit(self, event=None):
+        current_time_ms = self.playhead_time * 1000
+        current_time_sec = self.playhead_time  # déjà en secondes
         
+        # Phase 1 : ligne visible avec "bounce"
+        x = getattr(self, 'playhead_canvas_x', None) # Restored original line
+
+        if x is None or not isinstance(x, (int, float)) or x < 0:
+            Brint(f"[HIT FX] ❌ x playhead_canvas_x ({x}) is invalid — impact visuel annulé")
+            # Fallback or decide not to draw the visual effect if x is invalid
+        else:
+            canvas = self.grid_canvas
+            canvas_height = canvas.winfo_height()
+
+            line_id = canvas.create_line(
+                x, 0, x, canvas_height,
+                fill="#FF66CC",
+                width=2,
+                tags=("impact_vfx",)
+            )
+            Brint(f"[HIT FX] 💥 Impact visuel créé à x={x:.1f}px (line_id={line_id})")
+
+            # Bounce rapide (using new try_itemconfig helper)
+            canvas.after(50, lambda lid=line_id: self.try_itemconfig(canvas, lid, width=6))
+            canvas.after(200, lambda lid=line_id: self.try_itemconfig(canvas, lid, width=4))
+            canvas.after(400, lambda lid=line_id: self.try_itemconfig(canvas, lid, width=3))
+            canvas.after(800, lambda lid=line_id: self.try_itemconfig(canvas, lid, width=1))
+
+            # 💨 Ajout effet de disparition (transparence simulée)
+            canvas.after(1000, lambda lid=line_id: self.try_itemconfig(canvas, lid, fill="#FFBBDD"))
+            canvas.after(1200, lambda lid=line_id: self._remove_impact_vfx(lid)) # _remove_impact_vfx now handles try-except
+        
+        Brint(f"[HIT] 🎯 Fonction on_user_hit() appelée")
+        Brint(f"[HIT] Frappe utilisateur à {self.hms(current_time_ms)} hms")
+
+        self.record_user_hit(int(current_time_ms))
+   # 🔴 Enregistrement du loop courant pour decay intelligent
+        if not hasattr(self, "subdiv_last_hit_loop"):
+            self.subdiv_last_hit_loop = {}
+        nearest_idx = self.find_nearest_subdivision_idx(current_time_sec)
+        if nearest_idx is not None:
+            self.subdiv_last_hit_loop[nearest_idx] = self.loop_pass_count
+            self.subdiv_last_hit_time[nearest_idx] = current_time_sec
+            Brint(f"[NHIT] 🔖 Subdiv {nearest_idx} → loop_pass_count = {self.loop_pass_count}")
+        precomputed = self.precomputed_grid_infos or self.compute_rhythm_grid_infos()
+        self.precomputed_grid_infos = precomputed
+
+        # 1. Calcul de l'espacement moyen entre subdivisions
+        grid_times = [info['t_subdiv_sec'] for info in self.precomputed_grid_infos.values()]
+        grid_times = sorted(grid_times)
+        intervals = [t2 - t1 for t1, t2 in zip(grid_times[:-1], grid_times[1:])]
+        avg_interval_sec = sum(intervals) / len(intervals) if intervals else 0.5  # fallback = 0.5s
+        # Wider tolerance so hits always find a subdivision
+        tolerance = avg_interval_sec / 2.0
+
+        Brint(f"[HIT WINDOW] ⏱ Dynamic tolerance = {tolerance:.3f}s (1/2 of {avg_interval_sec:.3f}s)")
+
 
         
     def update_subdivision_states(self):
@@ -3374,28 +3463,23 @@ class VideoPlayer:
         if not hasattr(self, "subdivision_state"):
             self.subdivision_state = {}
         else:
+            old_state = self.subdivision_state.copy()
             self.subdivision_state.clear()
 
-        # Preserve existing red subdivisions
         if hasattr(self, "confirmed_red_subdivisions"):
             for ridx in self.confirmed_red_subdivisions.keys():
                 self.subdivision_state[ridx] = 3
 
+        updated_idxs = set()
         for idx, hits in self.raw_hit_memory.items():
             if self.subdivision_state.get(idx) == 3:
-                # Skip updates for persistent red subdivisions
                 continue
-            valid_hits = [
-                (t, lp)
-                for (t, lp) in hits
-                if isinstance(t, (int, float)) and isinstance(lp, int)
-            ]
+            valid_hits = [(t, lp) for (t, lp) in hits if isinstance(t, (int, float)) and isinstance(lp, int)]
             if not valid_hits:
                 continue
-
             loop_ids = sorted(set(lp for _, lp in valid_hits))
+            updated_idxs.add(idx)
 
-            # Red state is reached when hits occur in three consecutive loop passes
             if len(loop_ids) >= 3 and loop_ids[-3:] == list(range(loop_ids[-3], loop_ids[-3] + 3)):
                 self.subdivision_state[idx] = 3
                 self.confirmed_red_subdivisions[idx] = [t for (t, _) in valid_hits[-3:]]
@@ -3407,44 +3491,39 @@ class VideoPlayer:
                 self.subdivision_state[idx] = 1
                 Brint(f"[NHIT] Subdiv {idx} → GRIS FONCÉ (1) | loops = {loop_ids}")
 
-        # Prune old hits after computing state
+        for idx, state in old_state.items():
+            if idx not in self.subdivision_state and state in (1, 2):
+                self.subdivision_state[idx] = state
+                Brint(f"[NHIT] Subdiv {idx} retained from prev state = {state} (no update)")
+
         self.prune_old_hit_memory()
+
 
     def decay_subdivision_states(self):
         if self.loop_start is None or self.loop_end is None:
             return
 
-        if not hasattr(self, "subdiv_last_hit_time"):
-            self.subdiv_last_hit_time = {}
+        if not hasattr(self, "subdiv_last_hit_loop"):
+            return
         if not hasattr(self, "subdivision_state"):
-            self.subdivision_state = {}
-
-        loop_duration = self.loop_end - self.loop_start
-        subdiv_interval = getattr(self, "avg_subdiv_interval_sec", 0.5) * 1000
-        now = self.loop_start + self.loop_pass_count * loop_duration
+            return
 
         for idx, state in list(self.subdivision_state.items()):
             if state in (1, 2):
-                last_hit_time = self.subdiv_last_hit_time.get(idx)
-                if last_hit_time is None:
+                last_hit_loop = self.subdiv_last_hit_loop.get(idx)
+                if last_hit_loop is None:
                     continue
-                if now - last_hit_time > loop_duration + subdiv_interval:
+                if self.loop_pass_count - last_hit_loop >= 2:
                     prev = state
                     new_state = state - 1
                     self.subdivision_state[idx] = new_state
                     Brint(f"[NHIT] Subdiv {idx} decayed from state {prev} to {new_state}")
-                    # purge old hit info so this subdivision isn't promoted
                     if hasattr(self, "raw_hit_memory") and idx in self.raw_hit_memory:
                         del self.raw_hit_memory[idx]
                     self.subdiv_last_hit_time.pop(idx, None)
-                    if hasattr(self, "subdiv_last_hit_loop") and idx in self.subdiv_last_hit_loop:
-                        del self.subdiv_last_hit_loop[idx]
+                    self.subdiv_last_hit_loop.pop(idx, None)
                     if hasattr(self, "subdivision_counters") and idx in self.subdivision_counters:
                         self.subdivision_counters[idx] = 0
-
-
-
-    
 
 
 
@@ -8536,11 +8615,6 @@ class VideoPlayer:
         if mode == "loop_end" or inversion:
             self.loop_end = temp_end
 
-        # Reset loop pass count when loop markers change to ensure
-        # decay logic uses the correct time reference
-        self.loop_pass_count = 0
-        Brint("[RLM] 🔄 loop_pass_count reset to 0 after marker update")
-
         # Hits are kept in absolute time; do not shift when markers move
 
 
@@ -9412,58 +9486,6 @@ class VideoPlayer:
             self.draw_syllabic_grid_heatmap()
             self.draw_harmony_grid_overlay()
             Brint("[RHYTHM GRID] ✅ Fin draw_rhythm_grid_canvas()")  # 💡 AJOUT DEBUG FINAL
-       
-    def on_user_hit(self, event=None):
-        current_time_ms = self.playhead_time * 1000
-        current_time_sec = self.playhead_time  # déjà en secondes
-        
-        # Phase 1 : ligne visible avec "bounce"
-        x = getattr(self, 'playhead_canvas_x', None) # Restored original line
-
-        if x is None or not isinstance(x, (int, float)) or x < 0:
-            Brint(f"[HIT FX] ❌ x playhead_canvas_x ({x}) is invalid — impact visuel annulé")
-            # Fallback or decide not to draw the visual effect if x is invalid
-        else:
-            canvas = self.grid_canvas
-            canvas_height = canvas.winfo_height()
-
-            line_id = canvas.create_line(
-                x, 0, x, canvas_height,
-                fill="#FF66CC",
-                width=2,
-                tags=("impact_vfx",)
-            )
-            Brint(f"[HIT FX] 💥 Impact visuel créé à x={x:.1f}px (line_id={line_id})")
-
-            # Bounce rapide (using new try_itemconfig helper)
-            canvas.after(50, lambda lid=line_id: self.try_itemconfig(canvas, lid, width=6))
-            canvas.after(200, lambda lid=line_id: self.try_itemconfig(canvas, lid, width=4))
-            canvas.after(400, lambda lid=line_id: self.try_itemconfig(canvas, lid, width=3))
-            canvas.after(800, lambda lid=line_id: self.try_itemconfig(canvas, lid, width=1))
-
-            # 💨 Ajout effet de disparition (transparence simulée)
-            canvas.after(1000, lambda lid=line_id: self.try_itemconfig(canvas, lid, fill="#FFBBDD"))
-            canvas.after(1200, lambda lid=line_id: self._remove_impact_vfx(lid)) # _remove_impact_vfx now handles try-except
-        
-        Brint(f"[HIT] 🎯 Fonction on_user_hit() appelée")
-        Brint(f"[HIT] Frappe utilisateur à {self.hms(current_time_ms)} hms")
-
-        self.record_user_hit(int(current_time_ms))
-
-        precomputed = self.precomputed_grid_infos or self.compute_rhythm_grid_infos()
-        self.precomputed_grid_infos = precomputed
-
-        # 1. Calcul de l'espacement moyen entre subdivisions
-        grid_times = [info['t_subdiv_sec'] for info in self.precomputed_grid_infos.values()]
-        grid_times = sorted(grid_times)
-        intervals = [t2 - t1 for t1, t2 in zip(grid_times[:-1], grid_times[1:])]
-        avg_interval_sec = sum(intervals) / len(intervals) if intervals else 0.5  # fallback = 0.5s
-        # Wider tolerance so hits always find a subdivision
-        tolerance = avg_interval_sec / 2.0
-
-        Brint(f"[HIT WINDOW] ⏱ Dynamic tolerance = {tolerance:.3f}s (1/2 of {avg_interval_sec:.3f}s)")
-
-        # 2. Étendre temporairement les subdivisions pour la détection (±2 subdivs)
     
         
 
