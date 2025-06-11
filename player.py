@@ -3283,7 +3283,7 @@ class VideoPlayer:
         new_raw_hit_memory = {}
 
         for idx, ts_list in self.raw_hit_memory.items():
-            kept_hits = [(ts, lp) for (ts, lp) in ts_list if self.get_loop_pass(ts) >= cutoff]
+            kept_hits = [(ts, lp) for (ts, lp) in ts_list if lp >= cutoff]
             if kept_hits:
                 new_raw_hit_memory[idx] = kept_hits
 
@@ -3417,6 +3417,9 @@ class VideoPlayer:
         if not hasattr(self, "subdiv_last_hit_time"):
             self.subdiv_last_hit_time = {}
         self.subdiv_last_hit_time[idx] = hit_time_ms
+        if not hasattr(self, "subdiv_last_hit_loop"):
+            self.subdiv_last_hit_loop = {}
+        self.subdiv_last_hit_loop[idx] = self.loop_pass_count
 
         # Ajout au buffer de dessin
         if len(self.user_hit_timestamps) >= 200:
@@ -3555,15 +3558,10 @@ class VideoPlayer:
         hit_dict = defaultdict(list)  # idx → [loop_pass]
 
         for idx, ts_lp_list in self.raw_hit_memory.items():
-            for ts, _ in ts_lp_list:
-                lp = self.get_loop_pass(ts)
+            for ts, stored_lp in ts_lp_list:
+                lp = stored_lp if isinstance(stored_lp, int) else self.get_loop_pass(ts)
                 if isinstance(lp, int):
                     hit_dict[idx].append(lp)
-
-
-            lp = self.get_loop_pass(ts)
-            if isinstance(lp, int):
-                hit_dict[idx].append(lp)
 
         updated_idxs = set()
 
@@ -3577,8 +3575,8 @@ class VideoPlayer:
             if len(loop_ids) >= 3 and loop_ids[-3:] == list(range(loop_ids[-3], loop_ids[-3] + 3)):
                 self.subdivision_state[idx] = 3
                 self.confirmed_red_subdivisions[idx] = [
-                    ts for (ts, i) in self.raw_hit_memory
-                    if i == idx and self.get_loop_pass(ts) in loop_ids[-3:]
+                    ts for (ts, lp) in self.raw_hit_memory.get(idx, [])
+                    if lp in loop_ids[-3:]
                 ][:3]
                 Brint(f"[NHIT] Subdiv {idx} → RED (3) | loops = {loop_ids[-3:]}")
             elif len(loop_ids) >= 2 and loop_ids[-2:] == list(range(loop_ids[-2], loop_ids[-2] + 2)):
@@ -3604,9 +3602,19 @@ class VideoPlayer:
         for idx, state in list(self.subdivision_state.items()):
             if state in (1, 2):
                 last_hit_loop = self.subdiv_last_hit_loop.get(idx)
-                if last_hit_loop is None:
+                last_hit_time = self.subdiv_last_hit_time.get(idx)
+                if last_hit_loop is None or last_hit_time is None:
                     continue
-                if self.loop_pass_count - last_hit_loop >= 2:
+
+                subdiv_interval = getattr(self, "avg_subdiv_interval_sec", 0.5)
+                loop_dur_s = getattr(self, "loop_duration_s", None)
+                if loop_dur_s is None and self.loop_start is not None and self.loop_end is not None:
+                    loop_dur_s = (self.loop_end - self.loop_start) / 1000.0
+                if loop_dur_s is None:
+                    continue
+                now_abs = (self.loop_start or 0) / 1000.0 + self.loop_pass_count * loop_dur_s
+                time_since_hit = now_abs - (last_hit_time / 1000.0)
+                if time_since_hit > loop_dur_s + subdiv_interval:
                     prev = state
                     new_state = state - 1
                     self.subdivision_state[idx] = new_state
@@ -3645,7 +3653,7 @@ class VideoPlayer:
     def get_subdivision_state(self, idx):
         return self.subdivision_state.get(idx, 0)
     
-    def associate_hits_to_subdivisions(self):
+    def associate_hits_to_subdivisions(self, reset_loop_pass=False):
         """
         Associe tous les hits rouges (confirmés) à la subdivision la plus proche
         selon la grille actuelle. Écrase les anciennes associations.
@@ -3678,7 +3686,8 @@ class VideoPlayer:
 
         self.confirmed_red_subdivisions = reassociated
         self.raw_hit_memory = raw_hit_memory
-        self.loop_pass_count = 0  # Reset pour forcer le recalcul des états
+        if reset_loop_pass:
+            self.loop_pass_count = 0  # Reset sur demande explicite
 
         Brint(f"[RED REASSOC NHIT] ✅ {len(reassociated)} subdivisions rouges mises à jour")
         return self.confirmed_red_subdivisions
@@ -6720,7 +6729,7 @@ class VideoPlayer:
         Brint("[STEP] Reconstruction du contexte boucle")
         self.rebuild_loop_context()
         self.remap_persistent_validated_hits()
-        self.associate_hits_to_subdivisions()
+        self.associate_hits_to_subdivisions(reset_loop_pass=True)
 
         self.just_loaded_loop = True
         self.skip_old_state_restore = True
@@ -9202,7 +9211,7 @@ class VideoPlayer:
         Calcule le numéro de passage de boucle pour un timestamp donné (en ms).
         Renvoie None si loop_start/end ne sont pas définis ou invalides.
         """
-        if not self.loop_start or not self.loop_end:
+        if self.loop_start is None or self.loop_end is None:
             return None
 
         start = self.loop_start / 1000.0  # en secondes
