@@ -3524,10 +3524,12 @@ class VideoPlayer:
         Brint(f"[HIT WINDOW] ⏱ Dynamic tolerance = {tolerance:.3f}s (1/2 of {avg_interval_sec:.3f}s)")
 
     def update_subdivision_states(self):
+        
         skip_restore_old_states = getattr(self, "skip_old_state_restore", False)
         self.skip_old_state_restore = False  # reset pour les prochains appels
 
-        Brint(f"[NHIT] 🔄 update_subdivision_states() called | loop_pass_count = {self.loop_pass_count}")
+        Brint(f"[NHIT USS] 🔄 update_subdivision_states() called | loop_pass_count = {self.loop_pass_count}")
+        Brint(f"[CHECK USS] loop_pass_count = {self.loop_pass_count}")
         # 🛡️ Patch de sécurité : force dict si raw_hit_memory est une liste
         if isinstance(self.raw_hit_memory, list):
             Brint("[PATCH] ⚠️ raw_hit_memory était une liste, conversion en dict dans update_subdivision_states()")
