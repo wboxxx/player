@@ -1,25 +1,96 @@
 #start
-# === Imports standards ===
-import os
-import sys
-import platform
-import subprocess
+# === Imports ===
+# Standard library
+import atexit
 import builtins
-builtins.subprocess = subprocess
-import re
+import ctypes
 import json
+import math
+import os
+import platform
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import threading
 import time
-from collections import defaultdict
-import builtins
 import traceback
+import warnings
+from collections import defaultdict
+from datetime import timedelta
+from functools import partial
+from typing import Optional
+
+# GUI
+import tkinter as tk
+from tkinter import (
+    Button,
+    Canvas,
+    Checkbutton,
+    Frame,
+    Label,
+    Listbox,
+    SINGLE,
+    StringVar,
+    Toplevel,
+    filedialog,
+    messagebox,
+    simpledialog,
+    LEFT,
+    X,
+    W,
+)
+
+# Third-party libraries
+import librosa
+import matplotlib.animation as animation
+import matplotlib.gridspec as gridspec
+import matplotlib.patches as patches
+import matplotlib.pyplot as plt
+import numpy as np
+import pygame
+import soundfile as sf
+import vlc
+from pydub import AudioSegment
+
+try:
+    import torch  # pragma: no cover
+except ImportError:  # pragma: no cover
+    torch = None
+try:
+    import pretty_midi  # pragma: no cover
+except ImportError:  # pragma: no cover
+    pretty_midi = None
+try:
+    from basic_pitch.inference import predict  # pragma: no cover
+    from basic_pitch import ICASSP_2022_MODEL_PATH  # pragma: no cover
+except Exception:  # pragma: no cover
+    predict = None
+    ICASSP_2022_MODEL_PATH = None
+try:
+    from pydrive2.auth import GoogleAuth  # pragma: no cover
+    from pydrive2.drive import GoogleDrive  # pragma: no cover
+except Exception:  # pragma: no cover
+    GoogleAuth = None
+    GoogleDrive = None
+
+# Profiling utilities
+import cProfile
+import pstats
+
+# Compatibility tweaks
+np.complex = complex  # For older librosa versions
+builtins.subprocess = subprocess
+
+# === Global configuration ===
+# Path to store recent file history next to this script
+RECENT_FILES_PATH = os.path.join(os.path.dirname(__file__), "recent_files.json")
 
 # Time provider used for Brint timing. Can be overridden for debugging.
 _brint_time_provider = time.perf_counter
 _last_brint_time = None
 
-
-# Path to store recent file history next to this script
-RECENT_FILES_PATH = os.path.join(os.path.dirname(__file__), "recent_files.json")
 
 def _print_with_time(*args, **kwargs):
     """Print message and show time since last Brint call."""
@@ -39,87 +110,7 @@ def set_brint_time_provider(provider):
     if callable(provider):
         _brint_time_provider = provider
 
-import tempfile
-import atexit
-import ctypes
-import threading
-import shutil
-from datetime import timedelta
-import warnings
-from functools import partial
-
-from tkinter import Checkbutton
-import math
-from typing import Optional
-
-
-
-import cProfile
-import pstats
-
-
-# === Imports externes ===
-import vlc
-import numpy as np
-import librosa
-import soundfile as sf
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
-import matplotlib.gridspec as gridspec
-import matplotlib.animation as animation
-try:
-    import torch
-except ImportError:  # pragma: no cover - optional dependency
-    torch = None
-try:
-    import pretty_midi
-except ImportError:  # pragma: no cover - optional dependency
-    pretty_midi = None
-try:
-    from basic_pitch.inference import predict
-    from basic_pitch import ICASSP_2022_MODEL_PATH
-except Exception:  # pragma: no cover - optional dependency
-    predict = None
-    ICASSP_2022_MODEL_PATH = None
-import pygame
-import tkinter as tk
-from tkinter import filedialog, Frame, Label, Button, Canvas, StringVar, LEFT, X, W
-from tkinter import messagebox, simpledialog, Toplevel, Listbox, SINGLE
-from pydub import AudioSegment
-
-# --- tempo.py ---
-# --- tempo.py optimisé + debug ---
-import numpy as np
-np.complex = complex  # Pour compatibilité avec librosa
-
-import librosa
-import subprocess
-import tempfile
-import os
-import scipy.signal
-
-# import gdrive_uploader
-import os
-import tempfile
-
-
-
-#GDRIVEUPLOADER
-import os
-# NOUVEAU :
-try:
-    from pydrive2.auth import GoogleAuth
-    from pydrive2.drive import GoogleDrive
-except Exception:  # pragma: no cover - optional dependency
-    GoogleAuth = None
-    GoogleDrive = None
-
-
-
-#ZOOMVIDEO
-
-from tkinter import simpledialog, Toplevel, Listbox, Button, Label, SINGLE, Frame
-
+# Debug flags controlling optional logging output
 DEBUG_FLAGS = {
     "AUDIO": False,
     "AUTOLOAD": True,
@@ -128,7 +119,7 @@ DEBUG_FLAGS = {
     "CLICK": False,
     "DRAW": False,
     "EDIT": False,
-    "EDITOR" : False,
+    "EDITOR": False,
     "ERROR": False,
     "EXPORT": False,
     "GRID": False,
@@ -140,14 +131,14 @@ DEBUG_FLAGS = {
     "LOOP": False,
     "MAPPING": False,
     "open_chord_editor_all": False,
-    "PHANTOM" : False,
-    "PH" : False,
+    "PHANTOM": False,
+    "PH": False,
     "PLAYER": False,
-    "PRECOMPUTE" : False,
+    "PRECOMPUTE": False,
     "RELOAD": True,
     "RESET": True,
     "RHYTHM": False,
-    "RLM" : False,
+    "RLM": False,
     "SAVE": True,
     "SCORE": False,
     "SEGMENTS": False,
@@ -158,38 +149,32 @@ DEBUG_FLAGS = {
     "TRACKER": False,
     "WARNING": False,
     "ZOOM": False,
-    "BRINT" : False
+    "BRINT": False,
 }
 
 # Minimum allowed zoom window when auto-adjusting after loop marker edits
-# Using a 4-second span prevents extremely small or inverted ranges from
-# breaking the view during marker inversion.
 MIN_ZOOM_RANGE_MS = 4000
 
-import re
 
 def Brint(*args, **kwargs):
+    """Conditional debug printing controlled by DEBUG_FLAGS."""
     if not args:
         return
 
     first_arg = str(args[0])
     tags = re.findall(r"\[(.*?)\]", first_arg)
 
-    # 🔒 Mode silencieux global : BRINT = False désactive TOUT
     if DEBUG_FLAGS.get("BRINT", None) is None:
         return
 
-    # 🔒 Mode silencieux global : BRINT = None il fait les filtres
     if DEBUG_FLAGS.get("BRINT", None) is False:
         pass
 
-    # 💥 Mode super-debug : BRINT = True affiche tout
     if DEBUG_FLAGS.get("BRINT", None) is True:
         _print_with_time(*args, **kwargs)
         return
 
     if not tags:
-        # Aucun tag → affichage inconditionnel (si BRINT n'est pas False)
         _print_with_time(*args, **kwargs)
         return
 
@@ -198,24 +183,20 @@ def Brint(*args, **kwargs):
         if any(DEBUG_FLAGS.get(kw, False) for kw in keywords):
             _print_with_time(*args, **kwargs)
             return
-
-    # Sinon → silence
+    # Otherwise remain silent
 
 # === CONFIGURATION ===
-ROOT_FOLDER_ID = "1nxHMsw2eW6Urf3pLhPB65ZBRL7McHffS"  # Ton dossier Drive principal
+ROOT_FOLDER_ID = "1nxHMsw2eW6Urf3pLhPB65ZBRL7McHffS"
 CREDENTIALS_FILE = "credentials.json"
 TOKEN_FILE = "token.json"
 
-#debug
+# debug constants
 DEBUG_MAX_INDEX = 3
-
 
 # ===== Harmony Utils =====
 NOTE_ORDER = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 CHROMATIC_SCALE_SHARP = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 CHROMATIC_SCALE_FLAT = ["C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"]
-
-
 
 ENHARMONIC_FIX = {
     "Cb": "B",
@@ -227,7 +208,7 @@ ENHARMONIC_FIX = {
 VALID_NOTES = set(NOTE_ORDER + list(ENHARMONIC_FIX.keys()))
 
 INTERVAL_LABELS = {
-    0: "1",    # unisson
+    0: "1",    # unison
     1: "b2",
     2: "2",
     3: "b3",
@@ -238,19 +219,20 @@ INTERVAL_LABELS = {
     8: "b6",
     9: "6",
     10: "b7",
-    11: "7"
+    11: "7",
 }
 
 DEGREE_COLOR_MAP = {
-    "I": "#FF0000",      # rouge
-    "ii": "#FF6600",     # vert clair
+    "I": "#FF0000",      # red
+    "ii": "#FF6600",     # light green
     "iii": "#FFCC00",    # indigo
     "IV": "#FFFF00",     # orange
     "V": "#33FF66",      # mauve
-    "vi": "#00CCFF",     # gris clair
-    "vii°": "#0066FF",   # gris foncé
-    "?": "#CCCCCC"       # inconnu
+    "vi": "#00CCFF",     # light gray
+    "vii°": "#0066FF",   # dark gray
+    "?": "#CCCCCC",      # unknown
 }
+
 INTERVAL_COLOR_MAP = {
     0: "#FF0000",  # 1
     1: "#FF3300",  # b2
