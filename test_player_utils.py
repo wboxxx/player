@@ -24,6 +24,7 @@ from player import (
     _util_get_tempo_and_beats_librosa,
     extract_keyframes,
     VideoPlayer,
+    TraceableDict,
 )
 import player
 
@@ -556,11 +557,17 @@ class TestHitStateProgression(unittest.TestCase):
             self.grid_times = [0.0, 0.5, 1.0]
             self.grid_subdivs = list(enumerate(self.grid_times))
             self.avg_subdiv_interval_sec = 0.5
-            self.raw_hit_memory = {}
+            self.raw_hit_memory = TraceableDict(enable_trace=True)
             self.user_hit_timestamps = []
             self.subdiv_last_hit_time = {}
             self.subdivision_state = {}
             self.confirmed_red_subdivisions = {}
+            self.subdiv_last_hit_loop = {}
+            self.subdiv_last_hit_wall_time = {}
+            self.precomputed_grid_infos = {
+                i: {"t_subdiv_sec": t} for i, t in enumerate(self.grid_times)
+            }
+            self.__raw_hit_memory_guard__ = lambda: None
 
         def hms(self, ms):
             return str(ms)
@@ -648,12 +655,18 @@ class TestHitMemoryPruning(unittest.TestCase):
             self.loop_duration_s = 1.0
             self.grid_times = [0.0, 0.5, 1.0]
             self.current_loop = MagicMock()
-            self.raw_hit_memory = {}
+            self.raw_hit_memory = TraceableDict(enable_trace=True)
             self.user_hit_timestamps = []
             self.subdivision_state = {}
             self.subdiv_last_hit_time = {}
             self.confirmed_red_subdivisions = {}
             self.loop_pass_count = 0
+            self.subdiv_last_hit_loop = {}
+            self.subdiv_last_hit_wall_time = {}
+            self.precomputed_grid_infos = {
+                i: {"t_subdiv_sec": t} for i, t in enumerate(self.grid_times)
+            }
+            self.__raw_hit_memory_guard__ = lambda: None
 
         def hms(self, ms):
             return str(ms)
@@ -688,12 +701,18 @@ class TestDecayTimingWithOffset(unittest.TestCase):
             self.grid_times = [10.0, 10.5, 11.0, 11.5, 12.0]
             self.grid_subdivs = list(enumerate(self.grid_times))
             self.avg_subdiv_interval_sec = 0.5
-            self.raw_hit_memory = {}
+            self.raw_hit_memory = TraceableDict(enable_trace=True)
             self.user_hit_timestamps = []
             self.subdiv_last_hit_time = {}
             self.subdivision_state = {}
             self.confirmed_red_subdivisions = {}
             self.loop_pass_count = 0
+            self.subdiv_last_hit_loop = {}
+            self.subdiv_last_hit_wall_time = {}
+            self.precomputed_grid_infos = {
+                i: {"t_subdiv_sec": t} for i, t in enumerate(self.grid_times)
+            }
+            self.__raw_hit_memory_guard__ = lambda: None
 
         def hms(self, ms):
             return str(ms)
@@ -743,7 +762,7 @@ class TestDecayNotRepeated(unittest.TestCase):
             self.grid_times = [0.0, 0.5, 1.0, 1.5, 2.0]
             self.grid_subdivs = list(enumerate(self.grid_times))
             self.avg_subdiv_interval_sec = 0.5
-            self.raw_hit_memory = {}
+            self.raw_hit_memory = TraceableDict(enable_trace=True)
             self.user_hit_timestamps = []
             self.subdiv_last_hit_time = {}
             self.subdivision_state = {}
@@ -751,6 +770,11 @@ class TestDecayNotRepeated(unittest.TestCase):
             self.subdiv_last_hit_loop = {}
             self.subdivision_counters = {}
             self.loop_pass_count = 0
+            self.subdiv_last_hit_wall_time = {}
+            self.precomputed_grid_infos = {
+                i: {"t_subdiv_sec": t} for i, t in enumerate(self.grid_times)
+            }
+            self.__raw_hit_memory_guard__ = lambda: None
 
         def hms(self, ms):
             return str(ms)
