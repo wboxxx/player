@@ -3767,32 +3767,40 @@ class VideoPlayer:
         else:
             self.init_raw_hit_memory()
 
-        # raw_hit_memory = {}  # ✅ local
-
         for old_idx, hit_list in self.confirmed_red_subdivisions.items():
             for raw_t in hit_list:
-                t = raw_t[0] if isinstance(raw_t, tuple) else raw_t
-                try:
-                    idx = min(range(len(grid_ms)), key=lambda i: abs(grid_ms[i] - t))
-                except ValueError:
-                    Brint(f"[RED REASSOC NHIT] ⚠️ Aucun index trouvé pour t={t}")
-                    continue
-                reassociated.setdefault(idx, []).append(t)
-                self.raw_hit_memory.setdefault(idx, []).append((t / 1000.0, 0))  # 0 = loop_pass_count reset
-                Brint(f"[RED REASSOC NHIT] Hit {t:.1f}ms → subdiv {idx} ({grid_ms[idx]:.1f}ms)")
+                t_sec = raw_t[0] if isinstance(raw_t, tuple) else raw_t
+                t_ms = t_sec * 1000.0
 
+                try:
+                    idx = min(range(len(grid_ms)), key=lambda i: abs(grid_ms[i] - t_ms))
+                except ValueError:
+                    Brint(f"[RED REASSOC NHIT] ⚠️ Aucun index trouvé pour t_sec={t_sec}")
+                    continue
+
+                already_present = self.raw_hit_memory.get(idx, [])
+
+                # ✅ Skip si déjà présent avec un autre loop_id (donc authentique)
+                if any(abs(t_sec - t) < 1e-3 and lp != 0 for (t, lp) in already_present):
+                    Brint(f"[RED REASSOC NHIT] 🔁 Skip reassoc: hit déjà présent avec loop_id≠0 sur subdiv {idx} (t={t_sec:.3f})")
+                    continue
+
+                # ✅ Skip si déjà présent avec loop_id=0 (doublon exact)
+                if any(abs(t_sec - t) < 1e-3 and lp == 0 for (t, lp) in already_present):
+                    Brint(f"[RED REASSOC NHIT] ⚠️ Doublon exact ignoré sur subdiv {idx} (t={t_sec:.3f})")
+                    continue
+
+                # ✅ Ajout uniquement si les deux tests précédents sont passés
+                reassociated.setdefault(idx, []).append(t_sec)
+                self.raw_hit_memory.setdefault(idx, []).append((t_sec, 0))
+                Brint(f"[RED REASSOC NHIT] ✅ Ajout reassoc {t_sec:.3f}s → subdiv {idx} ({grid_ms[idx]:.1f}ms)")
         self.confirmed_red_subdivisions = reassociated
-        # self.raw_hit_memory = raw_hit_memory
-        
-        if "raw_hit_memory" not in locals():
-            Brint("[NHIT ERROR] 🛑 raw_hit_memory n'existe pas dans le scope local.")
 
         if reset_loop_pass:
-            self.loop_pass_count = 0  # Reset sur demande explicite
+            self.loop_pass_count = 0
 
         Brint(f"[RED REASSOC NHIT] ✅ {len(reassociated)} subdivisions rouges mises à jour")
         return self.confirmed_red_subdivisions
-
    
    
     def on_user_hit(self, event=None):
