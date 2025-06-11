@@ -1090,8 +1090,20 @@ def detect_countins_with_rms(filepath, hop_length=256, strict=False, mode="defau
 
 
 
-def open_vlc_at(filepath, seconds):
-    vlc_path = r"C:\Program Files\VideoLAN\VLC\vlc.exe"
+def open_vlc_at(filepath, seconds, vlc_path="vlc"):
+    """Open a file in VLC starting at the given timestamp.
+
+    Parameters
+    ----------
+    filepath : str
+        Path to the media file.
+    seconds : int or float
+        Time in seconds at which playback should start.
+    vlc_path : str, optional
+        Executable to launch VLC. Defaults to ``"vlc"`` so the system ``PATH``
+        is used for resolution.
+    """
+
     abs_filepath = os.path.abspath(filepath)
     timestamp = int(seconds)
 
