@@ -3828,7 +3828,14 @@ class VideoPlayer:
 
         for idx, ts_lp_list in self.raw_hit_memory.items():
             for ts, stored_lp in ts_lp_list:
-                lp = stored_lp if isinstance(stored_lp, int) else self.get_loop_pass(ts)
+                if isinstance(stored_lp, int):
+                    lp = stored_lp
+                else:
+                    try:
+                        lp = int(stored_lp)
+                        Brint(f"[NHIT] Converted loop_id '{stored_lp}' -> {lp}")
+                    except (TypeError, ValueError):
+                        lp = self.get_loop_pass(ts)
                 if isinstance(lp, int):
                     hit_dict[idx].append(lp)
 
@@ -3849,6 +3856,7 @@ class VideoPlayer:
                     ts for (ts, lp) in self.raw_hit_memory.get(idx, [])
                     if lp in loop_ids[-3:]
                 ][:3]
+                Brint(f"[TRACE FIX NHIT] Subdiv {idx} became RED")
                 Brint(f"[NHIT] Subdiv {idx} → RED (3) | loops = {loop_ids[-3:]}")
             elif len(loop_ids) >= 2 and loop_ids[-2:] == list(range(loop_ids[-2], loop_ids[-2] + 2)):
                 # self.subdivision_state[idx] = 2
@@ -3880,15 +3888,21 @@ class VideoPlayer:
 
         now = time.perf_counter()
         subdiv_interval = getattr(self, "avg_subdiv_interval_sec", 0.5)
-        decay_threshold = 2 * loop_dur_s - subdiv_interval
+        decay_threshold = 3 * loop_dur_s - subdiv_interval
 
         for idx, state in list(self.subdivision_state.items()):
             if state in (1, 2):
                 hit_time = self.subdiv_last_hit_wall_time.get(idx)
-                if hit_time is None:
-                    continue
+                last_hit_loop = self.subdiv_last_hit_loop.get(idx)
 
-                elapsed = now - hit_time
+                elapsed_wall = now - hit_time if hit_time is not None else 0
+                elapsed_loop = (
+                    (self.loop_pass_count - last_hit_loop) * loop_dur_s
+                    if last_hit_loop is not None
+                    else 0
+                )
+                elapsed = max(elapsed_wall, elapsed_loop)
+
                 Brint(f"[DECAY WALLTIME NHIT] Subdiv {idx} | now={elapsed:.3f}s since hit | seuil={decay_threshold:.3f}s")
 
                 if elapsed >= decay_threshold:
