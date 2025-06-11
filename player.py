@@ -10,6 +10,8 @@ import re
 import json
 import time
 from collections import defaultdict
+import builtins
+import traceback
 
 # Time provider used for Brint timing. Can be overridden for debugging.
 _brint_time_provider = time.perf_counter
@@ -1644,6 +1646,23 @@ def normalize_root(note_name):
     }
     return flat_to_sharp.get(note_name, note_name)
 
+
+class TraceableDict(dict):
+    def __init__(self, *args, **kwargs):
+        self.enable_trace = kwargs.pop("enable_trace", False)
+        super().__init__(*args, **kwargs)
+
+    def __setitem__(self, key, value):
+        if self.enable_trace:
+            import traceback
+            print(f"\n[NHIT TRACE] 🚨 WRITE to raw_hit_memory[{key}] = {value}")
+            traceback.print_stack(limit=6)
+        super().__setitem__(key, value)
+
+
+
+
+
 class LoopData:
         
         
@@ -2940,7 +2959,7 @@ class VideoPlayer:
 
     def reinject_hits_from_red_subdivisions(self):
         """Recalcule raw_hit_memory et user_hits à partir des confirmed_red_subdivisions"""
-        self.raw_hit_memory = {}
+        self.raw_hit_memory = TraceableDict(enable_trace=True)
         for subdiv_index, timestamps in self.confirmed_red_subdivisions.items():
             for t in timestamps:
                 self.raw_hit_memory.setdefault(subdiv_index, []).append((t / 1000.0, 0))
@@ -2969,7 +2988,7 @@ class VideoPlayer:
 
                 # 🧹 Flush complet avant reload
                 self.user_hits = {}
-                self.raw_hit_memory = {}
+                self.raw_hit_memory = TraceableDict(enable_trace=True)
                 self.subdivision_states = {}
                 self.loop_pass_count = 0  # important !
 
@@ -3249,7 +3268,7 @@ class VideoPlayer:
     def sanitize_raw_hit_memory(self):
         """Nettoie raw_hit_memory en ne conservant que les tuples (float, int) valides."""
         if not hasattr(self, "raw_hit_memory"):
-            self.raw_hit_memory = {}
+            self.raw_hit_memory = TraceableDict(enable_trace=True)
             return
 
         for idx in list(self.raw_hit_memory.keys()):
@@ -3269,16 +3288,17 @@ class VideoPlayer:
     def prune_old_hit_memory(self):
         """Prune raw_hit_memory to keep hits from the last three loop passes."""
         if not hasattr(self, "raw_hit_memory") or not isinstance(self.raw_hit_memory, dict):
-            self.raw_hit_memory = {}
+            self.raw_hit_memory = TraceableDict(enable_trace=True)
             return
 
         cutoff = max(0, self.loop_pass_count - 2)
         Brint(f"[NHIT] prune_old_hit_memory(cutoff={cutoff})")
 
         total_hits_before = sum(len(ts_list) for ts_list in self.raw_hit_memory.values())
-        new_raw_hit_memory = {}
+        old_raw_hit_memory = self.raw_hit_memory  # ✅ on garde une copie de l’ancien
+        new_raw_hit_memory = TraceableDict(enable_trace=True)
 
-        for idx, ts_list in self.raw_hit_memory.items():
+        for idx, ts_list in old_raw_hit_memory.items():
             kept_hits = [(ts, lp) for (ts, lp) in ts_list if lp >= cutoff]
             removed = [(ts, lp) for (ts, lp) in ts_list if lp < cutoff]
             loop_ids = [lp for (_, lp) in ts_list]
@@ -3288,23 +3308,33 @@ class VideoPlayer:
                 Brint(f"[DEBUG NHIT PRUNE] Subdiv {idx} → removing {removed}")
             if kept_hits:
                 new_raw_hit_memory[idx] = kept_hits
+                Brint(f"[DEBUG NHIT kept_hits] Subdiv {idx} → kept = {kept_hits}")
             else:
                 Brint(f"[DEBUG NHIT PRUNE] Subdiv {idx} → ALL HITS REMOVED ❌")
 
         total_hits_after = sum(len(ts_list) for ts_list in new_raw_hit_memory.values())
         removed_count = total_hits_before - total_hits_after
-        self.raw_hit_memory = new_raw_hit_memory
+        if new_raw_hit_memory:
+            self.raw_hit_memory = new_raw_hit_memory
+            Brint(f"[NHIT PRUNE] 🧹 raw_hit_memory mis à jour : {total_hits_before} → {total_hits_after} hits")
+        else:
+            Brint("[NHIT PRUNE] ⚠️ Tous les hits auraient été supprimés — skip reset")
 
         Brint(f"[NHIT] 🔪 Hits supprimés : {removed_count} | Hits conservés : {total_hits_after}")
 
         # Même traitement pour user_hit_timestamps
         if hasattr(self, "user_hit_timestamps"):
-            filtered_user = [
-                (t, lp) for (t, lp) in self.user_hit_timestamps if lp >= cutoff
-            ]
+            filtered_user = [(t, lp) for (t, lp) in self.user_hit_timestamps if lp >= cutoff]
             removed_user = len(self.user_hit_timestamps) - len(filtered_user)
             self.user_hit_timestamps = filtered_user
             Brint(f"[NHIT] 🔪 User hits supprimés : {removed_user} | Conservés : {len(filtered_user)}")
+
+
+
+    # def prune_old_hit_memory(self, *args, **kwargs):
+        # Brint("[LIVE TEST] 🚫 prune_old_hit_memory() désactivée")
+        # return 0
+
     def reset_syllabic_grid_hits(self):
         if getattr(self, "just_loaded_loop", False):
             Brint("[RESET SYLLABIC NHIT] ⏭️ Skip reset car boucle vient d’être chargée")
@@ -3377,11 +3407,15 @@ class VideoPlayer:
     
     # --- Fonction pour charger une boucle sauvegardée quand on clique ---
     def set_subdivision_state(self, idx, value, origin="UNKNOWN"):
+        self.__raw_hit_memory_guard__()
+
         old = self.subdivision_state.get(idx, "∅")
         self.subdivision_state[idx] = value
         Brint(f"[TRACE NHIT] subdivision_state[{idx}] {old} → {value} (via {origin})")
 
     def load_saved_loop(self, index):
+        self.__raw_hit_memory_guard__()
+
         Brint(f"\n[LOAD LOOP] 🔁 Chargement boucle index={index}")
         self.reset_rhythm_overlay()
 
@@ -3389,7 +3423,11 @@ class VideoPlayer:
         self.confirmed_red_subdivisions = {}
         self.user_hit_timestamps.clear()
         self.subdiv_last_hit_loop.clear()
-        self.raw_hit_memory = {}  # ✅ dict attendu : idx → [(timestamp_s, loop_id)]
+        self.raw_hit_memory = TraceableDict(enable_trace=True)  # ✅ dict attendu : idx → [(timestamp_s, loop_id)]
+        
+
+        
+        
         self.loop_pass_count = 0
         Brint("[LOAD LOOP] Cleared persistent hit states for new loop.")
 
@@ -3495,18 +3533,23 @@ class VideoPlayer:
         self.loop_pass_count = 0
 
     def add_hit_to_raw_memory(self, idx, ts, loop_id):
+        self.__raw_hit_memory_guard__()
+
         if not hasattr(self, "raw_hit_memory"):
-            self.raw_hit_memory = {}
+            self.raw_hit_memory = TraceableDict(enable_trace=True)
+            Brint(f"[NHIT WRAP] (subdiv {idx}) raw_hit_memory initialized")
 
         current = self.get_hits_from_raw_memory(idx)
+        Brint(f"[NHIT WRAP] (subdiv {idx}) Existing hits → {current}")
 
         # Ne rien faire si le loop_id existe déjà
         if loop_id in [lp for _, lp in current]:
-            Brint(f"[NHIT WRAP] Ignored duplicate hit on subdiv {idx} for loop {loop_id}")
+            Brint(f"[NHIT WRAP] (subdiv {idx}) Ignored duplicate loop_id {loop_id}")
             return
 
         # Ajout du hit
         new_list = current + [(ts, loop_id)]
+        Brint(f"[NHIT WRAP] (subdiv {idx}) Appended new hit: ({ts}, {loop_id}) → {new_list}")
 
         # ✅ Trim : uniquement les 3 derniers loop_id distincts
         seen = set()
@@ -3519,23 +3562,27 @@ class VideoPlayer:
                 break
 
         pruned = list(reversed(pruned))
+        Brint(f"[NHIT WRAP] (subdiv {idx}) Pruned to last 3 distinct loop_ids → {pruned}")
+
         self.set_raw_hit_memory(idx, pruned)
-        Brint(f"[NHIT WRAP] Added hit to raw_hit_memory[{idx}] = {pruned}")
-
-
+        Brint(f"[NHIT WRAP] (subdiv {idx}) Final set_raw_hit_memory = {pruned}")
 
 
     def get_hits_from_raw_memory(self, idx):
+        self.__raw_hit_memory_guard__()
+
         if not hasattr(self, "raw_hit_memory"):
-            self.raw_hit_memory = {}
+            self.raw_hit_memory = TraceableDict(enable_trace=True)
 
         hits = self.raw_hit_memory.get(idx, [])
         Brint(f"[NHIT WRAP] get_hits_from_raw_memory({idx}) → {hits}")
         return hits
 
     def set_hits_for_raw_memory(self, idx, hit_list):
+        self.__raw_hit_memory_guard__()
+
         if not hasattr(self, "raw_hit_memory"):
-            self.raw_hit_memory = {}
+            self.raw_hit_memory = TraceableDict(enable_trace=True)
 
         if not hit_list:
             if idx in self.raw_hit_memory:
@@ -3547,6 +3594,8 @@ class VideoPlayer:
 
 
     def delete_raw_hit_memory(self, idx):
+        self.__raw_hit_memory_guard__()
+
         if hasattr(self, "raw_hit_memory") and isinstance(self.raw_hit_memory, dict):
             if idx in self.raw_hit_memory:
                 Brint(f"[NHIT WRAP] delete_raw_hit_memory({idx}) → supprimé {self.raw_hit_memory[idx]}")
@@ -3554,12 +3603,33 @@ class VideoPlayer:
 
 
     def set_raw_hit_memory(self, idx, hit_list):
+        self.__raw_hit_memory_guard__()
+
         if not hasattr(self, "raw_hit_memory"):
-            self.raw_hit_memory = {}
+            Brint(f"[NHIT WRAP] 🧪 raw_hit_memory not found → creating new dict")
+            self.raw_hit_memory = TraceableDict(enable_trace=True)
 
-        self.raw_hit_memory[idx] = hit_list
-        Brint(f"[NHIT WRAP] set_raw_hit_memory({idx}) ← {hit_list}")
+        previous = self.raw_hit_memory.get(idx, [])
+        Brint(f"[NHIT WRAP] 🧪 (subdiv {idx}) Previous = {previous}")
+        Brint(f"[NHIT WRAP] 🧪 (subdiv {idx}) New     = {hit_list}")
 
+        # Diagnostic sur les loop_ids
+        loop_ids = [lp for _, lp in hit_list if isinstance(lp, int)]
+        if len(loop_ids) >= 3:
+            last3 = loop_ids[-3:]
+            expected = list(range(last3[0], last3[0] + 3))
+            if last3 == expected:
+                Brint(f"[NHIT WRAP] 🧪 3 loops consécutifs détectés pour subdiv {idx} → last3={last3}")
+            else:
+                Brint(f"[NHIT WRAP] 🧪️ 3 hits mais loops non consécutifs → last3={last3} ≠ expected={expected}")
+        else:
+            Brint(f"[NHIT WRAP] 🧪 Pas assez de hits pour état rouge (loop_ids={loop_ids})")
+
+        # Application finale
+        Brint(f"[CHECK TRACE] raw_hit_memory class at set() = {type(self.raw_hit_memory)}")
+
+        self.raw_hit_memory[idx] = list(hit_list)
+        Brint(f"[NHIT WRAP] 🧪 Mémoire mise à jour : raw_hit_memory[{idx}] ← {hit_list}")
 
 
 
@@ -3568,13 +3638,15 @@ class VideoPlayer:
 
     
     def record_user_hit(self, hit_time_ms):
+        self.__raw_hit_memory_guard__()
+
         Brint(f"[HERE HERE NHIT REGISTERED] Hit registered at {self.hms(hit_time_ms)} | {self.abph_stamp()}")
 
         if not hasattr(self, "current_loop") or self.current_loop is None:
             return
 
         if not hasattr(self, "raw_hit_memory") or not isinstance(self.raw_hit_memory, dict):
-            self.raw_hit_memory = {}
+            self.raw_hit_memory = TraceableDict(enable_trace=True)
 
         if not hasattr(self, "user_hit_timestamps"):
             self.user_hit_timestamps = []
@@ -3610,19 +3682,8 @@ class VideoPlayer:
             Brint(f"[NHIT] Ignored duplicate hit on subdiv {idx} for loop {loop_id}")
             return
 
-        # Bon :
         self.add_hit_to_raw_memory(idx, hit_time_ms / 1000.0, loop_id)
 
-        # # ✅ Prune : garder uniquement les 3 derniers loop_id distincts
-        # seen = set()
-        # new_list = []
-        # for ts, lp in reversed(self.get_hits_from_raw_memory(idx)):
-            # if lp not in seen:
-                # new_list.append((ts, lp))
-                # seen.add(lp)
-            # if len(seen) >= 3:
-                # break
-        # self.set_hits_for_raw_memory(idx, list(reversed(new_list)))
 
         Brint(f"[NHIT] raw_hit_memory[{idx}] += {self.hms(hit_time_ms)} | {self.abph_stamp()}")
 
@@ -3647,7 +3708,13 @@ class VideoPlayer:
 
         self.update_subdivision_states()
 
+
+
+
+
     def find_nearest_subdivision_idx(self, t_sec):
+        self.__raw_hit_memory_guard__()
+
         """
         Retourne l'index de subdivision le plus proche de t_sec.
         Utilise une tolérance élargie basée sur la grille.
@@ -3681,6 +3748,8 @@ class VideoPlayer:
        
     
     def associate_hits_to_subdivisions(self, reset_loop_pass=False):
+        self.__raw_hit_memory_guard__()
+
         """
         Associe tous les hits rouges (confirmés) à la subdivision la plus proche
         selon la grille actuelle. Écrase les anciennes associations.
@@ -3697,7 +3766,10 @@ class VideoPlayer:
             return {}
 
         reassociated = {}
-        raw_hit_memory = {}  # ✅ local
+        Brint("[NHIT RESET] 🔁 raw_hit_memory reset via TraceableDict")
+        self.raw_hit_memory = TraceableDict(enable_trace=True)
+
+        # raw_hit_memory = {}  # ✅ local
 
         for old_idx, hit_list in self.confirmed_red_subdivisions.items():
             for raw_t in hit_list:
@@ -3708,11 +3780,15 @@ class VideoPlayer:
                     Brint(f"[RED REASSOC NHIT] ⚠️ Aucun index trouvé pour t={t}")
                     continue
                 reassociated.setdefault(idx, []).append(t)
-                raw_hit_memory.setdefault(idx, []).append((t / 1000.0, 0))  # 0 = loop_pass_count reset
+                self.raw_hit_memory.setdefault(idx, []).append((t / 1000.0, 0))  # 0 = loop_pass_count reset
                 Brint(f"[RED REASSOC NHIT] Hit {t:.1f}ms → subdiv {idx} ({grid_ms[idx]:.1f}ms)")
 
         self.confirmed_red_subdivisions = reassociated
-        self.raw_hit_memory = raw_hit_memory
+        # self.raw_hit_memory = raw_hit_memory
+        
+        if "raw_hit_memory" not in locals():
+            Brint("[NHIT ERROR] 🛑 raw_hit_memory n'existe pas dans le scope local.")
+
         if reset_loop_pass:
             self.loop_pass_count = 0  # Reset sur demande explicite
 
@@ -3722,6 +3798,8 @@ class VideoPlayer:
    
    
     def on_user_hit(self, event=None):
+        self.__raw_hit_memory_guard__()
+
         current_time_ms = self.playhead_time * 1000
         current_time_sec = self.playhead_time  # déjà en secondes
         
@@ -3779,6 +3857,8 @@ class VideoPlayer:
         Brint(f"[HIT WINDOW] ⏱ Dynamic tolerance = {tolerance:.3f}s (1/2 of {avg_interval_sec:.3f}s)")
 
     def update_subdivision_states(self):
+        self.__raw_hit_memory_guard__()
+
         
         self.skip_old_state_restore = False  # reset pour les prochains appels
         skip_restore_old_states = getattr(self, "skip_old_state_restore", False)
@@ -3874,6 +3954,8 @@ class VideoPlayer:
     import time  # à importer en haut du fichier si ce n'est pas déjà fait
 
     def decay_subdivision_states(self):
+        self.__raw_hit_memory_guard__()
+
         if self.loop_start is None or self.loop_end is None:
             return
 
@@ -3935,10 +4017,12 @@ class VideoPlayer:
 
     def reset_red_hits(self):
         self.confirmed_red_subdivisions = {}
-        self.raw_hit_memory = {}
+        self.raw_hit_memory = TraceableDict(enable_trace=True)
         Brint("[NHIT] All red hits reset")
 
     def get_subdivision_state(self, idx):
+        self.__raw_hit_memory_guard__()
+
         return self.subdivision_state.get(idx, 0)
 
 
@@ -7420,7 +7504,17 @@ class VideoPlayer:
             self.console.config(text="⏩ Vitesse réinitialisée à 1.0x")
             
     # === RATIONALISÉ ET RANGÉ : DEBUT DU __init__ ===
-    
+
+    # _real_dict_setitem = dict.__setitem__
+
+    # def tracing_setitem(self_dict, key, value):
+        # if hasattr(self_dict, "__trace_raw_hit_memory__") and self_dict.__trace_raw_hit_memory__:
+            # print(f"\n[NHIT TRACE] 🚨 WRITE to raw_hit_memory[{key}] = {value}")
+            # print("Stack trace:")
+            # traceback.print_stack(limit=6)
+        # return _real_dict_setitem(self_dict, key, value)
+
+    # dict.__setitem__ = tracing_setitem    
     
     
 
@@ -7468,6 +7562,10 @@ class VideoPlayer:
         self.global_zoom_level = 1.0
         self.global_crop_x = 0
 
+        #trace
+        self.raw_hit_memory = TraceableDict(enable_trace=True)
+        Brint(f"[DEBUG NHIT] raw_hit_memory type = {type(self.raw_hit_memory)}")
+        self.__raw_hit_memory_guard__ = lambda: setattr(self, 'raw_hit_memory', TraceableDict(self.raw_hit_memory, enable_trace=True)) if not isinstance(self.raw_hit_memory, TraceableDict) else None
 
         
         #affichage wrapper
@@ -9360,6 +9458,11 @@ class VideoPlayer:
         return int((timestamp_s - start) // loop_dur)
 
     def update_loop(self):
+        if 2 in self.raw_hit_memory:
+            Brint(f"[LIVE WATCH] 👁️ Subdiv 2 state = {self.raw_hit_memory[2]}")
+        else:
+            Brint(f"[LIVE WATCH] ⚠️ Subdiv 2 missing from raw_hit_memory")
+
         self.root.bind('t', lambda e: self.tap_tempo())
         self.update_state_window()
 
@@ -9484,6 +9587,12 @@ class VideoPlayer:
                 delay = 30
                 self.update_delay_ms_var.set(delay)
             self.after_id = self.root.after(delay, self.update_loop)
+        if self.raw_hit_memory:
+            for idx, hits in self.raw_hit_memory.items():
+                Brint(f"[LIVE NHIT] 🔍 Subdiv {idx} → {hits}")
+        else:
+            Brint(f"[LIVE NHIT] 🕳️ raw_hit_memory is empty")
+
 
     def on_timeline_click(self, e): self.handle_timeline_interaction(e.x)
     def on_timeline_drag(self, e): self.handle_timeline_interaction(e.x)
