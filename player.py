@@ -1641,6 +1641,16 @@ def normalize_root(note_name):
     return flat_to_sharp.get(note_name, note_name)
 
 
+FULL_TRACEBACK = False
+
+
+def _simple_stack(limit=4):
+    stack = traceback.extract_stack()[:-2]
+    stack = stack[-limit:]
+    names = [f.name for f in stack]
+    return ">".join(names)
+
+
 class TraceableDict(dict):
     def __init__(self, *args, **kwargs):
         self.enable_trace = kwargs.pop("enable_trace", False)
@@ -1648,9 +1658,12 @@ class TraceableDict(dict):
 
     def __setitem__(self, key, value):
         if self.enable_trace:
-            import traceback
-            print(f"\n[NHIT TRACE] 🚨 WRITE to raw_hit_memory[{key}] = {value}")
-            traceback.print_stack(limit=6)
+            if FULL_TRACEBACK:
+                print(f"\n[NHIT TRACE] 🚨 WRITE to raw_hit_memory[{key}] = {value}")
+                traceback.print_stack(limit=6)
+            else:
+                chain = _simple_stack()
+                print(f"\n[NHIT TRACE] {chain} -> raw_hit_memory[{key}] = {value}")
         super().__setitem__(key, value)
 
 
@@ -4618,6 +4631,20 @@ class VideoPlayer:
             chk = tk.Checkbutton(self.flags_window, text=flag, variable=var, command=toggle)
             chk.pack(anchor='w')
 
+        tk.Checkbutton(
+            self.flags_window,
+            text='Slow update 3000ms',
+            variable=self.slow_update_var,
+            command=self.toggle_slow_update,
+        ).pack(anchor='w')
+
+        tk.Checkbutton(
+            self.flags_window,
+            text='Full traceback',
+            variable=self.traceback_full_var,
+            command=self.toggle_full_traceback,
+        ).pack(anchor='w')
+
     def apply_loop_zoom_ratio(self, ratio):
         """Apply the given zoom ratio to the loop and refresh display."""
         self.loop_zoom_ratio = ratio
@@ -6060,6 +6087,20 @@ class VideoPlayer:
         tk.Label(self.state_window, text="Update delay (ms)").pack(anchor="w")
         tk.Entry(self.state_window, textvariable=self.update_delay_ms_var, width=6).pack(anchor="w")
 
+        tk.Checkbutton(
+            self.state_window,
+            text="Slow update 3000ms",
+            variable=self.slow_update_var,
+            command=self.toggle_slow_update,
+        ).pack(anchor="w")
+
+        tk.Checkbutton(
+            self.state_window,
+            text="Full traceback",
+            variable=self.traceback_full_var,
+            command=self.toggle_full_traceback,
+        ).pack(anchor="w")
+
         self.update_state_window()
 
     def update_state_window(self):
@@ -6085,6 +6126,16 @@ class VideoPlayer:
             except tk.TclError:
                 continue
         self.state_window.after(100, self.update_state_window)
+
+    def toggle_slow_update(self):
+        if self.slow_update_var.get():
+            self.update_delay_ms_var.set(3000)
+        else:
+            self.update_delay_ms_var.set(30)
+
+    def toggle_full_traceback(self):
+        global FULL_TRACEBACK
+        FULL_TRACEBACK = self.traceback_full_var.get()
 
     def step_once(self):
         self.is_paused = False
@@ -7541,6 +7592,12 @@ class VideoPlayer:
         # debug helpers
         self.pause_each_update = tk.BooleanVar(value=False)
         self.update_delay_ms_var = tk.IntVar(value=30)
+        self.slow_update_var = tk.BooleanVar(value=True)
+        self.traceback_full_var = tk.BooleanVar(value=False)
+        if self.slow_update_var.get():
+            self.update_delay_ms_var.set(3000)
+        global FULL_TRACEBACK
+        FULL_TRACEBACK = self.traceback_full_var.get()
         self.state_window = None
         self.flags_window = None
         self._debug_labels = {}
