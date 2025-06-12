@@ -4454,6 +4454,8 @@ class VideoPlayer:
             
     def safe_jump_to_time(self, target_ms, source="UNKNOWN"):
         Brint(f"[PH JUMP] 🚀 {source} → jump à {int(target_ms)} ms demandé")
+        if "Jump B" in str(source):
+            Brint(f"[NHIT] {'🔁' * 15} Jump B→A | {self.abph_stamp()}")
 
         self.player.set_time(int(target_ms))
         self.set_forced_jump(True, source=source)
