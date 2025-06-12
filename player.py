@@ -4292,6 +4292,15 @@ class VideoPlayer:
         Brint(f"[NHIT OFFSET 🔁] After offset → confirmed_red_subdivisions = {dict(new_reds)}")
         Brint(f"🟥 [NHIT OFFSET 🔄] ✅ confirmed_red_subdivisions remplacé → {len(new_reds)} subdivisions")
 
+        # Garder current_loop synchronisé si présent
+        if hasattr(self, "current_loop") and isinstance(self.current_loop, LoopData):
+            self.current_loop.confirmed_red_subdivisions = {str(k): v for k, v in new_reds.items()}
+
+        # Réassocier immédiatement les hits pour éviter le retour d'anciens timestamps
+        self.associate_hits_to_subdivisions(reset_loop_pass=True)
+        self.skip_old_state_restore = True
+        self.update_subdivision_states()
+
         self.check_for_nested_tuples_in_red_subdivs()
 
         # 🔍 Vérification finale : corruption potentielle ?
