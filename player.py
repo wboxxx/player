@@ -4464,7 +4464,7 @@ class VideoPlayer:
             Brint(f"[TOGGLE] Subdiv {subdiv_index} reset (removed {t_ms} ms)")
         else:
             t_sec = t_ms / 1000.0
-            self.confirmed_red_subdivisions[subdiv_index] = [(t_sec, -1)] * 3
+            self.confirmed_red_subdivisions[subdiv_index] = [(t_sec, -1)]
             assert all(isinstance(x, tuple) and len(x) == 2 for x in self.confirmed_red_subdivisions[subdiv_index]), "Format RED invalide"
 
             self.subdivision_state[subdiv_index] = 3
@@ -4472,6 +4472,31 @@ class VideoPlayer:
 
         if hasattr(self, "draw_rhythm_grid_canvas"):
             self.draw_rhythm_grid_canvas()
+
+    def offset_manual_hits(self, direction):
+        """Shift all hits with loop_id == -1 by one subdivision."""
+        if not self.grid_times:
+            return
+
+        new_reds = {}
+        for idx, hits in list(self.confirmed_red_subdivisions.items()):
+            manual = [h for h in hits if isinstance(h, (list, tuple)) and len(h) == 2 and h[1] == -1]
+            others = [h for h in hits if not (isinstance(h, (list, tuple)) and len(h) == 2 and h[1] == -1)]
+            if manual:
+                new_idx = idx + direction
+                if 0 <= new_idx < len(self.grid_times):
+                    offset = self.grid_times[new_idx] - self.grid_times[idx]
+                    shifted = [(round(t + offset, 6), -1) for t, _ in manual]
+                    new_reds.setdefault(new_idx, []).extend(shifted)
+                # remove manual hits from original idx
+                if others:
+                    new_reds.setdefault(idx, []).extend(others)
+            else:
+                new_reds.setdefault(idx, []).extend(hits)
+
+        self.confirmed_red_subdivisions = new_reds
+        if hasattr(self, "draw_harmony_grid_overlay"):
+            self.draw_harmony_grid_overlay()
 
     def apply_all_chords(self, entry_vars, popup):
         Brint("[DEBUG] ✅ Application des modifications")
@@ -5849,19 +5874,33 @@ class VideoPlayer:
             self.selected_subdiv_timestamp = t_ms
             self._selected_entry_widget = widget
 
+        def refresh_entry_highlights():
+            for si, _, _, entry in note_entry_vars:
+                hits = self.confirmed_red_subdivisions.get(si, [])
+                if any(lp == -1 for _, lp in hits):
+                    entry.configure(highlightbackground="red", highlightcolor="red", highlightthickness=2)
+                else:
+                    entry.configure(highlightthickness=0)
+
         def toggle_selected_subdiv(event=None):
             if self.selected_subdiv_index is None:
                 Brint("[TOGGLE] No subdiv selected")
                 return
-            self.toggle_subdiv_state_manual(self.selected_subdiv_index, self.selected_subdiv_timestamp)
-            # update entry highlight
-            for si, _, _, entry in note_entry_vars:
-                if si == self.selected_subdiv_index:
-                    if self.subdivision_state.get(si, 0) == 2:
-                        entry.configure(highlightbackground="red", highlightcolor="red", highlightthickness=2)
-                    else:
-                        entry.configure(highlightthickness=0)
-                    break
+            idx = self.selected_subdiv_index
+            t_sec = self.grid_times[idx]
+            hits = self.confirmed_red_subdivisions.get(idx, [])
+            if any(lp == -1 for _, lp in hits):
+                hits = [h for h in hits if not (isinstance(h, (list, tuple)) and len(h) == 2 and h[1] == -1)]
+                if hits:
+                    self.confirmed_red_subdivisions[idx] = hits
+                else:
+                    del self.confirmed_red_subdivisions[idx]
+            else:
+                hits.append((t_sec, -1))
+                self.confirmed_red_subdivisions[idx] = hits
+            refresh_entry_highlights()
+            if hasattr(self, "draw_harmony_grid_overlay"):
+                self.draw_harmony_grid_overlay()
 
 
         for measure_index in range(total_measures):
@@ -5992,7 +6031,10 @@ class VideoPlayer:
 
 
                 note_entry = tk.Entry(col, textvariable=note_var, width=10)
-                if has_hit_2 and getattr(self, "subdivision_state", {}).get(subdiv_index, 0) == 2:
+                manual_hits = self.confirmed_red_subdivisions.get(subdiv_index, [])
+                if any(lp == -1 for _, lp in manual_hits):
+                    note_entry.configure(highlightbackground="red", highlightcolor="red", highlightthickness=2)
+                elif has_hit_2 and getattr(self, "subdivision_state", {}).get(subdiv_index, 0) == 2:
                     note_entry.configure(highlightbackground="red", highlightcolor="red", highlightthickness=2)
 
                 note_entry.bind("<FocusIn>", lambda e, si=subdiv_index, tm=t_ms: focus_handler(si, tm, e.widget))
@@ -6062,8 +6104,8 @@ class VideoPlayer:
         tk.Button(btn_frame, text="✅ Appliquer", command=apply_all_and_close).pack(side="right", padx=(10, 0))
         tk.Button(btn_frame, text="Toggle Hit", command=toggle_selected_subdiv).pack(side="right", padx=(10, 0))
         popup.bind('<Control-r>', toggle_selected_subdiv)
-        popup.bind('[', lambda e: self.offset_red_subdivisions(-1))
-        popup.bind(']', lambda e: self.offset_red_subdivisions(+1))
+        popup.bind('[', lambda e: (self.offset_manual_hits(-1), refresh_entry_highlights()))
+        popup.bind(']', lambda e: (self.offset_manual_hits(+1), refresh_entry_highlights()))
 
         def reset_all_chords():
             Brint("[RESET] 🔁 Réinitialisation de tous les accords")
@@ -8388,8 +8430,8 @@ class VideoPlayer:
         
         #heatmap
         self.root.bind("<period>", lambda e: self.reset_syllabic_grid_hits())
-        self.root.bind_all("[", lambda e: self.offset_red_subdivisions(-1))
-        self.root.bind_all("]", lambda e: self.offset_red_subdivisions(+1))
+        self.root.bind_all("[", lambda e: self.offset_manual_hits(-1))
+        self.root.bind_all("]", lambda e: self.offset_manual_hits(+1))
 
         
         #zoom bindings screen
