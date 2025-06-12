@@ -116,6 +116,7 @@ DEBUG_FLAGS = {
     "AUTOLOAD": True,
     "AUTOZOOM": False,
     "CHORD": False,
+    "CHDTR": True,
     "CLICK": False,
     "DRAW": False,
     "EDIT": False,
@@ -4311,6 +4312,14 @@ class VideoPlayer:
                         Brint(f"[NHIT CORRUPTION ⚠️] ⛔ Subdiv {k} → hit mal formé détecté : {h} (tuple imbriqué ?)")
                 else:
                     Brint(f"[NHIT CORRUPTION ⚠️] ⛔ Subdiv {k} → entrée invalide : {h} (type={type(h)})")
+
+    def offset_red_subdivisions_and_refresh(self, direction):
+        Brint(f"[CHDTR] offset_red_subdivisions_and_refresh dir={direction}")
+        self.offset_red_subdivisions(direction)
+        self.refresh_chord_editor()
+        if hasattr(self, "draw_harmony_grid_overlay"):
+            self.draw_harmony_grid_overlay()
+
     def reset_red_hits(self):
         self.confirmed_red_subdivisions = {}
         self.init_raw_hit_memory(force=True)
@@ -5556,7 +5565,7 @@ class VideoPlayer:
         else:
             self.loop_menu.add_command(label="(aucune boucle)", state="disabled")
 
-        Brint("[DEBUG] → open_chord_editor_all() called")
+        Brint("[CHDTR] open_chord_editor_all called")
 
 
 
@@ -5850,8 +5859,9 @@ class VideoPlayer:
             self._selected_entry_widget = widget
 
         def toggle_selected_subdiv(event=None):
+            Brint(f"[CHDTR] toggle_selected_subdiv idx={self.selected_subdiv_index}")
             if self.selected_subdiv_index is None:
-                Brint("[TOGGLE] No subdiv selected")
+                Brint("[CHDTR] No subdiv selected")
                 return
             idx = self.selected_subdiv_index
             t_sec = round(self.selected_subdiv_timestamp / 1000.0, 3)
@@ -5859,6 +5869,7 @@ class VideoPlayer:
             hits = list(self.confirmed_red_subdivisions.get(idx, []))
             if pair in hits:
                 hits.remove(pair)
+                Brint(f"[CHDTR] removed pair {pair} from subdiv {idx}")
                 if hits:
                     self.confirmed_red_subdivisions[idx] = hits
                 else:
@@ -5866,10 +5877,12 @@ class VideoPlayer:
                     self.set_subdivision_state(idx, 0, origin="chord_editor_toggle")
             else:
                 hits.append(pair)
+                Brint(f"[CHDTR] added pair {pair} to subdiv {idx}")
                 self.confirmed_red_subdivisions[idx] = hits
                 self.set_subdivision_state(idx, 3, origin="chord_editor_toggle")
 
             self.refresh_chord_editor()
+            Brint("[CHDTR] refresh_chord_editor after toggle")
             if hasattr(self, "draw_harmony_grid_overlay"):
                 self.draw_harmony_grid_overlay()
 
@@ -6083,8 +6096,9 @@ class VideoPlayer:
         popup.bind('<Control-r>', toggle_selected_subdiv)
 
         def _offset_and_refresh(direction):
-            self.offset_red_subdivisions(direction)
-            self.refresh_chord_editor()
+            Brint(f"[CHDTR] _offset_and_refresh dir={direction}")
+            self.offset_red_subdivisions_and_refresh(direction)
+            Brint("[CHDTR] refresh_chord_editor after offset")
             if hasattr(self, "draw_harmony_grid_overlay"):
                 self.draw_harmony_grid_overlay()
 
@@ -8414,8 +8428,8 @@ class VideoPlayer:
         
         #heatmap
         self.root.bind("<period>", lambda e: self.reset_syllabic_grid_hits())
-        self.root.bind_all("[", lambda e: self.offset_red_subdivisions(-1))
-        self.root.bind_all("]", lambda e: self.offset_red_subdivisions(+1))
+        self.root.bind_all("[", lambda e: self.offset_red_subdivisions_and_refresh(-1))
+        self.root.bind_all("]", lambda e: self.offset_red_subdivisions_and_refresh(+1))
 
         
         #zoom bindings screen
@@ -8907,11 +8921,15 @@ class VideoPlayer:
 
     def refresh_chord_editor(self):
         """Refresh highlight state in the chord editor based on subdivision_state."""
+        Brint("[CHDTR] refresh_chord_editor")
         if not getattr(self, "chord_editor_popup", None):
+            Brint("[CHDTR] no popup")
             return
         if not getattr(self, "chord_editor_note_entries", None):
+            Brint("[CHDTR] no note entries")
             return
         if not self.chord_editor_popup.winfo_exists():
+            Brint("[CHDTR] popup closed")
             return
         for idx, _, _, entry in self.chord_editor_note_entries:
             hits = self.confirmed_red_subdivisions.get(idx, [])
@@ -8927,6 +8945,7 @@ class VideoPlayer:
                 )
             else:
                 entry.configure(highlightthickness=0)
+        Brint("[CHDTR] chord editor entries refreshed")
 
 
 
