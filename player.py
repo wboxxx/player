@@ -3303,8 +3303,8 @@ class VideoPlayer:
         new_raw_hit_memory = TraceableDict(enable_trace=True)
 
         for idx, ts_list in old_raw_hit_memory.items():
-            kept_hits = [(ts, lp) for (ts, lp) in ts_list if lp >= cutoff]
-            removed = [(ts, lp) for (ts, lp) in ts_list if lp < cutoff]
+            kept_hits = [(ts, lp) for (ts, lp) in ts_list if lp == -1 or lp >= cutoff]
+            removed = [(ts, lp) for (ts, lp) in ts_list if lp != -1 and lp < cutoff]
             loop_ids = [lp for (_, lp) in ts_list]
 
             Brint(f"[DEBUG NHIT PRUNE] Subdiv {idx} | loop_ids before prune = {loop_ids} | cutoff = {cutoff}")
@@ -3473,7 +3473,8 @@ class VideoPlayer:
                 try:
                     idx = int(idx_str)
                     self.confirmed_red_subdivisions[idx] = ts_list
-                    self.set_hits_for_raw_memory(idx, [(ts / 1000.0, 0) for ts in ts_list])
+                    # Loop id -1 marks persistent manually validated hits
+                    self.set_hits_for_raw_memory(idx, [(ts / 1000.0, -1) for ts in ts_list])
                 except ValueError:
                     Brint(f"[WARNING] Subdiv index invalide : {idx_str}")
             Brint(f"[RELOAD] ✅ Red hits restaurés : {len(self.confirmed_red_subdivisions)} subdivisions")
@@ -3606,6 +3607,8 @@ class VideoPlayer:
                 self.delete_raw_hit_memory(idx)
                 Brint(f"[NHIT WRAP] Deleted raw_hit_memory[{idx}] (empty)")
         else:
+            if any(lp == -1 for _, lp in hit_list):
+                Brint(f"[NHIT WRAP] 🔒 Persistent hits loaded on subdiv {idx} → {hit_list}")
             self.set_raw_hit_memory(idx, hit_list[-5:])  # ✅ PAS de rappel à set_hits_for_raw_memory ici
             Brint(f"[NHIT WRAP] Set raw_hit_memory[{idx}] = {self.get_hits_from_raw_memory(idx)}")
 
@@ -3956,6 +3959,13 @@ class VideoPlayer:
             updated_idxs.add(idx)
             loop_ids = sorted(set(loop_ids))
             Brint(f"[DEBUG NHIT] raw_hit_memory loops for subdiv {idx} → {loop_ids}")
+
+            valid_hits = self.raw_hit_memory.get(idx, [])
+            if any(lp == -1 for _, lp in valid_hits):
+                self.set_subdivision_state(idx,3, origin="update_subdivision_states")
+                self.confirmed_red_subdivisions[idx] = [ts for ts, _ in valid_hits]
+                Brint(f"[NHIT] Subdiv {idx} → RED (from save) | hits = {valid_hits}")
+                continue
 
             if len(loop_ids) >= 3 and loop_ids[-3:] == list(range(loop_ids[-3], loop_ids[-3] + 3)):
                 self.set_subdivision_state(idx,3, origin="update_subdivision_states")
