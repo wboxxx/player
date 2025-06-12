@@ -3064,9 +3064,6 @@ class VideoPlayer:
         except Exception as e:
             Brint(f"[WARNING] hms_from_seconds() → Impossible de convertir '{original_value}' en durée (s). Erreur: {e}")
             return "N/A"
-    def hms_to_seconds(hms):
-        parts = list(map(float, hms.split(":")))
-        return sum(t * 60**i for i, t in enumerate(reversed(parts)))
 
     def abph_stamp(self):
         """Return current A/B/playhead times in h:mm:ss.1 format."""
