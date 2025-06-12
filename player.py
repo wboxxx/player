@@ -3305,55 +3305,6 @@ class VideoPlayer:
                 self.delete_raw_hit_memory(idx)
 
 
-    def prune_old_hit_memory(self):
-        """Prune raw_hit_memory to keep hits from the last three loop passes."""
-        if not hasattr(self, "raw_hit_memory") or not isinstance(self.raw_hit_memory, dict):
-            self.init_raw_hit_memory(force=True)
-            return
-
-        cutoff = max(0, self.loop_pass_count - 2)
-        Brint(f"[NHIT] prune_old_hit_memory(cutoff={cutoff})")
-
-        total_hits_before = sum(len(ts_list) for ts_list in self.raw_hit_memory.values())
-        old_raw_hit_memory = self.raw_hit_memory  # ✅ on garde une copie de l’ancien
-        new_raw_hit_memory = TraceableDict(enable_trace=True)
-
-        for idx, ts_list in old_raw_hit_memory.items():
-            kept_hits = [(ts, lp) for (ts, lp) in ts_list if lp == -1 or lp >= cutoff]
-            removed = [(ts, lp) for (ts, lp) in ts_list if lp != -1 and lp < cutoff]
-            loop_ids = [lp for (_, lp) in ts_list]
-
-            Brint(f"[DEBUG NHIT PRUNE] Subdiv {idx} | loop_ids before prune = {loop_ids} | cutoff = {cutoff}")
-            if removed:
-                Brint(f"[DEBUG NHIT PRUNE] Subdiv {idx} → removing {removed}")
-            if kept_hits:
-                new_raw_hit_memory[idx] = kept_hits
-                Brint(f"[DEBUG NHIT kept_hits] Subdiv {idx} → kept = {kept_hits}")
-            else:
-                Brint(f"[DEBUG NHIT PRUNE] Subdiv {idx} → ALL HITS REMOVED ❌")
-
-        total_hits_after = sum(len(ts_list) for ts_list in new_raw_hit_memory.values())
-        removed_count = total_hits_before - total_hits_after
-        if new_raw_hit_memory:
-            self.raw_hit_memory = new_raw_hit_memory
-            Brint(f"[NHIT PRUNE] 🧹 raw_hit_memory mis à jour : {total_hits_before} → {total_hits_after} hits")
-        else:
-            Brint("[NHIT PRUNE] ⚠️ Tous les hits auraient été supprimés — skip reset")
-
-        Brint(f"[NHIT] 🔪 Hits supprimés : {removed_count} | Hits conservés : {total_hits_after}")
-
-        # Même traitement pour user_hit_timestamps
-        if hasattr(self, "user_hit_timestamps"):
-            filtered_user = [(t, lp) for (t, lp) in self.user_hit_timestamps if lp >= cutoff]
-            removed_user = len(self.user_hit_timestamps) - len(filtered_user)
-            self.user_hit_timestamps = filtered_user
-            Brint(f"[NHIT] 🔪 User hits supprimés : {removed_user} | Conservés : {len(filtered_user)}")
-
-
-
-    # def prune_old_hit_memory(self, *args, **kwargs):
-        # Brint("[LIVE TEST] 🚫 prune_old_hit_memory() désactivée")
-        # return 0
 
     def init_raw_hit_memory(self, force=False):
         """Ensure raw_hit_memory exists as a TraceableDict.
@@ -3436,6 +3387,12 @@ class VideoPlayer:
 
     # === New Hit Management API ===
     
+    # def prune_old_hit_memory(self, *args, **kwargs):
+        # Brint("[LIVE TEST] 🚫 prune_old_hit_memory() désactivée")
+        # return 0
+
+
+    
     # --- Fonction pour charger une boucle sauvegardée quand on clique ---
     def set_subdivision_state(self, idx, value, origin="UNKNOWN"):
         if hasattr(self, "__raw_hit_memory_guard__"):
@@ -3443,7 +3400,7 @@ class VideoPlayer:
 
         old = self.subdivision_state.get(idx, "∅")
         self.subdivision_state[idx] = value
-        Brint(f"[TRACE NHIT] subdivision_state[{idx}] {old} → {value} (via {origin})")
+        Brint(f"[TRACE NHIT set_subdivision_state] subdivision_state[{idx}] {old} → {value} (via {origin})")
 
     def load_saved_loop(self, index):
         if hasattr(self, "__raw_hit_memory_guard__"):
@@ -3668,10 +3625,6 @@ class VideoPlayer:
         Brint(f"[NHIT WRAP] 🧪 Mémoire mise à jour : raw_hit_memory[{idx}] ← {hit_list}")
 
 
-
-
-
-
     
     def record_user_hit(self, hit_time_ms):
         getattr(self, "__raw_hit_memory_guard__", lambda: None)()
@@ -3821,20 +3774,26 @@ class VideoPlayer:
 
                 already_present = self.raw_hit_memory.get(idx, [])
 
-                # ✅ Skip si déjà présent avec un autre loop_id (donc authentique)
+                # ✅ Skip si déjà présent avec loop_id = -1 (persistant)
+                if any(abs(t_sec - t) < 1e-3 and lp == -1 for (t, lp) in already_present):
+                    Brint(f"[RED REASSOC NHIT] 🔒 Hit persistent déjà présent sur subdiv {idx} (t={t_sec:.3f}) → skip")
+                    continue
+
+                # ✅ Skip si déjà présent avec loop_id ≠ 0 (autre hit utilisateur)
                 if any(abs(t_sec - t) < 1e-3 and lp != 0 for (t, lp) in already_present):
                     Brint(f"[RED REASSOC NHIT] 🔁 Skip reassoc: hit déjà présent avec loop_id≠0 sur subdiv {idx} (t={t_sec:.3f})")
                     continue
 
-                # ✅ Skip si déjà présent avec loop_id=0 (doublon exact)
+                # ✅ Skip si doublon exact déjà présent avec loop_id = 0
                 if any(abs(t_sec - t) < 1e-3 and lp == 0 for (t, lp) in already_present):
                     Brint(f"[RED REASSOC NHIT] ⚠️ Doublon exact ignoré sur subdiv {idx} (t={t_sec:.3f})")
                     continue
 
-                # ✅ Ajout uniquement si les deux tests précédents sont passés
-                reassociated.setdefault(idx, []).append(t_sec)
-                self.raw_hit_memory.setdefault(idx, []).append((t_sec, 0))
+                # ✅ Ajout du hit restauré avec loop_id = -1 pour le protéger du pruning
+                self.raw_hit_memory.setdefault(idx, []).append((t_sec, -1))
+                reassociated.setdefault(idx, []).append((t_sec, -1))
                 Brint(f"[RED REASSOC NHIT] ✅ Ajout reassoc {t_sec:.3f}s → subdiv {idx} ({grid_ms[idx]:.1f}ms)")
+
         self.confirmed_red_subdivisions = reassociated
 
         if reset_loop_pass:
@@ -3842,66 +3801,51 @@ class VideoPlayer:
 
         Brint(f"[RED REASSOC NHIT] ✅ {len(reassociated)} subdivisions rouges mises à jour")
         return self.confirmed_red_subdivisions
-   
-   
-    def on_user_hit(self, event=None):
-        getattr(self, "__raw_hit_memory_guard__", lambda: None)()
+    def prune_old_hit_memory(self):
+        """Prune raw_hit_memory to keep hits from the last three loop passes."""
+        if not hasattr(self, "raw_hit_memory") or not isinstance(self.raw_hit_memory, dict):
+            self.init_raw_hit_memory(force=True)
+            return
 
-        current_time_ms = self.playhead_time * 1000
-        current_time_sec = self.playhead_time  # déjà en secondes
-        
-        # Phase 1 : ligne visible avec "bounce"
-        x = getattr(self, 'playhead_canvas_x', None) # Restored original line
+        cutoff = max(0, self.loop_pass_count - 2)
+        Brint(f"[NHIT] prune_old_hit_memory(cutoff={cutoff})")
 
-        if x is None or not isinstance(x, (int, float)) or x < 0:
-            Brint(f"[HIT FX] ❌ x playhead_canvas_x ({x}) is invalid — impact visuel annulé")
-            # Fallback or decide not to draw the visual effect if x is invalid
+        total_hits_before = sum(len(ts_list) for ts_list in self.raw_hit_memory.values())
+        old_raw_hit_memory = self.raw_hit_memory  # ✅ on garde une copie de l’ancien
+        new_raw_hit_memory = TraceableDict(enable_trace=True)
+
+        for idx, ts_list in old_raw_hit_memory.items():
+            kept_hits = [(ts, lp) for (ts, lp) in ts_list if lp == -1 or lp >= cutoff]
+            removed = [(ts, lp) for (ts, lp) in ts_list if lp != -1 and lp < cutoff]
+            loop_ids = [lp for (_, lp) in ts_list]
+
+            Brint(f"[DEBUG NHIT PRUNE] Subdiv {idx} | loop_ids before prune = {loop_ids} | cutoff = {cutoff}")
+            if removed:
+                Brint(f"[DEBUG NHIT PRUNE] Subdiv {idx} → removing {removed}")
+            if kept_hits:
+                new_raw_hit_memory[idx] = kept_hits
+                Brint(f"[DEBUG NHIT kept_hits] Subdiv {idx} → kept = {kept_hits}")
+            else:
+                Brint(f"[DEBUG NHIT PRUNE] Subdiv {idx} → ALL HITS REMOVED ❌")
+
+        total_hits_after = sum(len(ts_list) for ts_list in new_raw_hit_memory.values())
+        removed_count = total_hits_before - total_hits_after
+        if new_raw_hit_memory:
+            self.raw_hit_memory = new_raw_hit_memory
+            Brint(f"[NHIT PRUNE] 🧹 raw_hit_memory mis à jour : {total_hits_before} → {total_hits_after} hits")
         else:
-            canvas = self.grid_canvas
-            canvas_height = canvas.winfo_height()
+            Brint("[NHIT PRUNE] ⚠️ Tous les hits auraient été supprimés — skip reset")
 
-            line_id = canvas.create_line(
-                x, 0, x, canvas_height,
-                fill="#FF66CC",
-                width=2,
-                tags=("impact_vfx",)
-            )
-            Brint(f"[HIT FX] 💥 Impact visuel créé à x={x:.1f}px (line_id={line_id})")
+        Brint(f"[NHIT] 🔪 Hits supprimés : {removed_count} | Hits conservés : {total_hits_after}")
 
-            # Bounce rapide (using new try_itemconfig helper)
-            canvas.after(50, lambda lid=line_id: self.try_itemconfig(canvas, lid, width=6))
-            canvas.after(200, lambda lid=line_id: self.try_itemconfig(canvas, lid, width=4))
-            canvas.after(400, lambda lid=line_id: self.try_itemconfig(canvas, lid, width=3))
-            canvas.after(800, lambda lid=line_id: self.try_itemconfig(canvas, lid, width=1))
+        # Même traitement pour user_hit_timestamps
+        if hasattr(self, "user_hit_timestamps"):
+            filtered_user = [(t, lp) for (t, lp) in self.user_hit_timestamps if lp >= cutoff]
+            removed_user = len(self.user_hit_timestamps) - len(filtered_user)
+            self.user_hit_timestamps = filtered_user
+            Brint(f"[NHIT] 🔪 User hits supprimés : {removed_user} | Conservés : {len(filtered_user)}")
 
-            # 💨 Ajout effet de disparition (transparence simulée)
-            canvas.after(1000, lambda lid=line_id: self.try_itemconfig(canvas, lid, fill="#FFBBDD"))
-            canvas.after(1200, lambda lid=line_id: self._remove_impact_vfx(lid)) # _remove_impact_vfx now handles try-except
-        
-        Brint(f"[HIT] 🎯 Fonction on_user_hit() appelée")
-        Brint(f"[HIT] Frappe utilisateur à {self.hms(current_time_ms)} hms")
 
-        self.record_user_hit(int(current_time_ms))
-   # 🔴 Enregistrement du loop courant pour decay intelligent
-        if not hasattr(self, "subdiv_last_hit_loop"):
-            self.subdiv_last_hit_loop = {}
-        nearest_idx = self.find_nearest_subdivision_idx(current_time_sec)
-        if nearest_idx is not None:
-            self.subdiv_last_hit_loop[nearest_idx] = self.loop_pass_count
-            self.subdiv_last_hit_time[nearest_idx] = current_time_sec
-            Brint(f"[NHIT] 🔖 Subdiv {nearest_idx} → loop_pass_count = {self.loop_pass_count}")
-        precomputed = self.precomputed_grid_infos or self.compute_rhythm_grid_infos()
-        self.precomputed_grid_infos = precomputed
-
-        # 1. Calcul de l'espacement moyen entre subdivisions
-        grid_times = [info['t_subdiv_sec'] for info in self.precomputed_grid_infos.values()]
-        grid_times = sorted(grid_times)
-        intervals = [t2 - t1 for t1, t2 in zip(grid_times[:-1], grid_times[1:])]
-        avg_interval_sec = sum(intervals) / len(intervals) if intervals else 0.5  # fallback = 0.5s
-        # Wider tolerance so hits always find a subdivision
-        tolerance = avg_interval_sec / 2.0
-
-        Brint(f"[HIT WINDOW] ⏱ Dynamic tolerance = {tolerance:.3f}s (1/2 of {avg_interval_sec:.3f}s)")
 
     def update_subdivision_states(self):
         getattr(self, "__raw_hit_memory_guard__", lambda: None)()
@@ -4005,8 +3949,6 @@ class VideoPlayer:
         self.prune_old_hit_memory()
     
 
-    import time  # à importer en haut du fichier si ce n'est pas déjà fait
-
     def decay_subdivision_states(self):
         getattr(self, "__raw_hit_memory_guard__", lambda: None)()
 
@@ -4053,6 +3995,69 @@ class VideoPlayer:
                     if hasattr(self, "subdivision_counters") and idx in self.subdivision_counters:
                         self.subdivision_counters[idx] = 0
 
+   
+   
+    def on_user_hit(self, event=None):
+        getattr(self, "__raw_hit_memory_guard__", lambda: None)()
+
+        current_time_ms = self.playhead_time * 1000
+        current_time_sec = self.playhead_time  # déjà en secondes
+        
+        # Phase 1 : ligne visible avec "bounce"
+        x = getattr(self, 'playhead_canvas_x', None) # Restored original line
+
+        if x is None or not isinstance(x, (int, float)) or x < 0:
+            Brint(f"[HIT FX] ❌ x playhead_canvas_x ({x}) is invalid — impact visuel annulé")
+            # Fallback or decide not to draw the visual effect if x is invalid
+        else:
+            canvas = self.grid_canvas
+            canvas_height = canvas.winfo_height()
+
+            line_id = canvas.create_line(
+                x, 0, x, canvas_height,
+                fill="#FF66CC",
+                width=2,
+                tags=("impact_vfx",)
+            )
+            Brint(f"[HIT FX] 💥 Impact visuel créé à x={x:.1f}px (line_id={line_id})")
+
+            # Bounce rapide (using new try_itemconfig helper)
+            canvas.after(50, lambda lid=line_id: self.try_itemconfig(canvas, lid, width=6))
+            canvas.after(200, lambda lid=line_id: self.try_itemconfig(canvas, lid, width=4))
+            canvas.after(400, lambda lid=line_id: self.try_itemconfig(canvas, lid, width=3))
+            canvas.after(800, lambda lid=line_id: self.try_itemconfig(canvas, lid, width=1))
+
+            # 💨 Ajout effet de disparition (transparence simulée)
+            canvas.after(1000, lambda lid=line_id: self.try_itemconfig(canvas, lid, fill="#FFBBDD"))
+            canvas.after(1200, lambda lid=line_id: self._remove_impact_vfx(lid)) # _remove_impact_vfx now handles try-except
+        
+        Brint(f"[HIT] 🎯 Fonction on_user_hit() appelée")
+        Brint(f"[HIT] Frappe utilisateur à {self.hms(current_time_ms)} hms")
+
+        self.record_user_hit(int(current_time_ms))
+   # 🔴 Enregistrement du loop courant pour decay intelligent
+        if not hasattr(self, "subdiv_last_hit_loop"):
+            self.subdiv_last_hit_loop = {}
+        nearest_idx = self.find_nearest_subdivision_idx(current_time_sec)
+        if nearest_idx is not None:
+            self.subdiv_last_hit_loop[nearest_idx] = self.loop_pass_count
+            self.subdiv_last_hit_time[nearest_idx] = current_time_sec
+            Brint(f"[NHIT] 🔖 Subdiv {nearest_idx} → loop_pass_count = {self.loop_pass_count}")
+        precomputed = self.precomputed_grid_infos or self.compute_rhythm_grid_infos()
+        self.precomputed_grid_infos = precomputed
+
+        # 1. Calcul de l'espacement moyen entre subdivisions
+        grid_times = [info['t_subdiv_sec'] for info in self.precomputed_grid_infos.values()]
+        grid_times = sorted(grid_times)
+        intervals = [t2 - t1 for t1, t2 in zip(grid_times[:-1], grid_times[1:])]
+        avg_interval_sec = sum(intervals) / len(intervals) if intervals else 0.5  # fallback = 0.5s
+        # Wider tolerance so hits always find a subdivision
+        tolerance = avg_interval_sec / 2.0
+
+        Brint(f"[HIT WINDOW] ⏱ Dynamic tolerance = {tolerance:.3f}s (1/2 of {avg_interval_sec:.3f}s)")
+
+
+    import time  # à importer en haut du fichier si ce n'est pas déjà fait
 
 
     def offset_red_subdivisions(self, direction):
@@ -7075,17 +7080,6 @@ class VideoPlayer:
         return os.path.join(os.path.dirname(self.current_path), f".{base}.abloops.json")
 
 
-    # def save_loops_to_file(self):
-        # if not hasattr(self, "current_path") or not self.current_path:
-            # return
-        # try:
-            # path = self.abloops_json_path()
-            # with open(path, "w", encoding="utf-8") as f:
-                # json.dump(self.saved_loops, f, indent=2)
-            # Brint(f"[TBD] 💾 Boucles sauvegardées dans {path}")
-        # except Exception as e:
-            # Brint(f"[TBD] ❌ Erreur sauvegarde boucles: {e}")
-
 
     def force_save_current_loop(self):
         if self.loop_start is None or self.loop_end is None:
@@ -10020,69 +10014,6 @@ class VideoPlayer:
                 canvas.create_oval(x - 10, canvas_height / 2 - 10, x + 10, canvas_height / 2 + 10,
                                    outline=color, width=2, tags=("syllabic_hit",))
                 Brint(f"[DRAW HIT] ✅ cercle hit sur Subdiv {i} (x={x:.1f}px)")
-    # def draw_syllabic_grid_heatmap(self):
-        # precomputed = self.precomputed_grid_infos or self.compute_rhythm_grid_infos()
-        # Brint("[DRAW HIT] Utilisation du cache precomputed_grid_infos")
-
-        # canvas = self.grid_canvas
-        # canvas_height = canvas.winfo_height()
-
-        # # 🔄 Supprimer les anciens labels/hits avant redraw
-        # canvas.delete("syllabic_label")
-        # canvas.delete("syllabic_hit")
-
-        # dynamic_hits = self.match_hits_to_subdivs()
-
-        # for i, subdiv_info in precomputed.items():
-            # x = subdiv_info['x']
-            # label = subdiv_info['label']
-            # state = subdiv_info['state']
-            # is_playhead = subdiv_info['is_playhead']
-            # user_hits = dynamic_hits.get(i, 0)
-
-            # if x < 0 or x > canvas.winfo_width():
-                # continue
-
-            # if i < 3:
-                # Brint(f"[HIT draw_syllabic_grid_heatmap] Subdiv {i} | X={x:.1f}px | Label={label} | State={state} | Hits={user_hits}")
-
-            # # 🎨 Couleurs en fonction du state
-            # if state == 3:
-                # color = "#FF0000"  # rouge validé
-                # font_size = 16
-            # elif state == 2:
-                # color = "#DAA520"  # orange (2e hit)
-                # font_size = 14
-            # elif state == 1:
-                # color = "#555555"  # gris foncé (1er hit)
-                # font_size = 12
-            # elif is_playhead:
-                # color = "#00FF00"  # vert fluo
-                # font_size = 14
-            # else:
-                # color = "#CCCCCC"  # gris clair neutre
-                # font_size = 10
-
-            # # 🏷️ Affichage du label
-            # canvas.create_text(
-                # x, canvas_height / 2,
-                # text=label,
-                # fill=color,
-                # font=("Arial", font_size, "bold"),
-                # tags=("syllabic_label",)
-            # )
-
-            # # 🟠 Cercle de hit (optionnel selon `user_hits`)
-            # if user_hits > 0:
-                # canvas.create_oval(
-                    # x - 10, canvas_height / 2 - 10,
-                    # x + 10, canvas_height / 2 + 10,
-                    # outline=color,
-                    # width=2,
-                    # tags=("syllabic_hit",)
-                # )
-                # Brint(f"[DRAW HIT] ✅ cercle hit sur Subdiv {i} (x={x:.1f}px)")
-
 
 
 
