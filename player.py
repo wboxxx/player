@@ -4412,6 +4412,12 @@ class VideoPlayer:
         
     def debug_keypress(self, event):
         Brint(f"[KEY DEBUG] keysym='{event.keysym}' | keycode={event.keycode} | char='{event.char}'")
+
+    def handle_double_enter(self, event=None):
+        """Print a decorative separator when Enter is pressed twice quickly."""
+        art = "\N{keyboard}" * 20
+        for _ in range(3):
+            print(art)
     #config player zoom
     
     
@@ -7838,6 +7844,7 @@ class VideoPlayer:
 
 
         self.root.bind_all("<Key>", self.debug_keypress)
+        self.root.bind_all("<Double-Return>", self.handle_double_enter)
 
 
         
