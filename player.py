@@ -3878,8 +3878,8 @@ class VideoPlayer:
         getattr(self, "__raw_hit_memory_guard__", lambda: None)()
 
         
-        self.skip_old_state_restore = False  # reset pour les prochains appels
         skip_restore_old_states = getattr(self, "skip_old_state_restore", False)
+        self.skip_old_state_restore = False  # reset pour les prochains appels
         
         Brint(f"[CHECK NHIT USS] skip_restore_old_states = {skip_restore_old_states}")
 
