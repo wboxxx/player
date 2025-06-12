@@ -164,6 +164,16 @@ def Brint(*args, **kwargs):
     first_arg = str(args[0])
     tags = re.findall(r"\[(.*?)\]", first_arg)
 
+    def _highlight_red(msg: str) -> str:
+        """Add a red emoji for NHIT logs about red subdivisions."""
+        if "🟥" in msg or "🔴" in msg:
+            return msg
+        if "[NHIT]" in msg:
+            return msg.replace("[NHIT]", "[NHIT] 🟥")
+        return "🟥 " + msg
+
+    red_hit = "NHIT" in first_arg.upper() and re.search(r"(RED|ROUGE)", first_arg, re.IGNORECASE)
+
     if DEBUG_FLAGS.get("BRINT", None) is None:
         return
 
@@ -171,16 +181,22 @@ def Brint(*args, **kwargs):
         pass
 
     if DEBUG_FLAGS.get("BRINT", None) is True:
+        if red_hit:
+            args = (_highlight_red(first_arg),) + args[1:]
         _print_with_time(*args, **kwargs)
         return
 
     if not tags:
+        if red_hit:
+            args = (_highlight_red(first_arg),) + args[1:]
         _print_with_time(*args, **kwargs)
         return
 
     for tag_str in tags:
         keywords = tag_str.upper().split()
         if any(DEBUG_FLAGS.get(kw, False) for kw in keywords):
+            if red_hit:
+                args = (_highlight_red(first_arg),) + args[1:]
             _print_with_time(*args, **kwargs)
             return
     # Otherwise remain silent
