@@ -2062,6 +2062,11 @@ class ToolTip:
 
 class VideoPlayer:
     
+    def _delayed_update_loop(self):
+        self._auto_zoom_update_pending = False
+        self.update_loop()
+
+    
     def timestamp_to_subdiv_index(self, timestamp_ms, grid_times):
         if not grid_times:
             return None
@@ -2304,10 +2309,12 @@ class VideoPlayer:
 
             Brint(f"[AUTOZOOM] ✅ Zoom défini A+B : start={zoom_start}, end={zoom_end}, ratio={self.loop_zoom_ratio:.3f}")
 
-        if hasattr(self, "zoom_ratio_var"):
-            self.zoom_ratio_var.set(self.loop_zoom_ratio)
+            if hasattr(self, "zoom_ratio_var"):
+                self.zoom_ratio_var.set(self.loop_zoom_ratio)
 
-        self.update_loop()
+            if not getattr(self, "_auto_zoom_update_pending", False):
+                self._auto_zoom_update_pending = True
+                self.root.after(1, self._delayed_update_loop)
      
 
  
@@ -2861,6 +2868,40 @@ class VideoPlayer:
 
 
     def try_auto_load_recent_file(self, index=0, path=None):
+        def try_restore_last_loop(media_path, data):
+            if not data.get("auto_load_last_loop"):
+                Brint("[AUTOLOAD] 🔁 Auto-restore de boucle désactivé")
+                return
+
+            loop_name = data.get("last_loops", {}).get(media_path)
+            if loop_name:
+                Brint(f"[AUTOLOAD] ⏳ Tentative de restauration de la boucle : {loop_name}")
+                self.root.after(500, lambda: self.set_loop_by_name(loop_name))
+
+                # 🔁 NHIT : tentative de restauration des reds
+                def restore_reds():
+                    if hasattr(self, "loop_data") and isinstance(self.loop_data, dict):
+                        loop = self.loop_data.get(loop_name)
+                        if loop and "confirmed_red_subdivisions" in loop:
+                            reds = loop["confirmed_red_subdivisions"]
+                            if reds:
+                                self.confirmed_red_subdivisions = {
+                                    int(idx): [(float(ts), -1) for ts, _ in hits]
+                                    for idx, hits in reds.items()
+                                }
+                                self.update_subdivision_states()
+                                Brint(f"[AUTOLOAD] 🟥 NHIT | Reds restaurés pour {loop_name} : {len(self.confirmed_red_subdivisions)} subdivisions")
+                            else:
+                                Brint(f"[AUTOLOAD] 🟥 NHIT | Pas de reds à restaurer dans {loop_name}")
+                        else:
+                            Brint(f"[AUTOLOAD] 🟥 NHIT | Données de boucle introuvables ou malformées : {loop_name}")
+                    else:
+                        Brint("[AUTOLOAD] 🟥 NHIT | loop_data non initialisé")
+                self.root.after(1000, restore_reds)
+            else:
+                Brint("[AUTOLOAD] ℹ️ Aucune boucle à restaurer pour ce média")
+
+        # 🧩 Étape 1 : charger ou créer recent_files.json
         try:
             with open(RECENT_FILES_PATH, "r", encoding="utf-8") as f:
                 data = json.load(f)
@@ -2883,7 +2924,7 @@ class VideoPlayer:
             traceback.print_exc()
             return
 
-
+        # 🧩 Étape 2 : cas explicite (path donné)
         if path:
             if not os.path.exists(path):
                 Brint(f"[AUTOLOAD] ❌ Média introuvable : {path}")
@@ -2892,16 +2933,10 @@ class VideoPlayer:
             self.open_given_file(path)
             self.current_path = path
             Brint(f"[AUTOLOAD] ✅ Média ouvert : {path}")
-
-            if data.get("auto_load_last_loop"):
-                loop_name = data.get("last_loops", {}).get(path)
-                if loop_name:
-                    self.root.after(500, lambda: self.set_loop_by_name(loop_name))
-                    Brint(f"[AUTOLOAD] ⏳ Boucle à restaurer : {loop_name}")
-                else:
-                    Brint("[AUTOLOAD] ℹ️ Aucune boucle à restaurer pour ce média")
+            try_restore_last_loop(path, data)
             return
 
+        # 🧩 Étape 3 : autoload implicite depuis index
         if not data.get("auto_load_last_file"):
             Brint("[AUTOLOAD] ⏩ Autoload désactivé")
             return
@@ -2920,23 +2955,14 @@ class VideoPlayer:
             Brint(f"[AUTOLOAD] ❌ Média introuvable : {media_path}")
             return
 
-        # 🎞️ Étape 1 : ouvrir le fichier média
         self.open_given_file(media_path)
         self.current_path = media_path
         Brint(f"[AUTOLOAD] ✅ Média ouvert : {media_path}")
 
-        # 📄 Étape 2 : charger les boucles depuis le .abloops.json dérivé
         self.load_saved_loops()
+        Brint(f"[AUTOLOAD] 📄 Loops chargées depuis .abloops.json")
 
-        # 🔁 Étape 3 : charger la dernière loop associée à ce fichier
-        if data.get("auto_load_last_loop"):
-            loop_name = data.get("last_loops", {}).get(media_path)
-            if loop_name:
-                self.root.after(500, lambda: self.set_loop_by_name(loop_name))
-                Brint(f"[AUTOLOAD] ⏳ Boucle à restaurer : {loop_name}")
-            else:
-                Brint("[AUTOLOAD] ℹ️ Aucune boucle à restaurer pour ce média")
-
+        try_restore_last_loop(media_path, data)
     def quick_save_current_loop(self, event=None):
         """💾 Sauvegarde rapide (Ctrl+S) de la boucle AB courante dans saved_loops + fichier JSON."""
         if not hasattr(self, "current_loop") or not isinstance(self.current_loop, LoopData):
@@ -2958,6 +2984,31 @@ class VideoPlayer:
         # ✅ Ajouter les subdivisions rouges détectées
         # 🔴 Convertir les clés en str pour compatibilité JSON
         reds = getattr(self, "confirmed_red_subdivisions", {})
+        
+
+        # 🔴 Sanitize before save
+        sanitized_reds = {}
+        for k, hit_list in reds.items():
+            try:
+                float_hits = []
+                for h in hit_list:
+                    if isinstance(h, (float, int)):
+                        float_hits.append(float(h))
+                    elif isinstance(h, (list, tuple)) and len(h) >= 1 and isinstance(h[0], (float, int)):
+                        float_hits.append(float(h[0]))
+                    else:
+                        Brint(f"[⅞ NHIT SANITIZE] ⚠️ Hit invalide ignoré dans subdiv {k} → {h}")
+                if float_hits:
+                    sanitized_reds[str(k)] = float_hits
+            except Exception as e:
+                Brint(f"[⅞ NHIT SANITIZE] ❌ Erreur de sanitisation sur subdiv {k} : {e}")
+
+        self.current_loop.confirmed_red_subdivisions = sanitized_reds
+        Brint(f"[⅞ NHIT SAVE] ✅ confirmed_red_subdivisions nettoyé pour JSON ({len(sanitized_reds)} subdivs)")
+        
+        
+        
+        
         self.current_loop.confirmed_red_subdivisions = {str(k): v for k, v in reds.items()}
         Brint(f"[SAVE DEBUG] 🔴 REDS enregistrés : {len(reds)} subdivisions")
 
@@ -2979,26 +3030,34 @@ class VideoPlayer:
         self.save_loops_to_file()
         self.console.config(text=f"💾 Boucle '{target_name}' sauvegardée ({'maj' if updated else 'nouvelle'})")
 
-
     def reinject_hits_from_red_subdivisions(self):
         """Recalcule raw_hit_memory et user_hits à partir des confirmed_red_subdivisions"""
         self.init_raw_hit_memory(force=True)
-        for subdiv_index, hits in self.confirmed_red_subdivisions.items():
-            for t_sec, lp in hits:
-                if lp == -1:
-                    self.raw_hit_memory.setdefault(subdiv_index, []).append((t_sec, 0))
-                    Brint(f"[REINJECT NHIT] 🔁 {t_sec:.3f}s → raw_hit_memory[{subdiv_index}]")
         self.user_hits = {}
+        total_injected = 0
 
-        for subdiv_index, timestamps in self.confirmed_red_subdivisions.items():
-            for t in timestamps:
-                self.raw_hit_memory.setdefault(subdiv_index, []).append((t, 0))  # loop_pass = 0 par défaut
-                if subdiv_index not in self.user_hits:
-                    self.user_hits[subdiv_index] = []
-                self.user_hits[subdiv_index].append(t)
+        for subdiv_index, hits in self.confirmed_red_subdivisions.items():
+            safe_hits = []
+            for h in hits:
+                if isinstance(h, (tuple, list)) and len(h) == 2:
+                    t_sec, lp = h
+                    if isinstance(t_sec, (int, float)) and isinstance(lp, int):
+                        safe_hits.append((float(t_sec), 0))  # always loop_pass = 0 for reinjection
+                        Brint(f"[REINJECT NHIT] 🔁 {float(t_sec):.3f}s → raw_hit_memory[{subdiv_index}]")
+                    else:
+                        Brint(f"[REINJECT NHIT ⚠️] ❌ Hit mal typé : {h}")
+                else:
+                    Brint(f"[REINJECT NHIT ⚠️] ❌ Hit mal formé : {h}")
 
-        Brint(f"[NHIT] 🔁 Red hits réinjectés : {len(self.raw_hit_memory)} timestamps")
+            if safe_hits:
+                self.raw_hit_memory[subdiv_index] = safe_hits
+                self.user_hits[subdiv_index] = [t for t, _ in safe_hits]
+                total_injected += len(safe_hits)
+
+        Brint(f"[NHIT] 🔁 Red hits réinjectés : {total_injected} timestamps dans {len(self.raw_hit_memory)} subdivisions")
         self.check_for_nested_tuples_in_red_subdivs()
+
+
 
     def reload_current_loop(self, event=None):
         """Reload the current loop from saved_loops (Shift+S)."""
@@ -3016,7 +3075,7 @@ class VideoPlayer:
                 self.user_hits = {}
                 self.init_raw_hit_memory(force=True)
                 self.subdivision_states = {}
-                self.loop_pass_count = 0  # important !
+                self.loop_pass_count = 0
 
                 # 🔄 Chargement standard
                 self.load_saved_loop(i)
@@ -3028,7 +3087,7 @@ class VideoPlayer:
                         int(k): v for k, v in red.items() if isinstance(v, list)
                     }
 
-                    # 🛠️ Patch de compatibilité : si l'ancien format est détecté, on convertit vers (t, -1)
+                    # 🛠️ Patch de compatibilité
                     for idx, ts_list in list(self.confirmed_red_subdivisions.items()):
                         if all(isinstance(x, float) for x in ts_list):  # ancien format
                             self.confirmed_red_subdivisions[idx] = [(x, -1) for x in ts_list]
@@ -3038,17 +3097,23 @@ class VideoPlayer:
 
                 Brint(f"[RELOAD] ✅ Red hits restaurés : {len(self.confirmed_red_subdivisions)} subdivisions")
 
-                # 🔁 Réinjection des hits simulés pour un affichage cohérent
+                # 🔁 Réinjection sécurisée
                 self.reinject_hits_from_red_subdivisions()
                 self.update_subdivision_states()
 
                 self.log_to_console(f"🔄 Boucle '{target_name}' rechargée")
+
+                # 🧪 Vérification post-reload de raw_hit_memory
+                for idx, hits in self.raw_hit_memory.items():
+                    for h in hits:
+                        if isinstance(h[0], (list, tuple)):
+                            Brint(f"[NHIT ⚠️ POST-RELOAD] ❌ Hit corrompu détecté après reload → raw_hit_memory[{idx}] = {hits}")
+                self.check_for_nested_tuples_in_red_subdivs()
                 return
 
         Brint(f"[RELOAD] ❌ Boucle '{target_name}' introuvable dans saved_loops")
         self.log_to_console(f"⚠️ Boucle '{target_name}' non trouvée")
-        check_for_nested_tuples_in_red_subdivs(self)
-        
+        self.check_for_nested_tuples_in_red_subdivs()
         
     def hms(self, ms):
         original_value = ms  # pour debug
@@ -3410,6 +3475,9 @@ class VideoPlayer:
     
 
     def check_for_nested_tuples_in_red_subdivs(self):
+        if not hasattr(self, "confirmed_red_subdivisions"):
+            self.confirmed_red_subdivisions = {}
+
         for subdiv_index, hits in self.confirmed_red_subdivisions.items():
             for i, h in enumerate(hits):
                 if isinstance(h, tuple) and any(isinstance(x, tuple) for x in h):
@@ -3479,8 +3547,10 @@ class VideoPlayer:
                     converted = [(t, -1) for t in ts_list]
                     Brint(f"[NHIT] 🔁🟥⟳ [RELOAD PATCH] 🔧 Subdiv {idx} → ancien format converti → {converted}")
                     patched_reds[idx] = converted
-                elif all(isinstance(t, tuple) and len(t) == 2 for t in ts_list):
-                    patched_reds[idx] = ts_list
+                elif all(isinstance(t, (tuple, list)) and len(t) == 2 for t in ts_list):
+                    converted = [(float(t[0]), int(t[1])) for t in ts_list]
+                    Brint(f"[NHIT] 🔁🟥⟳ [RELOAD PATCH] ✅ Subdiv {idx} → tuples normalisés → {converted}")
+                    patched_reds[idx] = converted
                 else:
                     Brint(f"[NHIT] 🔁🟥⟳ [RELOAD PATCH] ⚠️ Format inattendu pour subdiv {idx} → {ts_list}")
                     continue
@@ -3632,12 +3702,25 @@ class VideoPlayer:
                 self.delete_raw_hit_memory(idx)
                 Brint(f"[NHIT WRAP] Deleted raw_hit_memory[{idx}] (empty)")
         else:
-            if any(lp == -1 for _, lp in hit_list):
-                Brint(f"[NHIT WRAP] 🔒 Persistent hits loaded on subdiv {idx} → {hit_list}")
-            self.set_raw_hit_memory(idx, hit_list[-5:])  # ✅ PAS de rappel à set_hits_for_raw_memory ici
-            Brint(f"[NHIT WRAP] Set raw_hit_memory[{idx}] = {self.get_hits_from_raw_memory(idx)}")
-        self.check_for_nested_tuples_in_red_subdivs()
+            # ✅ Normalisation pour éviter les tuples imbriqués
+            safe_hits = []
+            for h in hit_list[-5:]:
+                if isinstance(h, (tuple, list)) and len(h) == 2:
+                    t, lp = h
+                    if isinstance(t, (int, float)) and isinstance(lp, int):
+                        safe_hits.append((float(t), int(lp)))
+                    else:
+                        Brint(f"[NHIT WRAP ⚠️] ❌ Ignored malformed hit: {h}")
+                else:
+                    Brint(f"[NHIT WRAP ⚠️] ❌ Ignored invalid hit format: {h}")
 
+            if any(lp == -1 for _, lp in safe_hits):
+                Brint(f"[NHIT WRAP] 🔒 Persistent hits loaded on subdiv {idx} → {safe_hits}")
+
+            self.set_raw_hit_memory(idx, safe_hits)
+            Brint(f"[NHIT WRAP] Set raw_hit_memory[{idx}] = {self.get_hits_from_raw_memory(idx)}")
+
+        self.check_for_nested_tuples_in_red_subdivs()
 
     def delete_raw_hit_memory(self, idx):
         getattr(self, "__raw_hit_memory_guard__", lambda: None)()
@@ -3652,12 +3735,24 @@ class VideoPlayer:
         getattr(self, "__raw_hit_memory_guard__", lambda: None)()
 
         if not hasattr(self, "raw_hit_memory"):
-            Brint(f"[NHIT WRAP] 🧪 raw_hit_memory not found → creating new dict")
+            Brint(f"[⅞ NHIT WRAP] 🧪 raw_hit_memory not found → creating new dict")
             self.init_raw_hit_memory(force=True)
 
+        # 🧪 Vérification anti-double-wrapping
+        for h in hit_list:
+            if isinstance(h[0], tuple):
+                Brint(f"[⅞ NHIT WRAP ❌] Subdiv {idx} → Hit mal formé détecté : {h}")
+                import traceback
+                Brint("╭─[⅞ TRACE NHIT WRAP ERROR]────")
+                for line in traceback.format_stack(limit=6)[:-1]:
+                    for subline in line.strip().split('\n'):
+                        Brint("│ " + subline)
+                Brint("╰──────────────────────────────")
+                raise ValueError(f"[⅞ NHIT ❌] Hit mal formé : {h} → double tuple détecté")
+
         previous = self.raw_hit_memory.get(idx, [])
-        Brint(f"[NHIT WRAP] 🧪 (subdiv {idx}) Previous = {previous}")
-        Brint(f"[NHIT WRAP] 🧪 (subdiv {idx}) New     = {hit_list}")
+        Brint(f"[⅞ NHIT WRAP] 🧪 (subdiv {idx}) Previous = {previous}")
+        Brint(f"[⅞ NHIT WRAP] 🧪 (subdiv {idx}) New     = {hit_list}")
 
         # Diagnostic sur les loop_ids
         loop_ids = [lp for _, lp in hit_list if isinstance(lp, int)]
@@ -3665,24 +3760,28 @@ class VideoPlayer:
             last3 = loop_ids[-3:]
             expected = list(range(last3[0], last3[0] + 3))
             if last3 == expected:
-                Brint(f"[NHIT WRAP] 🧪 3 loops consécutifs détectés pour subdiv {idx} → last3={last3}")
+                Brint(f"[⅞ NHIT WRAP] 🧪 3 loops consécutifs détectés pour subdiv {idx} → last3={last3}")
             else:
-                Brint(f"[NHIT WRAP] 🧪️ 3 hits mais loops non consécutifs → last3={last3} ≠ expected={expected}")
+                Brint(f"[⅞ NHIT WRAP] ⚠️ 3 hits mais loops non consécutifs → last3={last3} ≠ expected={expected}")
         else:
-            Brint(f"[NHIT WRAP] 🧪 Pas assez de hits pour état rouge (loop_ids={loop_ids})")
+            Brint(f"[⅞ NHIT WRAP] 🧪 Pas assez de hits pour état rouge (loop_ids={loop_ids})")
 
         # Application finale
-        Brint(f"[CHECK TRACE] raw_hit_memory class at set() = {type(self.raw_hit_memory)}")
+        Brint(f"[⅞ NHIT WRAP] 🧪 Mémoire mise à jour : raw_hit_memory[{idx}] ← {hit_list}")
+        # 🔍 Vérification corruption potentielle
+        for h in hit_list:
+            if isinstance(h, (tuple, list)) and len(h) == 2:
+                if isinstance(h[0], (list, tuple)):
+                    Brint(f"[NHIT CORRUPTION 🚨] 🧨 Detected nested tuple in hit_list[{idx}] → {h}")
+                    raise ValueError(f"[NHIT CORRUPTION] Nested tuple detected in raw_hit_memory[{idx}]: {h}")
 
         self.raw_hit_memory[idx] = list(hit_list)
-        Brint(f"[NHIT WRAP] 🧪 Mémoire mise à jour : raw_hit_memory[{idx}] ← {hit_list}")
-
 
     
     def record_user_hit(self, hit_time_ms):
         getattr(self, "__raw_hit_memory_guard__", lambda: None)()
 
-        Brint(f"[HERE HERE NHIT REGISTERED] Hit registered at {self.hms(hit_time_ms)} | {self.abph_stamp()}")
+        Brint(f"[NHIT 🔍🔍🔍🔍🔍 NHIT REGISTERED] Hit registered at {self.hms(hit_time_ms)} ({(hit_time_ms)} ms) | {self.abph_stamp()}")
 
         if not hasattr(self, "current_loop") or self.current_loop is None:
             return
@@ -3749,7 +3848,7 @@ class VideoPlayer:
             self.user_hit_timestamps.append((hit_time_ms / 1000.0, loop_id))
 
         self.update_subdivision_states()
-        check_for_nested_tuples_in_red_subdivs(self)
+        self.check_for_nested_tuples_in_red_subdivs()
 
 
 
@@ -3789,12 +3888,16 @@ class VideoPlayer:
             return None
        
     
+    # ╭────────────────────────────────────────────╮
+    # │ 🔁 associate_hits_to_subdivisions()        │
+    # │ ID = NHIT_REASSOC_V1PERSIST3               │
+    # ╰────────────────────────────────────────────╯
     def associate_hits_to_subdivisions(self, reset_loop_pass=False):
         getattr(self, "__raw_hit_memory_guard__", lambda: None)()
 
         """
-        Associe tous les hits rouges (confirmés) à la subdivision la plus proche
-        selon la grille actuelle. Écrase les anciennes associations.
+        Réinjecte dans raw_hit_memory tous les hits confirmés persistés (loop_id = -1)
+        depuis confirmed_red_subdivisions, sans dupliquer, sans écraser les autres.
         """
         self.confirmed_red_subdivisions = self.confirmed_red_subdivisions or {}
         grid_sec = getattr(self, "grid_times", [])
@@ -3816,7 +3919,19 @@ class VideoPlayer:
 
         for old_idx, hit_list in self.confirmed_red_subdivisions.items():
             for raw_t in hit_list:
-                t_sec = raw_t[0] if isinstance(raw_t, tuple) else raw_t
+                # Accept format: float (t_sec), or tuple (t_sec, loop_id)
+                if isinstance(raw_t, (int, float)):
+                    t_sec = float(raw_t)
+                    lp = -1
+                elif isinstance(raw_t, (list, tuple)) and len(raw_t) == 2:
+                    t_sec, lp = raw_t
+                    if not isinstance(t_sec, (int, float)) or not isinstance(lp, int):
+                        Brint(f"[RED REASSOC NHIT] ❌ Format invalide ignoré → {raw_t}")
+                        continue
+                else:
+                    Brint(f"[RED REASSOC NHIT] ❌ Hit mal formé ignoré → {raw_t}")
+                    continue
+
                 t_ms = t_sec * 1000.0
 
                 try:
@@ -3825,35 +3940,31 @@ class VideoPlayer:
                     Brint(f"[RED REASSOC NHIT] ⚠️ Aucun index trouvé pour t_sec={t_sec}")
                     continue
 
-                already_present = self.raw_hit_memory.get(idx, [])
+                # Accès actuel
+                already = self.raw_hit_memory.get(idx, [])
 
-                # ✅ Skip si déjà présent avec loop_id = -1 (persistant)
-                if any(abs(t_sec - t) < 1e-3 and lp == -1 for (t, lp) in already_present):
-                    Brint(f"[RED REASSOC NHIT] 🔒 Hit persistent déjà présent sur subdiv {idx} (t={t_sec:.3f}) → skip")
+                # Vérifie s'il existe déjà
+                if any(abs(t_sec - t) < 1e-3 and lp_ == -1 for (t, lp_) in already):
+                    Brint(f"[RED REASSOC NHIT] 🔒 Hit déjà présent (t={t_sec:.3f}) sur subdiv {idx}")
                     continue
 
-                # ✅ Skip si déjà présent avec loop_id ≠ 0 (autre hit utilisateur)
-                if any(abs(t_sec - t) < 1e-3 and lp != 0 for (t, lp) in already_present):
-                    Brint(f"[RED REASSOC NHIT] 🔁 Skip reassoc: hit déjà présent avec loop_id≠0 sur subdiv {idx} (t={t_sec:.3f})")
-                    continue
+                # Nettoyage des doublons live (loop_id >= 0) proches
+                already = [
+                    (t, lp_) for (t, lp_) in already
+                    if abs(t_sec - t) > 1e-3 or lp_ == -1
+                ]
 
-                # ✅ Skip si doublon exact déjà présent avec loop_id = 0
-                if any(abs(t_sec - t) < 1e-3 and lp == 0 for (t, lp) in already_present):
-                    Brint(f"[RED REASSOC NHIT] ⚠️ Doublon exact ignoré sur subdiv {idx} (t={t_sec:.3f})")
-                    continue
-
-                # ✅ Ajout du hit restauré avec loop_id = -1 pour le protéger du pruning
-                self.raw_hit_memory.setdefault(idx, []).append((t_sec, -1))
+                # Ajout du hit persisté
+                already.append((t_sec, -1))
+                self.raw_hit_memory[idx] = already
                 reassociated.setdefault(idx, []).append((t_sec, -1))
                 Brint(f"[RED REASSOC NHIT] ✅ Ajout reassoc {t_sec:.3f}s → subdiv {idx} ({grid_ms[idx]:.1f}ms)")
 
-        self.confirmed_red_subdivisions = reassociated
-
-        if reset_loop_pass:
-            self.loop_pass_count = 0
-
         Brint(f"[RED REASSOC NHIT] ✅ {len(reassociated)} subdivisions rouges mises à jour")
         return self.confirmed_red_subdivisions
+
+
+
     def prune_old_hit_memory(self):
         """Prune raw_hit_memory to keep hits from the last three loop passes."""
         if not hasattr(self, "raw_hit_memory") or not isinstance(self.raw_hit_memory, dict):
@@ -4000,7 +4111,7 @@ class VideoPlayer:
 
 
         self.prune_old_hit_memory()
-        check_for_nested_tuples_in_red_subdivs(self)    
+        self.check_for_nested_tuples_in_red_subdivs()    
 
     def decay_subdivision_states(self):
         getattr(self, "__raw_hit_memory_guard__", lambda: None)()
@@ -4011,9 +4122,7 @@ class VideoPlayer:
         if not hasattr(self, "subdivision_state") or not hasattr(self, "subdiv_last_hit_wall_time"):
             return
 
-        loop_dur_s = getattr(self, "loop_duration_s", None)
-        if loop_dur_s is None:
-            loop_dur_s = (self.loop_end - self.loop_start) / 1000.0
+        loop_dur_s = getattr(self, "loop_duration_s", (self.loop_end - self.loop_start) / 1000.0)
         if loop_dur_s is None:
             return
 
@@ -4022,9 +4131,13 @@ class VideoPlayer:
         decay_threshold = 3 * loop_dur_s - subdiv_interval
 
         for idx, state in list(self.subdivision_state.items()):
-            if state in (1, 2):
+            if state in (1, 2):  # Ne jamais toucher aux RED (state=3)
                 hit_time = self.subdiv_last_hit_wall_time.get(idx)
                 last_hit_loop = self.subdiv_last_hit_loop.get(idx)
+
+                if hit_time is None and last_hit_loop is None:
+                    Brint(f"[DECAY WALLTIME NHIT] ⚠️ Subdiv {idx} sans horodatage connu → skip")
+                    continue
 
                 elapsed_wall = now - hit_time if hit_time is not None else 0
                 elapsed_loop = (
@@ -4037,6 +4150,10 @@ class VideoPlayer:
                 Brint(f"[DECAY WALLTIME NHIT] Subdiv {idx} | now={elapsed:.3f}s since hit | seuil={decay_threshold:.3f}s")
 
                 if elapsed >= decay_threshold:
+                    if idx in self.confirmed_red_subdivisions:
+                        Brint(f"[NHIT WARNING] ⛔ Tentative de decay d’une subdivision rouge persistante ! Subdiv {idx}")
+                        continue
+
                     prev = state
                     new_state = state - 1
                     self.set_subdivision_state(idx, new_state, origin="decay_subdivision_states")
@@ -4044,10 +4161,10 @@ class VideoPlayer:
 
                     if hasattr(self, "raw_hit_memory") and idx in self.raw_hit_memory:
                         self.delete_raw_hit_memory(idx)
+
                     self.subdiv_last_hit_wall_time.pop(idx, None)
                     if hasattr(self, "subdivision_counters") and idx in self.subdivision_counters:
                         self.subdivision_counters[idx] = 0
-
    
    
     def on_user_hit(self, event=None):
@@ -4112,50 +4229,79 @@ class VideoPlayer:
 
     import time  # à importer en haut du fichier si ce n'est pas déjà fait
 
-
     def offset_red_subdivisions(self, direction):
         # 🛡️ Sécurisation temporaire : refuse tout format incohérent
         for idx, hits in self.confirmed_red_subdivisions.items():
             for h in hits:
                 if not isinstance(h, (tuple, list)) or len(h) != 2:
-                    Brint(f"[NHIT OFFSET 	⤜(ⱺ ʖ̯ⱺ)⤏] ❌ ERREUR : hit mal formé dans subdiv {idx} → {h} (type={type(h)})")
+                    Brint(f"[NHIT OFFSET  ⤜(ⱺ ʖ̯ⱺ)⤏] ❌ ERREUR : hit mal formé dans subdiv {idx} → {h} (type={type(h)})")
                     raise ValueError(f"Invalid hit format in confirmed_red_subdivisions[{idx}]")
 
         """Shift all red subdivision hits up/down by one subdivision unit (only for persistent hits)."""
         bpm = getattr(self, "tempo_bpm", 0)
         if bpm <= 0 or not getattr(self, "grid_times", None):
-            Brint("[NHIT OFFSET 	⤜(ⱺ ʖ̯ⱺ)⤏] ❌ Tempo BPM ou grille non définis")
+            Brint("[NHIT OFFSET  ⤜(ⱺ ʖ̯ⱺ)⤏] ❌ Tempo BPM ou grille non définis")
             return
 
         interval = (60.0 / bpm / self.get_subdivisions_per_beat()) * 1000  # in ms
-        Brint(f"[NHIT OFFSET 	⤜(ⱺ ʖ̯ⱺ)⤏] ⏱ Intervalle de décalage = {interval:.2f} ms")
+        Brint(f"[NHIT OFFSET  ⤜(ⱺ ʖ̯ⱺ)⤏] ⏱ Intervalle de décalage = {interval:.2f} ms")
+        Brint(f"[NHIT OFFSET 🔍] Before offset → confirmed_red_subdivisions = {dict(self.confirmed_red_subdivisions)}")
 
+        original_reds = dict(self.confirmed_red_subdivisions)  # ✅ clone safe
         new_reds = {}
-        for idx, hits in self.confirmed_red_subdivisions.items():
-            seen = set()
+
+        for idx, hits in original_reds.items():
+            new_idx = idx + direction
+            if new_idx < 0 or new_idx >= len(self.grid_times):
+                Brint(f"[NHIT OFFSET  ⤜(ⱺ ʖ̯ⱺ)⤏] ⛔ Subdiv {new_idx} out of bounds → skip")
+                continue
+
+            seen_ts = set()
             new_hits = []
+
             for t_sec, lp in hits:
                 if not isinstance(t_sec, (int, float)) or not isinstance(lp, int):
                     raise ValueError(f"[NHIT OFFSET ❌] Invalid hit format in confirmed_red_subdivisions[{idx}] → {t_sec} ({type(t_sec)}), {lp} ({type(lp)})")
                 if lp == -1:
                     t_shifted = round(t_sec + (direction * interval / 1000.0), 3)
-                    if t_shifted not in seen:
-                        seen.add(t_shifted)
+                    if t_shifted not in seen_ts:
+                        seen_ts.add(t_shifted)
                         new_hits.append((t_shifted, -1))
-                        Brint(f"[NHIT OFFSET  ⤜(ⱺ ʖ̯ⱺ)⤏] Subdiv {idx} | {t_sec:.3f}s → {t_shifted:.3f}s")
+                        Brint(f"[NHIT OFFSET  ⤜(ⱺ ʖ̯ⱺ)⤏] Subdiv {idx} → {new_idx} | {t_sec:.3f}s → {t_shifted:.3f}s")
                     else:
-                        Brint(f"[NHIT OFFSET  ⤜(ⱺ ʖ̯ⱺ)⤏] ⛔ Doublon ignoré : {t_shifted:.3f}s sur subdiv {idx}")
+                        Brint(f"[NHIT OFFSET  ⤜(ⱺ ʖ̯ⱺ)⤏] ⛔ Doublon ignoré : {t_shifted:.3f}s sur subdiv {new_idx}")
                 else:
                     new_hits.append((t_sec, lp))  # hit non-persistant : on garde
                     Brint(f"[NHIT OFFSET  ⤜(ⱺ ʖ̯ⱺ)⤏] ⚠️ Hit non-persistant ignoré sur subdiv {idx} | t={t_sec:.3f}, lp={lp}")
+
             if new_hits:
-                new_reds[idx] = new_hits
-                self.set_subdivision_state(idx, 3)  # on force le status RED
-                Brint(f"[NHIT OFFSET ✅] Subdiv {idx} → {len(new_hits)} hits offsetés")
+                new_reds[new_idx] = new_hits
+                self.set_subdivision_state(new_idx, 3)
+                Brint(f"[NHIT OFFSET ✅] Subdiv {new_idx} → {len(new_hits)} hits offsetés")
+                if new_idx != idx:
+                    Brint(f"[NHIT OFFSET CLEAN 🧹] Subdiv {idx} déplacée vers {new_idx} → suppression")
 
+        # 🔥 Supprime les anciens hits dans raw_hit_memory
+        for idx in original_reds:
+            if idx in self.raw_hit_memory:
+                Brint(f"[NHIT CLEAN 🧹] Suppression des anciens hits dans raw_hit_memory[{idx}] avant offset")
+                del self.raw_hit_memory[idx]
+
+        # ✅ Applique le remplacement propre (évite le rebleed)
         self.confirmed_red_subdivisions = new_reds
-        check_for_nested_tuples_in_red_subdivs(self)
+        Brint(f"[NHIT OFFSET 🔁] After offset → confirmed_red_subdivisions = {dict(new_reds)}")
+        Brint(f"🟥 [NHIT OFFSET 🔄] ✅ confirmed_red_subdivisions remplacé → {len(new_reds)} subdivisions")
 
+        self.check_for_nested_tuples_in_red_subdivs()
+
+        # 🔍 Vérification finale : corruption potentielle ?
+        for k, hits in self.confirmed_red_subdivisions.items():
+            for h in hits:
+                if isinstance(h, (list, tuple)) and len(h) == 2:
+                    if isinstance(h[0], (list, tuple)) or isinstance(h[1], (list, tuple)):
+                        Brint(f"[NHIT CORRUPTION ⚠️] ⛔ Subdiv {k} → hit mal formé détecté : {h} (tuple imbriqué ?)")
+                else:
+                    Brint(f"[NHIT CORRUPTION ⚠️] ⛔ Subdiv {k} → entrée invalide : {h} (type={type(h)})")
     def reset_red_hits(self):
         self.confirmed_red_subdivisions = {}
         self.init_raw_hit_memory(force=True)
@@ -4169,6 +4315,18 @@ class VideoPlayer:
 
 
 
+    def safe_set_hits_for_raw_memory(self, idx, hit_list):
+        safe_hits = []
+        for h in hit_list:
+            if isinstance(h, (tuple, list)) and len(h) == 2:
+                t, lp = h
+                if isinstance(t, (int, float)) and isinstance(lp, int):
+                    safe_hits.append((float(t), int(lp)))
+                else:
+                    Brint(f"[NHIT SANITY ⚠️] ⛔ hit mal typé → {h}")
+            else:
+                Brint(f"[NHIT SANITY ⚠️] ⛔ hit mal formé → {h}")
+        self.set_raw_hit_memory(idx, safe_hits)
 
 
 
@@ -4621,25 +4779,56 @@ class VideoPlayer:
 
     def get_current_hit_timings(self):
         """Return timings (in sec) of red hits, normalized to current loop."""
+        Brint(f"[⅞ NHIT] 🔍 get_current_hit_timings() called")
+        
         if not getattr(self, "confirmed_red_subdivisions", None):
+            Brint(f"[⅞ NHIT] ❌ Pas de confirmed_red_subdivisions")
             return []
         if self.loop_end is None or self.loop_start is None:
+            Brint(f"[⅞ NHIT] ❌ loop_start ou loop_end non définis")
             return []
 
         loop_duration_s = (self.loop_end - self.loop_start) / 1000.0
         if loop_duration_s <= 0:
+            Brint(f"[⅞ NHIT] ❌ Durée de boucle nulle ou négative : {loop_duration_s:.3f}s")
             return []
 
-        red_hits = [t for hits in self.confirmed_red_subdivisions.values() for t in hits]
+        red_hits = []
+        for idx, hits in self.confirmed_red_subdivisions.items():
+            for h in hits:
+                if isinstance(h, tuple) and isinstance(h[0], (int, float)):
+                    t = h[0]
+                    red_hits.append(t)
+                    Brint(f"[⅞ NHIT] ✅ Subdiv {idx} → t = {t:.3f}s")
+                else:
+                    Brint(f"[⅞ NHIT] ⚠️ Hit mal formé dans subdiv {idx} → {h}")
+
         timings = [(t / 1000.0) % loop_duration_s for t in red_hits]
+        Brint(f"[⅞ NHIT] ✅ Timings relatifs calculés : {timings}")
         return sorted(timings)
+
+
 
     def get_current_hit_timestamps(self):
         """Return list of all red hit timestamps in ms."""
-        if not getattr(self, "confirmed_red_subdivisions", None):
-            return []
-        return sorted(int(t) for hits in self.confirmed_red_subdivisions.values() for t in hits)
+        Brint(f"[⅞ NHIT] 🔍 get_current_hit_timestamps() called")
 
+        if not getattr(self, "confirmed_red_subdivisions", None):
+            Brint(f"[⅞ NHIT] ❌ Pas de confirmed_red_subdivisions")
+            return []
+
+        red_timestamps = []
+        for idx, hits in self.confirmed_red_subdivisions.items():
+            for h in hits:
+                if isinstance(h, tuple) and isinstance(h[0], (int, float)):
+                    t_ms = int(round(h[0] * 1000))
+                    red_timestamps.append(t_ms)
+                    Brint(f"[⅞ NHIT] ✅ Subdiv {idx} → {h[0]:.3f}s = {t_ms}ms")
+                else:
+                    Brint(f"[⅞ NHIT] ⚠️ Hit mal formé dans subdiv {idx} → {h}")
+
+        Brint(f"[⅞ NHIT] ✅ Timestamps collectés : {len(red_timestamps)} items")
+        return sorted(red_timestamps)
     
         
     def increase_tempo(self):
@@ -6872,7 +7061,7 @@ class VideoPlayer:
         else:
             self.current_loop = None
             Brint("[DEBUG] current_loop est None (aucune boucle chargée)")
-        check_for_nested_tuples_in_red_subdivs(self)
+        self.check_for_nested_tuples_in_red_subdivs()
 
     def save_loops_to_file(self):
         if not hasattr(self, "current_path") or not self.current_path:
@@ -7726,6 +7915,10 @@ class VideoPlayer:
 
         self.temp_loop_save_path = os.path.join(tempfile.gettempdir(), "temp_loop_autosave.json")
         atexit.register(self.cleanup_temp_loop)
+
+
+        #update recurisve
+        self._auto_zoom_update_pending = False
 
 
         
