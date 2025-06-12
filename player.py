@@ -5853,15 +5853,25 @@ class VideoPlayer:
             if self.selected_subdiv_index is None:
                 Brint("[TOGGLE] No subdiv selected")
                 return
-            self.toggle_subdiv_state_manual(self.selected_subdiv_index, self.selected_subdiv_timestamp)
-            # update entry highlight
-            for si, _, _, entry in note_entry_vars:
-                if si == self.selected_subdiv_index:
-                    if self.subdivision_state.get(si, 0) == 2:
-                        entry.configure(highlightbackground="red", highlightcolor="red", highlightthickness=2)
-                    else:
-                        entry.configure(highlightthickness=0)
-                    break
+            idx = self.selected_subdiv_index
+            t_sec = round(self.selected_subdiv_timestamp / 1000.0, 3)
+            pair = (t_sec, -1)
+            hits = list(self.confirmed_red_subdivisions.get(idx, []))
+            if pair in hits:
+                hits.remove(pair)
+                if hits:
+                    self.confirmed_red_subdivisions[idx] = hits
+                else:
+                    self.confirmed_red_subdivisions.pop(idx, None)
+                    self.set_subdivision_state(idx, 0, origin="chord_editor_toggle")
+            else:
+                hits.append(pair)
+                self.confirmed_red_subdivisions[idx] = hits
+                self.set_subdivision_state(idx, 3, origin="chord_editor_toggle")
+
+            self.refresh_chord_editor()
+            if hasattr(self, "draw_harmony_grid_overlay"):
+                self.draw_harmony_grid_overlay()
 
 
         for measure_index in range(total_measures):
@@ -5992,8 +6002,17 @@ class VideoPlayer:
 
 
                 note_entry = tk.Entry(col, textvariable=note_var, width=10)
-                if has_hit_2 and getattr(self, "subdivision_state", {}).get(subdiv_index, 0) == 2:
-                    note_entry.configure(highlightbackground="red", highlightcolor="red", highlightthickness=2)
+                hits = self.confirmed_red_subdivisions.get(subdiv_index, [])
+                is_red = any(
+                    isinstance(h, (list, tuple)) and len(h) == 2 and h[1] == -1
+                    for h in hits
+                )
+                if is_red:
+                    note_entry.configure(
+                        highlightbackground="red",
+                        highlightcolor="red",
+                        highlightthickness=2,
+                    )
 
                 note_entry.bind("<FocusIn>", lambda e, si=subdiv_index, tm=t_ms: focus_handler(si, tm, e.widget))
                 note_entry.bind("<FocusOut>", make_handler(subdiv_index, note_var, t_ms))
@@ -6062,8 +6081,15 @@ class VideoPlayer:
         tk.Button(btn_frame, text="✅ Appliquer", command=apply_all_and_close).pack(side="right", padx=(10, 0))
         tk.Button(btn_frame, text="Toggle Hit", command=toggle_selected_subdiv).pack(side="right", padx=(10, 0))
         popup.bind('<Control-r>', toggle_selected_subdiv)
-        popup.bind('[', lambda e: self.offset_red_subdivisions(-1))
-        popup.bind(']', lambda e: self.offset_red_subdivisions(+1))
+
+        def _offset_and_refresh(direction):
+            self.offset_red_subdivisions(direction)
+            self.refresh_chord_editor()
+            if hasattr(self, "draw_harmony_grid_overlay"):
+                self.draw_harmony_grid_overlay()
+
+        popup.bind('[', lambda e: _offset_and_refresh(-1))
+        popup.bind(']', lambda e: _offset_and_refresh(+1))
 
         def reset_all_chords():
             Brint("[RESET] 🔁 Réinitialisation de tous les accords")
@@ -8888,8 +8914,17 @@ class VideoPlayer:
         if not self.chord_editor_popup.winfo_exists():
             return
         for idx, _, _, entry in self.chord_editor_note_entries:
-            if self.subdivision_state.get(idx, 0) == 2:
-                entry.configure(highlightbackground="red", highlightcolor="red", highlightthickness=2)
+            hits = self.confirmed_red_subdivisions.get(idx, [])
+            is_red = any(
+                isinstance(h, (list, tuple)) and len(h) == 2 and h[1] == -1
+                for h in hits
+            )
+            if is_red:
+                entry.configure(
+                    highlightbackground="red",
+                    highlightcolor="red",
+                    highlightthickness=2,
+                )
             else:
                 entry.configure(highlightthickness=0)
 
