@@ -47,6 +47,15 @@ pip install numpy librosa soundfile scipy
 Additional packages listed in the source (e.g. `matplotlib`, `pygame`, `torch`)
 may also be required depending on the features you want to use.
 
+If you keep the stub files but want to run the application with the real
+libraries, set the environment variable `PLAYER_USE_REAL_LIBS=1` before
+launching the player. `lib_switch.py` will then import `numpy`, `librosa` and
+other installed packages instead of the modules under `stubs/`:
+
+```bash
+PLAYER_USE_REAL_LIBS=1 python player.py
+```
+
 ## AI Contribution Notice
 
 The code includes parts generated or assisted by AI. The unique value of the project resides in:
