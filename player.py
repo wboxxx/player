@@ -2064,6 +2064,43 @@ class ToolTip:
 
 class VideoPlayer:
     
+    def watchdog_check_json_integrity(self):
+        """
+        Vérifie que tous les loop_id dans confirmed_red_subdivisions sont à -1.
+        Si une corruption est détectée, l'app est mise en pause et un overlay rouge est affiché.
+        """
+        if not hasattr(self, "video_loaded") or not self.video_loaded:
+            return
+        corrupted = []
+        for idx, hits in self.confirmed_red_subdivisions.items():
+            for t, lp in hits:
+                if lp != -1:
+                    corrupted.append((idx, t, lp))
+
+        if corrupted:
+            Brint(f"[🛑 NHIT WATCHDOG] CORRUPTION DETECTED: {len(corrupted)} invalid hits")
+            for c in corrupted:
+                Brint(f" → Subdiv {c[0]} | time = {c[1]:.3f} | loop_id = {c[2]} ❌")
+
+            # Pause player
+            self.pause()
+
+            # Affiche un overlay rouge en plein écran sur la vidéo
+            self.canvas_overlay.delete("corruption_msg")
+            self.canvas_overlay.create_rectangle(
+                0, 0, self.canvas_overlay.winfo_width(), self.canvas_overlay.winfo_height(),
+                fill="red", stipple="gray25", tags="corruption_msg"
+            )
+            self.canvas_overlay.create_text(
+                self.canvas_overlay.winfo_width() // 2,
+                self.canvas_overlay.winfo_height() // 2,
+                text="🛑 CORRUPTION DETECTED IN JSON",
+                font=("Arial", 24, "bold"),
+                fill="white",
+                tags="corruption_msg"
+            )
+
+    
     def _delayed_update_loop(self):
         self._auto_zoom_update_pending = False
         self.update_loop()
@@ -2965,10 +3002,11 @@ class VideoPlayer:
         Brint(f"[AUTOLOAD] 📄 Loops chargées depuis .abloops.json")
 
         try_restore_last_loop(media_path, data)
+
     def quick_save_current_loop(self, event=None):
         """💾 Sauvegarde rapide (Ctrl+S) de la boucle AB courante dans saved_loops + fichier JSON."""
         if not hasattr(self, "current_loop") or not isinstance(self.current_loop, LoopData):
-            Brint("[QUICK SAVE ERROR] Aucun current_loop valide")
+            Brint("[QUICK SAVE ERROR NHIT] Aucun current_loop valide")
             self.console.config(text="❌ Aucune boucle active à sauvegarder")
             return
 
@@ -2984,54 +3022,48 @@ class VideoPlayer:
         self.current_loop.hit_timestamps = self.get_current_hit_timestamps()
 
         # ✅ Ajouter les subdivisions rouges détectées
-        # 🔴 Convertir les clés en str pour compatibilité JSON
         reds = getattr(self, "confirmed_red_subdivisions", {})
-        
 
         # 🔴 Sanitize before save
         sanitized_reds = {}
         for k, hit_list in reds.items():
             try:
-                float_hits = []
+                valid_hits = []
                 for h in hit_list:
-                    if isinstance(h, (float, int)):
-                        float_hits.append(float(h))
-                    elif isinstance(h, (list, tuple)) and len(h) >= 1 and isinstance(h[0], (float, int)):
-                        float_hits.append(float(h[0]))
+                    if isinstance(h, (tuple, list)) and len(h) == 2 and all(isinstance(v, (float, int)) for v in h):
+                        valid_hits.append((float(h[0]), int(h[1])))
                     else:
                         Brint(f"[⅞ NHIT SANITIZE] ⚠️ Hit invalide ignoré dans subdiv {k} → {h}")
-                if float_hits:
-                    sanitized_reds[str(k)] = float_hits
+                if valid_hits:
+                    sanitized_reds[str(k)] = valid_hits
             except Exception as e:
-                Brint(f"[⅞ NHIT SANITIZE] ❌ Erreur de sanitisation sur subdiv {k} : {e}")
+                Brint(f"[⅞ NHIT SANITIZE ] ❌ Erreur de sanitisation sur subdiv {k} : {e}")
 
         self.current_loop.confirmed_red_subdivisions = sanitized_reds
-        Brint(f"[⅞ NHIT SAVE] ✅ confirmed_red_subdivisions nettoyé pour JSON ({len(sanitized_reds)} subdivs)")
-        
-        
-        
-        
-        self.current_loop.confirmed_red_subdivisions = {str(k): v for k, v in reds.items()}
-        Brint(f"[SAVE DEBUG] 🔴 REDS enregistrés : {len(reds)} subdivisions")
+        Brint(f"[⅞ NHIT SAVE NHIT] ✅ confirmed_red_subdivisions nettoyé pour JSON ({len(sanitized_reds)} subdivs)")
 
         for i, loop in enumerate(self.saved_loops):
             if loop["name"] == target_name:
-                Brint(f"[SAVE DEBUG] current_loop.tempo_bpm = {getattr(self.current_loop, 'tempo_bpm', '❌ None')}")
-
+                Brint(f"[SAVE DEBUG NHIT] current_loop.tempo_bpm = {getattr(self.current_loop, 'tempo_bpm', '❌ None')}")
                 self.saved_loops[i] = self.current_loop.to_dict()
-                Brint(f"[SAVE DEBUG] Boucle après to_dict() → {self.current_loop.to_dict()}")
-
+                Brint(f"[SAVE DEBUG NHIT] Boucle après to_dict() → {self.current_loop.to_dict()}")
                 updated = True
-                Brint(f"[QUICK SAVE] ♻ Boucle '{target_name}' mise à jour dans saved_loops")
+                Brint(f"[QUICK SAVE NHIT] ♻ Boucle '{target_name}' mise à jour dans saved_loops")
                 break
 
         if not updated:
             self.saved_loops.append(self.current_loop.to_dict())
-            Brint(f"[QUICK SAVE] ➕ Boucle '{target_name}' ajoutée à saved_loops")
+            Brint(f"[QUICK SAVE NHIT] ➕ Boucle '{target_name}' ajoutée à saved_loops")
 
         self.save_loops_to_file()
         self.console.config(text=f"💾 Boucle '{target_name}' sauvegardée ({'maj' if updated else 'nouvelle'})")
 
+        # 🟢 Brint final du contenu sauvegardé
+        try:
+            debug_reds = json.dumps(self.current_loop.confirmed_red_subdivisions, indent=2)
+            Brint(f"[FINAL REDS] 🔍 Contenu sauvegardé de confirmed_red_subdivisions :\n{debug_reds}")
+        except Exception as e:
+            Brint(f"[FINAL REDS] ❌ Erreur lors de l'affichage du contenu : {e}")
     def reinject_hits_from_red_subdivisions(self):
         """Recalcule raw_hit_memory et user_hits à partir des confirmed_red_subdivisions"""
         self.init_raw_hit_memory(force=True)
@@ -4932,17 +4964,21 @@ class VideoPlayer:
         red_hits = []
         for idx, hits in self.confirmed_red_subdivisions.items():
             for h in hits:
-                if isinstance(h, tuple) and isinstance(h[0], (int, float)):
-                    t = h[0]
+                # ✅ Convertir liste → tuple si besoin
+                if isinstance(h, list) and len(h) == 2 and all(isinstance(v, (int, float)) for v in h):
+                    h = tuple(h)
+
+                if isinstance(h, tuple) and len(h) == 2 and isinstance(h[0], (int, float)) and isinstance(h[1], int):
+                    t, lp = h
                     red_hits.append(t)
-                    Brint(f"[⅞ NHIT] ✅ Subdiv {idx} → t = {t:.3f}s")
+                    t_rel = (t / 1000.0) % loop_duration_s
+                    Brint(f"[⅞ NHIT] ✅ Subdiv {idx} → t = {t:.3f}ms | loop_id = {lp} | t_rel = {t_rel:.3f}s")
                 else:
                     Brint(f"[⅞ NHIT] ⚠️ Hit mal formé dans subdiv {idx} → {h}")
 
         timings = [(t / 1000.0) % loop_duration_s for t in red_hits]
         Brint(f"[⅞ NHIT] ✅ Timings relatifs calculés : {timings}")
         return sorted(timings)
-
 
 
     def get_current_hit_timestamps(self):
@@ -4956,16 +4992,20 @@ class VideoPlayer:
         red_timestamps = []
         for idx, hits in self.confirmed_red_subdivisions.items():
             for h in hits:
-                if isinstance(h, tuple) and isinstance(h[0], (int, float)):
-                    t_ms = int(round(h[0] * 1000))
+                # ✅ Convertir liste → tuple si besoin
+                if isinstance(h, list) and len(h) == 2 and all(isinstance(v, (int, float)) for v in h):
+                    h = tuple(h)
+
+                if isinstance(h, tuple) and len(h) == 2 and isinstance(h[0], (int, float)) and isinstance(h[1], int):
+                    t, lp = h
+                    t_ms = int(round(t))
                     red_timestamps.append(t_ms)
-                    Brint(f"[⅞ NHIT] ✅ Subdiv {idx} → {h[0]:.3f}s = {t_ms}ms")
+                    Brint(f"[⅞ NHIT] ✅ Subdiv {idx} → t = {t:.3f}ms | loop_id = {lp} → {t_ms}ms")
                 else:
                     Brint(f"[⅞ NHIT] ⚠️ Hit mal formé dans subdiv {idx} → {h}")
 
         Brint(f"[⅞ NHIT] ✅ Timestamps collectés : {len(red_timestamps)} items")
         return sorted(red_timestamps)
-    
         
     def increase_tempo(self):
         new_bpm = round(self.tempo_bpm + 0.6)
@@ -10031,6 +10071,7 @@ class VideoPlayer:
         return int((timestamp_s - start) // loop_dur)
 
     def update_loop(self):
+        self.watchdog_check_json_integrity()
         if 2 in self.raw_hit_memory:
             Brint(f"[LIVE WATCH] 👁️ Subdiv 2 state = {self.raw_hit_memory[2]}")
         else:
