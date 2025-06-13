@@ -2203,13 +2203,17 @@ class VideoPlayer:
         if not self.loop_start or not self.loop_end:
             return
 
-        zoom = self.get_zoom_context()
-        z_start = zoom["zoom_start"]
-        z_end = zoom["zoom_end"]
-        z_range = zoom["zoom_range"]
+        base_zoom = getattr(self, "zoom_context", None) or self.get_zoom_context()
+        z_start = base_zoom["zoom_start"]
+        z_end = base_zoom["zoom_end"]
+        z_range = base_zoom["zoom_range"]
 
         loop_duration = self.loop_end - self.loop_start
-        zoom_range = self.get_zoom_context()["zoom_range"]
+        zoom_range = base_zoom["zoom_range"]
+
+        if zoom_range < loop_duration / 0.9:
+            Brint("[ZOOM CHECK] 🏃 Scroll mode actif → pas d'auto zoom")
+            return
 
         if z_range < loop_duration:
             Brint("[ZOOM CHECK] ➖ Zoom inférieur à la boucle, aucune réinitialisation")
@@ -2232,9 +2236,9 @@ class VideoPlayer:
         Brint(f"[ZOOM CHECK] 🅰️ A = {self.loop_start} | 🅱️ B = {self.loop_end}")
 
         # Save previous zoom to detect changes
-        prev_zoom = zoom
-        prev_A_x = self.time_sec_to_canvas_x(self.loop_start / 1000.0)
-        prev_B_x = self.time_sec_to_canvas_x(self.loop_end / 1000.0)
+        prev_zoom = base_zoom
+        prev_A_x = self.time_sec_to_canvas_x(self.loop_start / 1000.0, zoom=base_zoom)
+        prev_B_x = self.time_sec_to_canvas_x(self.loop_end / 1000.0, zoom=base_zoom)
 
         # Decision
         if self.loop_start < margin_start:
@@ -2249,8 +2253,8 @@ class VideoPlayer:
 
         # Post check
         new_zoom = self.get_zoom_context()
-        new_A_x = self.time_sec_to_canvas_x(self.loop_start / 1000.0)
-        new_B_x = self.time_sec_to_canvas_x(self.loop_end / 1000.0)
+        new_A_x = self.time_sec_to_canvas_x(self.loop_start / 1000.0, zoom=new_zoom)
+        new_B_x = self.time_sec_to_canvas_x(self.loop_end / 1000.0, zoom=new_zoom)
 
         Brint(f"[ZOOM MOVE] 🔁 Zoom modifié !")
         Brint(f"[TBD]   🎯 A: x avant = {prev_A_x}px → après = {new_A_x}px")
