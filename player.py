@@ -4313,8 +4313,21 @@ class VideoPlayer:
             if hasattr(self, "subdivision_state"):
                 self.subdivision_state.pop(idx, None)
 
+        # ❌ Supprime tous les hits -1 de raw_hit_memory (net global, pas juste par idx)
+        for idx in list(self.raw_hit_memory.keys()):
+            original = self.raw_hit_memory[idx]
+            filtered = [(t, lp) for (t, lp) in original if lp != -1]
+            if filtered:
+                self.raw_hit_memory[idx] = filtered
+            else:
+                del self.raw_hit_memory[idx]
+        Brint("[NHIT CLEAN 🧹] Tous les hits persistants (loop_id == -1) supprimés de raw_hit_memory")
+
+
+
         # ✅ Applique le remplacement propre (évite le rebleed)
-        self.confirmed_red_subdivisions = new_reds
+        self.confirmed_red_subdivisions.clear()
+        self.confirmed_red_subdivisions.update(new_reds)
         Brint(f"[NHIT OFFSET 🔁] After offset → confirmed_red_subdivisions = {dict(new_reds)}")
         Brint(f"🟥 [NHIT OFFSET 🔄] ✅ confirmed_red_subdivisions remplacé → {len(new_reds)} subdivisions")
 
@@ -4374,62 +4387,118 @@ class VideoPlayer:
 
 
 
-    def offset_all_hit_timestamps(self, direction):
-        """Shift all hit timestamps by one subdivision forward or backward."""
+    # def offset_all_hit_timestamps(self, direction):
+        # """Shift all hit timestamps by one subdivision forward or backward."""
+        # bpm = getattr(self, "tempo_bpm", 0)
+        # if bpm <= 0:
+            # Brint("[OFFSET HITS] tempo_bpm manquant – opération annulée")
+            # return
+        # interval = 60.0 / bpm / self.get_subdivisions_per_beat()
+        # # Keep track of which subdivisions were confirmed (state = 3) prior to the shift
+
+        # prev_confirmed = {
+            # idx for idx, state in getattr(self, "subdivision_state", {}).items() if state == 2
+        # }
+        # force_state_indices = []
+        # if prev_confirmed and getattr(self, "persistent_validated_hit_timestamps", None):
+            # # Use the ordered grid_times list so indices correspond to subdivision_state keys
+            # grid_times = getattr(self, "grid_times", [])
+            # if not grid_times and getattr(self, "precomputed_grid_infos", None):
+                # grid_times = [
+                    # info["t_subdiv_sec"] for _, info in sorted(self.precomputed_grid_infos.items())
+                # ]
+
+            # for t in self.get_all_red_hit_timestamps():
+                # idx_old = self.current_loop.timestamp_to_subdiv_index(t, grid_times)
+                # if idx_old in prev_confirmed:
+                    # t_new = t + direction * interval
+                    # idx_new = self.current_loop.timestamp_to_subdiv_index(t_new, grid_times)
+                    # if idx_new is not None:
+                        # force_state_indices.append(idx_new)
+        # if hasattr(self, "user_hit_timestamps"):
+            # self.user_hit_timestamps = [
+                # (t + direction * interval, lp) for t, lp in self.user_hit_timestamps
+            # ]
+        # if hasattr(self, "persistent_validated_hit_timestamps"):
+            # self.confirmed_red_subdivisions = {
+                # idx: [t + direction * interval for t in hits]
+                # for idx, hits in self.confirmed_red_subdivisions.items()
+            # }
+        # # After shifting, remap persistent hits so that red subdivisions follow
+        # self.remap_persistent_validated_hits()
+        # for idx in force_state_indices:
+            # self.set_subdivision_state(idx,2, origin="offset_all_hit_timestamps")
+            # # self.subdivision_state[idx] = 2
+            # Brint(f"[OFFSET HITS] Forced state=2 on subdiv {idx} after offset")
+        # if hasattr(self, "refresh_chord_editor"):
+            # try:
+                # self.refresh_chord_editor()
+            # except AttributeError:
+                # pass
+        # Brint(
+            # f"[OFFSET HITS] Décalage de {direction:+d} subdiv → Δ={direction*interval:.3f}s"
+        # )
+        # if hasattr(self, "draw_syllabic_grid_heatmap"):
+            # try:
+                # self.draw_syllabic_grid_heatmap()
+            # except AttributeError:
+ 
+               # pass
+
+
+
+
+
+
+    def offset_red_subdivisions_v2(self, direction):
         bpm = getattr(self, "tempo_bpm", 0)
-        if bpm <= 0:
-            Brint("[OFFSET HITS] tempo_bpm manquant – opération annulée")
+        if bpm <= 0 or not getattr(self, "grid_times", None):
+            Brint("[NHIT OFFSET V2 ❌] BPM ou grille non définis")
             return
-        interval = 60.0 / bpm / self.get_subdivisions_per_beat()
-        # Keep track of which subdivisions were confirmed (state = 3) prior to the shift
 
-        prev_confirmed = {
-            idx for idx, state in getattr(self, "subdivision_state", {}).items() if state == 2
-        }
-        force_state_indices = []
-        if prev_confirmed and getattr(self, "persistent_validated_hit_timestamps", None):
-            # Use the ordered grid_times list so indices correspond to subdivision_state keys
-            grid_times = getattr(self, "grid_times", [])
-            if not grid_times and getattr(self, "precomputed_grid_infos", None):
-                grid_times = [
-                    info["t_subdiv_sec"] for _, info in sorted(self.precomputed_grid_infos.items())
-                ]
+        interval_ms = (60.0 / bpm / self.get_subdivisions_per_beat()) * 1000
+        Brint(f"[NHIT OFFSET V2] ⏱ Décalage = {interval_ms:.2f} ms")
 
-            for t in self.get_all_red_hit_timestamps():
-                idx_old = self.current_loop.timestamp_to_subdiv_index(t, grid_times)
-                if idx_old in prev_confirmed:
-                    t_new = t + direction * interval
-                    idx_new = self.current_loop.timestamp_to_subdiv_index(t_new, grid_times)
-                    if idx_new is not None:
-                        force_state_indices.append(idx_new)
-        if hasattr(self, "user_hit_timestamps"):
-            self.user_hit_timestamps = [
-                (t + direction * interval, lp) for t, lp in self.user_hit_timestamps
-            ]
-        if hasattr(self, "persistent_validated_hit_timestamps"):
-            self.confirmed_red_subdivisions = {
-                idx: [t + direction * interval for t in hits]
-                for idx, hits in self.confirmed_red_subdivisions.items()
-            }
-        # After shifting, remap persistent hits so that red subdivisions follow
-        self.remap_persistent_validated_hits()
-        for idx in force_state_indices:
-            self.set_subdivision_state(idx,2, origin="offset_all_hit_timestamps")
-            # self.subdivision_state[idx] = 2
-            Brint(f"[OFFSET HITS] Forced state=2 on subdiv {idx} after offset")
-        if hasattr(self, "refresh_chord_editor"):
-            try:
-                self.refresh_chord_editor()
-            except AttributeError:
-                pass
-        Brint(
-            f"[OFFSET HITS] Décalage de {direction:+d} subdiv → Δ={direction*interval:.3f}s"
-        )
-        if hasattr(self, "draw_syllabic_grid_heatmap"):
-            try:
-                self.draw_syllabic_grid_heatmap()
-            except AttributeError:
-                pass
+        new_reds = {}
+        seen_ts_global = set()
+
+        for idx, hits in self.confirmed_red_subdivisions.items():
+            for t_sec, lp in hits:
+                if lp != -1:
+                    Brint(f"[NHIT OFFSET V2 ⚠️] Ignoré : hit non-persistant (lp={lp}) sur subdiv {idx}")
+                    continue
+
+                new_idx = idx + direction
+                if not (0 <= new_idx < len(self.grid_times)):
+                    Brint(f"[NHIT OFFSET V2 ⛔] Subdiv {new_idx} hors limites → skip")
+                    continue
+
+                t_shifted = round(t_sec + (direction * interval_ms / 1000.0), 3)
+                if (new_idx, t_shifted) not in seen_ts_global:
+                    seen_ts_global.add((new_idx, t_shifted))
+                    new_reds.setdefault(new_idx, []).append((t_shifted, -1))
+                    self.set_subdivision_state(new_idx, 3)
+                    Brint(f"[NHIT OFFSET V2 ✅] {t_sec:.3f}s → {t_shifted:.3f}s (subdiv {idx} → {new_idx})")
+
+        Brint(f"🟥 [NHIT OFFSET V2 🔁] confirmed_red_subdivisions = {dict(new_reds)}")
+
+        # 🧹 Clean hits (prune tout y compris raw)
+        self.confirmed_red_subdivisions = {}  # safe clear
+        self.init_raw_hit_memory(force=True)
+        Brint("🟥 [NHIT RESET] raw_hit_memory cleared")
+        self.skip_old_state_restore = True
+
+        # ✅ Réinjection uniquement des -1 offsetés
+        self.confirmed_red_subdivisions = new_reds
+
+        # Réassociation et état
+        self.associate_hits_to_subdivisions(reset_loop_pass=True)
+        Brint("🟥 [RED REASSOC NHIT] ✅ reassoc après offset")
+        self.update_subdivision_states()
+
+        Brint("[NHIT OFFSET V2 ✅] Offset terminé avec nettoyage complet")
+
+
 
     def shift_all_hit_timestamps(self, delta_sec):
         """Shift all hit timestamps by an arbitrary time delta."""
@@ -8453,8 +8522,8 @@ class VideoPlayer:
         
         #heatmap
         self.root.bind("<period>", lambda e: self.reset_syllabic_grid_hits())
-        self.root.bind_all("[", lambda e: self.offset_red_subdivisions_and_refresh(-1))
-        self.root.bind_all("]", lambda e: self.offset_red_subdivisions_and_refresh(+1))
+        self.root.bind_all("[", lambda e: self.offset_red_subdivisions_v2(-1))
+        self.root.bind_all("]", lambda e: self.offset_red_subdivisions_v2(+1))
 
         
         #zoom bindings screen
