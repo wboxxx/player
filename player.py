@@ -53,6 +53,10 @@ import pygame
 import soundfile as sf
 import vlc
 from pydub import AudioSegment
+try:
+    import simpleaudio as sa  # pragma: no cover
+except Exception:  # pragma: no cover
+    sa = None
 
 try:
     import torch  # pragma: no cover
@@ -1607,7 +1611,24 @@ def freq_to_note_name(freq):
     if freq <= 0:
         return None
     midi = int(round(69 + 12 * np.log2(freq / 440.0)))
-    return NOTE_NAMES[midi % 12]    
+    return NOTE_NAMES[midi % 12]
+
+def note_name_to_freq(name, octave=4):
+    """Return frequency in Hz for a note name like 'C#' (optional octave)."""
+    match = re.match(r"^([A-G](?:#|b)?)(\d*)$", name)
+    if not match:
+        return None
+    note = match.group(1)
+    octv = int(match.group(2)) if match.group(2) else octave
+    semitone_map = {
+        'C': -9, 'C#': -8, 'Db': -8, 'D': -7, 'D#': -6, 'Eb': -6,
+        'E': -5, 'F': -4, 'F#': -3, 'Gb': -3, 'G': -2, 'G#': -1,
+        'Ab': -1, 'A': 0, 'A#': 1, 'Bb': 1, 'B': 2
+    }
+    if note not in semitone_map:
+        return None
+    semitone = semitone_map[note] + 12 * (octv - 4)
+    return 440.0 * (2 ** (semitone / 12.0))
 
 def interval_to_degree(note, root):
     circle = NOTE_NAMES * 2
@@ -8001,6 +8022,8 @@ class VideoPlayer:
         # self.ram_audio_clip = None # If this was a Pygame object, it's handled by pygame.mixer.quit()
         self.ram_audio_start_time = None
 
+
+
         # 🔈 Remettre VLC audio actif
         if hasattr(self, "player"):
             try:
@@ -8397,6 +8420,12 @@ class VideoPlayer:
         self.last_jump_target_ms = 0
         self.ram_audio_start_time = None
 
+        # --- Loop notes playback ---
+        self.play_loop_notes = False
+        self._note_playback_index = 0
+        self._note_playback_prev_ms = 0
+        self._note_sounds = {}
+
         # === RESULT BOX ===
         self.result_visible = False  # doit être AVANT le pack
 
@@ -8659,6 +8688,7 @@ class VideoPlayer:
         self.root.bind('<Shift-Q>', lambda e: self.cycle_note_harmony_mode())
         self.root.bind('<Key-plus>', lambda e: self.adjust_speed(0.1))
         self.root.bind('<Key-minus>', lambda e: self.adjust_speed(-0.1))
+        self.root.bind('<Key-n>', lambda e: self.toggle_loop_note_playback())
         self.root.bind('<Up>', lambda e: self.adjust_volume(10))
         self.root.bind('<Down>', lambda e: self.adjust_volume(-10))
         self.root.bind('<Key-a>', lambda e: self.set_edit_mode("loop_start"))
@@ -8734,6 +8764,53 @@ class VideoPlayer:
         state = self.player.get_state()
         self.autostep_enabled = not self.autostep_enabled
         self.console.config(text=f"🔁 Lecture en boucle : {'ON' if self.autostep_enabled else 'OFF'}")
+
+    def toggle_loop_note_playback(self, event=None):
+        """Toggle playback of saved loop notes in sync with the playhead."""
+        self.play_loop_notes = not self.play_loop_notes
+        state = "ON" if self.play_loop_notes else "OFF"
+        self.console.config(text=f"🎹 Loop notes playback: {state}")
+        if not self.play_loop_notes:
+            self._note_playback_index = 0
+            self._note_playback_prev_ms = 0
+
+    def play_note_sound(self, note):
+        if sa is None:
+            Brint(f"[NOTE PLAYBACK] simpleaudio missing, cannot play {note}")
+            return
+        freq = note_name_to_freq(note)
+        if freq is None:
+            Brint(f"[NOTE PLAYBACK] Invalid note '{note}'")
+            return
+        if note not in self._note_sounds:
+            sr = 44100
+            duration_ms = 250
+            t = np.linspace(0, duration_ms / 1000.0, int(sr * duration_ms / 1000.0), False)
+            wave = np.sin(2 * np.pi * freq * t) * 0.3
+            audio = (wave * 32767).astype(np.int16)
+            self._note_sounds[note] = audio
+        sa.play_buffer(self._note_sounds[note], 1, 2, 44100)
+
+    def process_loop_note_playback(self):
+        if not self.play_loop_notes or not hasattr(self, "current_loop"):
+            return
+        notes = getattr(self.current_loop, "master_note_list", [])
+        if not notes:
+            return
+        if self.playhead_time is None:
+            return
+        now_ms = self.playhead_time * 1000.0
+        if now_ms < self._note_playback_prev_ms - 10:
+            self._note_playback_index = 0
+        while self._note_playback_index < len(notes) and now_ms >= notes[self._note_playback_index]["timestamp_ms"]:
+            note = notes[self._note_playback_index]["note"]
+            key = getattr(self.current_loop, "key", "C")
+            mode = getattr(self.current_loop, "mode", "ionian")
+            resolved = normalize_note_entry(str(note), key, mode)
+            if resolved:
+                self.play_note_sound(resolved)
+            self._note_playback_index += 1
+        self._note_playback_prev_ms = now_ms
         
 
     def center_on_playhead(self):
@@ -10180,6 +10257,7 @@ class VideoPlayer:
                 Brint(f"[PH VLC] 🎯 Position brute VLC = {player_now} ms → set")
 
             self.time_display.config(text=f"⏱ {self.hms(self.playhead_time * 1000)} / {self.hms(self.duration)}")
+            self.process_loop_note_playback()
 
         if self.spam_mode_active:
             Brint("[SPAM]  spam")
