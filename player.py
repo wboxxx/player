@@ -4282,11 +4282,36 @@ class VideoPlayer:
                 if new_idx != idx:
                     Brint(f"[NHIT OFFSET CLEAN 🧹] Subdiv {idx} déplacée vers {new_idx} → suppression")
 
-        # 🔥 Supprime les anciens hits dans raw_hit_memory
+        # 🔥 Supprime les anciens hits dans raw_hit_memory et autres caches
         for idx in original_reds:
             if idx in self.raw_hit_memory:
-                Brint(f"[NHIT CLEAN 🧹] Suppression des anciens hits dans raw_hit_memory[{idx}] avant offset")
+                Brint(
+                    f"[NHIT CLEAN 🧹] Suppression des anciens hits dans raw_hit_memory[{idx}] avant offset"
+                )
                 del self.raw_hit_memory[idx]
+            # Remove any dynamic hit timestamps mapped to the old subdivision
+            if hasattr(self, "user_hit_timestamps"):
+                before = len(self.user_hit_timestamps)
+                self.user_hit_timestamps = [
+                    (t, lp)
+                    for (t, lp) in self.user_hit_timestamps
+                    if self.find_nearest_subdivision_idx(t) != idx or lp == -1
+                ]
+                after = len(self.user_hit_timestamps)
+                if before != after:
+                    Brint(
+                        f"[NHIT CLEAN 🧹] {before-after} entrées retirées de user_hit_timestamps pour subdiv {idx}"
+                    )
+
+            # Reset last-hit tracking so decay logic doesn't resurrect old hits
+            if hasattr(self, "subdiv_last_hit_time"):
+                self.subdiv_last_hit_time.pop(idx, None)
+            if hasattr(self, "subdiv_last_hit_loop"):
+                self.subdiv_last_hit_loop.pop(idx, None)
+            if hasattr(self, "subdiv_last_hit_wall_time"):
+                self.subdiv_last_hit_wall_time.pop(idx, None)
+            if hasattr(self, "subdivision_state"):
+                self.subdivision_state.pop(idx, None)
 
         # ✅ Applique le remplacement propre (évite le rebleed)
         self.confirmed_red_subdivisions = new_reds
