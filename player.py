@@ -127,6 +127,7 @@ DEBUG_FLAGS = {
     "HARMONY": False,
     "HIT": False,
     "NHIT": True,
+    "RED_DOTS": False,
     "JUMP": False,
     "KEYBOARD": False,
     "LOOP": False,
@@ -10401,6 +10402,7 @@ class VideoPlayer:
             Brint("[RHYTHM GRID] ➡ Appel draw_syllabic_grid_heatmap()")
             self.draw_syllabic_grid_heatmap()
             self.draw_harmony_grid_overlay()
+            self.draw_red_hit_markers()
             Brint("[RHYTHM GRID] ✅ Fin draw_rhythm_grid_canvas()")  # 💡 AJOUT DEBUG FINAL
     
         
@@ -10484,6 +10486,35 @@ class VideoPlayer:
             if i<3 : Brint(f"[HIT FILTERED] Subdiv {i:03d} | x={x_pos:.1f}px | Count={count} | Label={label} | Width={width}")
 
             canvas.create_text(x_pos, canvas_height / 2, text=label, fill=color, anchor="center", font=("Arial", 12, "bold"), tags=("heatmap_filtered",))
+
+
+    def draw_red_hit_markers(self):
+        """Draw red hit timestamps as small circles on the rhythm grid."""
+        if not DEBUG_FLAGS.get("RED_DOTS", False):
+            return
+        canvas = self.grid_canvas
+        canvas.delete("red_hit_marker")
+        if not getattr(self, "confirmed_red_subdivisions", None):
+            return
+        canvas_height = canvas.winfo_height()
+        radius = canvas_height / 8
+        total = 0
+        for hits in self.confirmed_red_subdivisions.values():
+            for h in hits:
+                t_sec = h[0] if isinstance(h, tuple) else h
+                x = self.time_sec_to_canvas_x(t_sec)
+                if 0 <= x <= canvas.winfo_width():
+                    canvas.create_oval(
+                        x - radius,
+                        canvas_height / 2 - radius,
+                        x + radius,
+                        canvas_height / 2 + radius,
+                        outline="red",
+                        width=2,
+                        tags=("red_hit_marker",),
+                    )
+                    total += 1
+        Brint(f"[RED DOTS] ✅ {total} markers drawn")
 
 
     def draw_harmony_grid_overlay(self):
