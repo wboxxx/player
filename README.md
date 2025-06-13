@@ -100,6 +100,7 @@ main shortcuts and what they do:
 | `b` | Edit loop end marker |
 | `Ctrl+Enter` | Reset playback speed |
 | `s` | Stop and return to A |
+| `n` | Toggle loop note playback |
 | `Shift+A` | Jump to marker A / record loop start |
 | `Shift+B` | Record loop end |
 | `Shift+C` | Clear current loop |
