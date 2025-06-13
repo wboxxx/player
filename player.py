@@ -3965,6 +3965,29 @@ class VideoPlayer:
         Brint(f"[RED REASSOC NHIT] ✅ {len(reassociated)} subdivisions rouges mises à jour")
         return self.confirmed_red_subdivisions
 
+    def reassociate_confirmed_red_subdivisions(self):
+        """Reassign confirmed red hit timestamps to the closest subdivisions."""
+        if not getattr(self, "confirmed_red_subdivisions", None):
+            return
+        if not getattr(self, "grid_times", None):
+            return
+
+        new_reds = {}
+        for hits in self.confirmed_red_subdivisions.values():
+            for h in hits:
+                if isinstance(h, (list, tuple)) and len(h) == 2:
+                    t_sec, lp = h
+                else:
+                    t_sec = float(h)
+                    lp = -1
+
+                idx = min(range(len(self.grid_times)), key=lambda i: abs(self.grid_times[i] - t_sec))
+                new_reds.setdefault(idx, []).append((t_sec, lp))
+
+        self.confirmed_red_subdivisions = new_reds
+        if hasattr(self, "current_loop") and isinstance(self.current_loop, LoopData):
+            self.current_loop.confirmed_red_subdivisions = {str(k): v for k, v in new_reds.items()}
+
 
 
     def prune_old_hit_memory(self):
@@ -5420,6 +5443,10 @@ class VideoPlayer:
 
         # Remap persistent validated hits to the new grid
         self.remap_persistent_validated_hits()
+        self.reassociate_confirmed_red_subdivisions()
+        self.associate_hits_to_subdivisions(reset_loop_pass=True)
+        self.skip_old_state_restore = True
+        self.update_subdivision_states()
 
         # 🔍 Debug : affichage des 10 premières notes de la master list
         Brint("[DEBUG] 🔍 master_note_list (extrait) :")
@@ -5451,6 +5478,10 @@ class VideoPlayer:
 
         # Remap persistent validated hits to the new grid
         self.remap_persistent_validated_hits()
+        self.reassociate_confirmed_red_subdivisions()
+        self.associate_hits_to_subdivisions(reset_loop_pass=True)
+        self.skip_old_state_restore = True
+        self.update_subdivision_states()
 
         self.update_all_detected_notes_from_master()  # ← très important
 
@@ -6649,6 +6680,12 @@ class VideoPlayer:
 
         # Remap persistent validated hits to the new grid
         self.remap_persistent_validated_hits()
+
+        # Re-associate confirmed red subdivisions to the new grid
+        self.reassociate_confirmed_red_subdivisions()
+        self.associate_hits_to_subdivisions(reset_loop_pass=True)
+        self.skip_old_state_restore = True
+        self.update_subdivision_states()
 
         self.current_loop.map_notes_to_subdivs() # This should ideally happen after states are remapped if it depends on subdivision_state for any filtering
         self.refresh_note_display()
