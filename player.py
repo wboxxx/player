@@ -8421,6 +8421,8 @@ class VideoPlayer:
 
         # --- MIDI loop playback ---
         self.midi_looper = None
+        self.midi_looper_enabled = False
+        self.midi_loop_triggered = False
 
         # === RESULT BOX ===
         self.result_visible = False  # doit être AVANT le pack
@@ -8721,6 +8723,8 @@ class VideoPlayer:
             self.console.config(text="▶️ Relecture depuis A")
             self.last_loop_jump_time = time.perf_counter()
             Brint("[PH LOOPJUMP] 🔁 last_loop_jump_time resynchronisé après retour à A via R")
+            self.midi_loop_triggered = False
+            self.maybe_trigger_midi_loop()
 
 
     
@@ -8813,6 +8817,19 @@ class VideoPlayer:
         if self.midi_looper and self.playhead_time is not None:
             self.midi_looper.update_playhead(int(self.playhead_time * 1000))
 
+    def maybe_trigger_midi_loop(self):
+        if (
+            getattr(self, "midi_looper_enabled", False)
+            and self.midi_looper
+            and not getattr(self, "midi_loop_triggered", False)
+        ):
+            try:
+                self.midi_looper.go()
+                self.midi_loop_triggered = True
+                Brint("[MIDIPLAY] ▶️ MIDI loop triggered")
+            except Exception as e:
+                Brint(f"[MIDIPLAY] ❌ MIDI trigger error: {e}")
+
     def build_midi_pattern(self):
         if not hasattr(self, "current_loop"):
             Brint("[MIDIPLAY] ❌ No current_loop set")
@@ -8859,10 +8876,13 @@ class VideoPlayer:
         Brint(f"[MIDIPLAY] 🎯 Final MIDI pattern: {pattern}")
         return pattern
     def toggle_midi_loop_playback(self, event=None):
-        if self.midi_looper:
+        if self.midi_looper_enabled:
             Brint("[MIDIPLAY] ⏹️ Stopping current MIDI loop...")
-            self.midi_looper.stop()
+            if self.midi_looper:
+                self.midi_looper.stop()
             self.midi_looper = None
+            self.midi_looper_enabled = False
+            self.midi_loop_triggered = False
             self.console.config(text="🎹 MIDI loop OFF")
             Brint("[MIDIPLAY] ✅ Loop stopped and looper instance cleared")
             return
@@ -8902,7 +8922,9 @@ class VideoPlayer:
             else:
                 Brint("[MIDIPLAY] ⚠️ Empty pattern, nothing to play")
 
-            self.midi_looper.go()
+            self.midi_looper_enabled = True
+            self.midi_loop_triggered = False
+            self.maybe_trigger_midi_loop()
             self.console.config(text="🎹 MIDI loop ON")
             Brint("[MIDIPLAY] ▶️ MIDI loop started")
 
@@ -10303,6 +10325,8 @@ class VideoPlayer:
                         self.loop_pass_count += 1
                         dur_str = f"{self.loop_duration_s:.3f}s" if self.loop_duration_s else "?"
                         Brint(f"[LOOP PASS NHIT] Boucle AB passée {self.loop_pass_count} fois | durée = {dur_str}")
+                        self.midi_loop_triggered = False
+                        self.maybe_trigger_midi_loop()
 
                         # Brint(f"[LOOP PASS NHIT] Boucle AB passée {self.loop_pass_count} fois")
                         self.decay_subdivision_states()
@@ -10331,6 +10355,8 @@ class VideoPlayer:
                         self.last_loop_jump_time = time.perf_counter()
                         self.loop_pass_count += 1
                         Brint(f"[LOOP PASS NHIT] Boucle AB passée {self.loop_pass_count} fois (raw)")
+                        self.midi_loop_triggered = False
+                        self.maybe_trigger_midi_loop()
                         self.decay_subdivision_states()
                         self.associate_hits_to_subdivisions()
                         self.update_subdivision_states()
