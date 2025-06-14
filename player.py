@@ -66,7 +66,9 @@ except ImportError:  # pragma: no cover
     torch = None
 try:
     import pretty_midi  # pragma: no cover
-except ImportError:  # pragma: no cover
+    if not hasattr(np, "sin"):
+        raise ImportError("numpy stub detected")
+except Exception:  # pragma: no cover
     pretty_midi = None
 try:
     from basic_pitch.inference import predict  # pragma: no cover
@@ -1428,7 +1430,9 @@ except Exception:  # pragma: no cover - optional dependency
     ICASSP_2022_MODEL_PATH = None
 try:
     import pretty_midi
-except ImportError:  # pragma: no cover - optional dependency
+    if not hasattr(np, "sin"):
+        raise ImportError("numpy stub detected")
+except Exception:  # pragma: no cover - optional dependency
     pretty_midi = None
 import re
 
@@ -1622,6 +1626,33 @@ def note_name_to_freq(name, octave=4):
         return None
     semitone = semitone_map[note] + 12 * (octv - 4)
     return 440.0 * (2 ** (semitone / 12.0))
+
+def safe_note_name_to_number(note):
+    """Convert a note string to a MIDI number without raising errors."""
+    if note is None:
+        return None
+    if isinstance(note, (int, float)):
+        val = int(note)
+        return val if 0 <= val <= 127 else None
+    note_str = str(note).strip()
+    if not note_str:
+        return None
+    if note_str.isdigit():
+        val = int(note_str)
+        return val if 0 <= val <= 127 else None
+    try:
+        return pretty_midi.note_name_to_number(note_str)
+    except Exception:
+        pass
+    m = re.match(r"^([A-Ga-g])([#b!]?)(-?\d+)$", note_str)
+    if not m:
+        return None
+    pitch_map = {'C': 0, 'D': 2, 'E': 4, 'F': 5, 'G': 7, 'A': 9, 'B': 11}
+    acc_map = {'#': 1, '': 0, 'b': -1, '!': -1}
+    pitch = m.group(1).upper()
+    offset = acc_map.get(m.group(2), 0)
+    octave = int(m.group(3))
+    return 12 * (octave + 1) + pitch_map[pitch] + offset
 
 def interval_to_degree(note, root):
     circle = NOTE_NAMES * 2
@@ -8864,12 +8895,12 @@ class VideoPlayer:
                 Brint(f"[MIDIPLAY]    → resolved: {resolved}")
 
                 if resolved:
-                    try:
-                        midi_note = pretty_midi.note_name_to_number(resolved)
+                    midi_note = safe_note_name_to_number(resolved)
+                    if midi_note is not None:
                         Brint(f"[MIDIPLAY] ✅ grid[{idx}] → MIDI {midi_note} ({midi_note_to_name(midi_note)})")
                         pattern[idx] = midi_note
-                    except Exception as e:
-                        Brint(f"[MIDIPLAY] ❌ Error converting '{resolved}' to MIDI: {e}")
+                    else:
+                        Brint(f"[MIDIPLAY] ❌ Error converting '{resolved}' to MIDI")
                 else:
                     Brint(f"[MIDIPLAY] ⚠️ Could not resolve note entry at grid[{idx}]")
 
