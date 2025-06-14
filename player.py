@@ -5090,54 +5090,120 @@ class VideoPlayer:
         self.root.after(0, self.refresh_static_timeline_elements)
 
     def open_debug_flags_window(self):
-        """Open a window with checkboxes to toggle DEBUG_FLAGS."""
-        if getattr(self, 'flags_window', None) and self.flags_window.winfo_exists():
-            self.flags_window.lift()
+        """Display or hide the combined debug overlay."""
+        self.toggle_debug_overlay()
+
+    def toggle_debug_overlay(self):
+        """Create or destroy the on-video debug overlay."""
+        if self.debug_overlay_frame:
+            self.canvas_overlay.delete("debug_overlay")
+            self.debug_overlay_frame.destroy()
+            self.debug_overlay_frame = None
             return
 
-        self.flags_window = tk.Toplevel(self.root)
-        self.flags_window.title('Debug Flags')
+        w = self.canvas_overlay.winfo_width()
+        h = self.canvas_overlay.winfo_height()
+        self.canvas_overlay.lift(self.canvas)
+        self.canvas_overlay.delete("debug_overlay")
+        self.canvas_overlay.create_rectangle(
+            0,
+            0,
+            w,
+            h,
+            fill="black",
+            stipple="gray50",
+            tags="debug_overlay",
+        )
 
-        # Special handling for global BRINT flag with tri-state control
-        options = ['None', 'False', 'True']
-        var_brint = tk.StringVar(value=str(DEBUG_FLAGS.get('BRINT')))
+        frame = tk.Frame(self.canvas_overlay, bg="#222")
+        self.debug_overlay_frame = frame
+        self.canvas_overlay.create_window(
+            w // 2,
+            h // 2,
+            window=frame,
+            anchor="center",
+            tags="debug_overlay",
+        )
+
+        options = ["None", "False", "True"]
+        var_brint = tk.StringVar(value=str(DEBUG_FLAGS.get("BRINT")))
 
         def update_brint(choice):
-            if choice == 'None':
-                DEBUG_FLAGS['BRINT'] = None
-            elif choice == 'True':
-                DEBUG_FLAGS['BRINT'] = True
+            if choice == "None":
+                DEBUG_FLAGS["BRINT"] = None
+            elif choice == "True":
+                DEBUG_FLAGS["BRINT"] = True
             else:
-                DEBUG_FLAGS['BRINT'] = False
+                DEBUG_FLAGS["BRINT"] = False
 
-        tk.Label(self.flags_window, text='BRINT').pack(anchor='w')
-        tk.OptionMenu(self.flags_window, var_brint, *options, command=update_brint).pack(anchor='w')
+        tk.Label(frame, text="BRINT", bg="#222", fg="white").pack(anchor="w")
+        tk.OptionMenu(frame, var_brint, *options, command=update_brint).pack(anchor="w")
 
-        # Boolean flags
         self.debug_vars = {}
-        for flag in sorted(k for k in DEBUG_FLAGS.keys() if k != 'BRINT'):
+        for flag in sorted(k for k in DEBUG_FLAGS.keys() if k != "BRINT"):
             var = tk.BooleanVar(value=bool(DEBUG_FLAGS[flag]))
             self.debug_vars[flag] = var
 
             def toggle(f=flag, v=var):
                 DEBUG_FLAGS[f] = v.get()
 
-            chk = tk.Checkbutton(self.flags_window, text=flag, variable=var, command=toggle)
-            chk.pack(anchor='w')
+            tk.Checkbutton(
+                frame,
+                text=flag,
+                variable=var,
+                command=toggle,
+                bg="#222",
+                fg="white",
+            ).pack(anchor="w")
 
         tk.Checkbutton(
-            self.flags_window,
-            text='Slow update 3000ms',
+            frame,
+            text="Pause each update",
+            variable=self.pause_each_update,
+            bg="#222",
+            fg="white",
+        ).pack(anchor="w")
+
+        tk.Label(frame, text="Update delay (ms)", bg="#222", fg="white").pack(anchor="w")
+        tk.Entry(frame, textvariable=self.update_delay_ms_var, width=6).pack(anchor="w")
+
+        tk.Checkbutton(
+            frame,
+            text="Slow update 3000ms",
             variable=self.slow_update_var,
             command=self.toggle_slow_update,
-        ).pack(anchor='w')
+            bg="#222",
+            fg="white",
+        ).pack(anchor="w")
 
         tk.Checkbutton(
-            self.flags_window,
-            text='Full traceback',
+            frame,
+            text="Full traceback",
             variable=self.traceback_full_var,
             command=self.toggle_full_traceback,
-        ).pack(anchor='w')
+            bg="#222",
+            fg="white",
+        ).pack(anchor="w")
+
+        vars_to_show = [
+            "playhead_time",
+            "duration",
+            "loop_start",
+            "loop_end",
+            "loop_zoom_ratio",
+            "zoom_start",
+            "zoom_end",
+            "zoom_range",
+            "loop_duration_s",
+            "loop_pass_count",
+        ]
+        self._debug_labels = {}
+        for name in vars_to_show:
+            lbl = tk.Label(frame, text="", bg="#222", fg="white")
+            lbl.pack(anchor="w")
+            self._debug_labels[name] = lbl
+
+        self.update_debug_overlay()
 
     def apply_loop_zoom_ratio(self, ratio):
         """Apply the given zoom ratio to the loop and refresh display."""
@@ -6592,52 +6658,11 @@ class VideoPlayer:
 
     # --- Debug state window -------------------------------------------------
     def toggle_state_window(self, event=None):
-        if self.state_window and self.state_window.winfo_exists():
-            self.state_window.destroy()
-            return
+        """Toggle visibility of the combined debug overlay."""
+        self.toggle_debug_overlay()
 
-        self.state_window = tk.Toplevel(self.root)
-        self.state_window.title("State Monitor")
-
-        vars_to_show = [
-            "playhead_time", "duration", "loop_start", "loop_end",
-            "loop_zoom_ratio", "zoom_start", "zoom_end", "zoom_range",
-            "loop_duration_s", "loop_pass_count",
-        ]
-        self._debug_labels = {}
-        for name in vars_to_show:
-            lbl = tk.Label(self.state_window, text="")
-            lbl.pack(anchor="w")
-            self._debug_labels[name] = lbl
-
-        tk.Checkbutton(
-            self.state_window,
-            text="Pause each update",
-            variable=self.pause_each_update,
-        ).pack(anchor="w")
-        # Step button removed (unused)
-
-        tk.Label(self.state_window, text="Update delay (ms)").pack(anchor="w")
-        tk.Entry(self.state_window, textvariable=self.update_delay_ms_var, width=6).pack(anchor="w")
-
-        tk.Checkbutton(
-            self.state_window,
-            text="Slow update 3000ms",
-            variable=self.slow_update_var,
-            command=self.toggle_slow_update,
-        ).pack(anchor="w")
-
-        tk.Checkbutton(
-            self.state_window,
-            text="Full traceback",
-            variable=self.traceback_full_var,
-            command=self.toggle_full_traceback,
-        ).pack(anchor="w")
-
-        self.update_state_window()
-
-    def update_state_window(self):
-        if not (self.state_window and self.state_window.winfo_exists()):
+    def update_debug_overlay(self):
+        if not (self.debug_overlay_frame and self.canvas_overlay):
             return
         zoom = self.get_zoom_context()
         values = {
@@ -6658,7 +6683,7 @@ class VideoPlayer:
                     lbl.config(text=f"{name}: {values.get(name)}")
             except tk.TclError:
                 continue
-        self.state_window.after(100, self.update_state_window)
+        self.canvas_overlay.after(100, self.update_debug_overlay)
 
     def toggle_slow_update(self):
         if self.slow_update_var.get():
@@ -8547,6 +8572,16 @@ class VideoPlayer:
         self.player = self.instance.media_player_new()
         self.player.set_hwnd(self.video_frame.winfo_id())
 
+        # Canvas overlay for debug UI and messages
+        self.canvas_overlay = tk.Canvas(
+            self.video_area,
+            bg="",
+            highlightthickness=0,
+        )
+        self.canvas_overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
+        self.canvas_overlay.lift(self.canvas)
+        self.debug_overlay_frame = None
+
 
         
         # === TIMELINE EVENTS
@@ -10204,7 +10239,7 @@ class VideoPlayer:
             Brint(f"[LIVE WATCH] ⚠️ Subdiv 2 missing from raw_hit_memory")
 
         self.root.bind('t', lambda e: self.tap_tempo())
-        self.update_state_window()
+        self.update_debug_overlay()
 
         if self.grid_visible:
             self.draw_rhythm_grid_canvas()

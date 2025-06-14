@@ -1,3 +1,7 @@
+import sys
+import types
+
+
 class _Beat:
     def beat_track(self, y=None, sr=22050):
         return 0.0, []
@@ -25,6 +29,17 @@ class _Onset:
         return [0.0] * length
 
 onset = _Onset()
+
+
+display = types.ModuleType(__name__ + '.display')
+
+def specshow(*args, **kwargs):
+    return None
+
+
+display.specshow = specshow
+sys.modules[__name__ + '.display'] = display
+sys.modules.setdefault('librosa.display', display)
 
 
 def stft(y, n_fft=2048, hop_length=512):
