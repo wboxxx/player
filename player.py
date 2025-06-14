@@ -138,6 +138,8 @@ DEBUG_FLAGS = {
     "KEYBOARD": False,
     "LOOP": False,
     "MAPPING": False,
+    "MIDIPLAY": True,
+    "MIDILOOPER": True,
     "open_chord_editor_all": False,
     "PHANTOM": False,
     "PH": False,
@@ -372,13 +374,13 @@ def extract_tonic_from_chord(chord_name):
     return "?"
 
 
-
 def normalize_note_entry(raw_note, key="C", mode="ionian"):
     """
     Nettoie une note entrée par l'utilisateur (min/maj, chiffre, etc.)
     - Convertit '5' en note de la key/mode
     - Corrige les enharmoniques
-    - Rejette les trucs type 'Am' ou 'v'
+    - Ajoute l’octave 4 si manquante
+    - Rejette les accords ou notations invalides
     """
     note = raw_note.strip().upper()
 
@@ -395,7 +397,7 @@ def normalize_note_entry(raw_note, key="C", mode="ionian"):
             note_index = (base_index + semitone_offset) % 12
             resolved = NOTE_ORDER[note_index]
             Brint(f"[DEGREE→NOTE] '{note}' → {roman} → {resolved}")
-            return resolved
+            note = resolved
         except Exception as e:
             Brint(f"[DEGREE ERROR] Degré '{note}' invalide → {e}")
             return None
@@ -404,13 +406,21 @@ def normalize_note_entry(raw_note, key="C", mode="ionian"):
     if note in ENHARMONIC_FIX:
         note = ENHARMONIC_FIX[note]
 
-    # Valider note finale
-    if note not in VALID_NOTES:
-        Brint(f"[NOTE CLEAN] ❌ Note invalide : '{raw_note}' → ignorée")
+    # Si l'octave est absente, on ajoute 4
+    if note in VALID_NOTES:
+        note += "4"
+
+    # Vérifier que c’est une note MIDI valide
+    try:
+        midi_number = pretty_midi.note_name_to_number(note)
+        Brint(f"[NOTE OK] '{raw_note}' interprété comme '{note}' → MIDI {midi_number}")
+        return note
+    except Exception as e:
+        Brint(f"[NOTE ERROR] ❌ Conversion échouée pour '{note}' → {e}")
         return None
 
-    return note
-    
+
+
     
 def get_interval_from_note(note, key):
     """
@@ -5090,120 +5100,54 @@ class VideoPlayer:
         self.root.after(0, self.refresh_static_timeline_elements)
 
     def open_debug_flags_window(self):
-        """Display or hide the combined debug overlay."""
-        self.toggle_debug_overlay()
-
-    def toggle_debug_overlay(self):
-        """Create or destroy the on-video debug overlay."""
-        if self.debug_overlay_frame:
-            self.canvas_overlay.delete("debug_overlay")
-            self.debug_overlay_frame.destroy()
-            self.debug_overlay_frame = None
+        """Open a window with checkboxes to toggle DEBUG_FLAGS."""
+        if getattr(self, 'flags_window', None) and self.flags_window.winfo_exists():
+            self.flags_window.lift()
             return
 
-        w = self.canvas_overlay.winfo_width()
-        h = self.canvas_overlay.winfo_height()
-        self.canvas_overlay.lift(self.canvas)
-        self.canvas_overlay.delete("debug_overlay")
-        self.canvas_overlay.create_rectangle(
-            0,
-            0,
-            w,
-            h,
-            fill="black",
-            stipple="gray50",
-            tags="debug_overlay",
-        )
+        self.flags_window = tk.Toplevel(self.root)
+        self.flags_window.title('Debug Flags')
 
-        frame = tk.Frame(self.canvas_overlay, bg="#222")
-        self.debug_overlay_frame = frame
-        self.canvas_overlay.create_window(
-            w // 2,
-            h // 2,
-            window=frame,
-            anchor="center",
-            tags="debug_overlay",
-        )
-
-        options = ["None", "False", "True"]
-        var_brint = tk.StringVar(value=str(DEBUG_FLAGS.get("BRINT")))
+        # Special handling for global BRINT flag with tri-state control
+        options = ['None', 'False', 'True']
+        var_brint = tk.StringVar(value=str(DEBUG_FLAGS.get('BRINT')))
 
         def update_brint(choice):
-            if choice == "None":
-                DEBUG_FLAGS["BRINT"] = None
-            elif choice == "True":
-                DEBUG_FLAGS["BRINT"] = True
+            if choice == 'None':
+                DEBUG_FLAGS['BRINT'] = None
+            elif choice == 'True':
+                DEBUG_FLAGS['BRINT'] = True
             else:
-                DEBUG_FLAGS["BRINT"] = False
+                DEBUG_FLAGS['BRINT'] = False
 
-        tk.Label(frame, text="BRINT", bg="#222", fg="white").pack(anchor="w")
-        tk.OptionMenu(frame, var_brint, *options, command=update_brint).pack(anchor="w")
+        tk.Label(self.flags_window, text='BRINT').pack(anchor='w')
+        tk.OptionMenu(self.flags_window, var_brint, *options, command=update_brint).pack(anchor='w')
 
+        # Boolean flags
         self.debug_vars = {}
-        for flag in sorted(k for k in DEBUG_FLAGS.keys() if k != "BRINT"):
+        for flag in sorted(k for k in DEBUG_FLAGS.keys() if k != 'BRINT'):
             var = tk.BooleanVar(value=bool(DEBUG_FLAGS[flag]))
             self.debug_vars[flag] = var
 
             def toggle(f=flag, v=var):
                 DEBUG_FLAGS[f] = v.get()
 
-            tk.Checkbutton(
-                frame,
-                text=flag,
-                variable=var,
-                command=toggle,
-                bg="#222",
-                fg="white",
-            ).pack(anchor="w")
+            chk = tk.Checkbutton(self.flags_window, text=flag, variable=var, command=toggle)
+            chk.pack(anchor='w')
 
         tk.Checkbutton(
-            frame,
-            text="Pause each update",
-            variable=self.pause_each_update,
-            bg="#222",
-            fg="white",
-        ).pack(anchor="w")
-
-        tk.Label(frame, text="Update delay (ms)", bg="#222", fg="white").pack(anchor="w")
-        tk.Entry(frame, textvariable=self.update_delay_ms_var, width=6).pack(anchor="w")
-
-        tk.Checkbutton(
-            frame,
-            text="Slow update 3000ms",
+            self.flags_window,
+            text='Slow update 3000ms',
             variable=self.slow_update_var,
             command=self.toggle_slow_update,
-            bg="#222",
-            fg="white",
-        ).pack(anchor="w")
+        ).pack(anchor='w')
 
         tk.Checkbutton(
-            frame,
-            text="Full traceback",
+            self.flags_window,
+            text='Full traceback',
             variable=self.traceback_full_var,
             command=self.toggle_full_traceback,
-            bg="#222",
-            fg="white",
-        ).pack(anchor="w")
-
-        vars_to_show = [
-            "playhead_time",
-            "duration",
-            "loop_start",
-            "loop_end",
-            "loop_zoom_ratio",
-            "zoom_start",
-            "zoom_end",
-            "zoom_range",
-            "loop_duration_s",
-            "loop_pass_count",
-        ]
-        self._debug_labels = {}
-        for name in vars_to_show:
-            lbl = tk.Label(frame, text="", bg="#222", fg="white")
-            lbl.pack(anchor="w")
-            self._debug_labels[name] = lbl
-
-        self.update_debug_overlay()
+        ).pack(anchor='w')
 
     def apply_loop_zoom_ratio(self, ratio):
         """Apply the given zoom ratio to the loop and refresh display."""
@@ -6658,11 +6602,52 @@ class VideoPlayer:
 
     # --- Debug state window -------------------------------------------------
     def toggle_state_window(self, event=None):
-        """Toggle visibility of the combined debug overlay."""
-        self.toggle_debug_overlay()
+        if self.state_window and self.state_window.winfo_exists():
+            self.state_window.destroy()
+            return
 
-    def update_debug_overlay(self):
-        if not (self.debug_overlay_frame and self.canvas_overlay):
+        self.state_window = tk.Toplevel(self.root)
+        self.state_window.title("State Monitor")
+
+        vars_to_show = [
+            "playhead_time", "duration", "loop_start", "loop_end",
+            "loop_zoom_ratio", "zoom_start", "zoom_end", "zoom_range",
+            "loop_duration_s", "loop_pass_count",
+        ]
+        self._debug_labels = {}
+        for name in vars_to_show:
+            lbl = tk.Label(self.state_window, text="")
+            lbl.pack(anchor="w")
+            self._debug_labels[name] = lbl
+
+        tk.Checkbutton(
+            self.state_window,
+            text="Pause each update",
+            variable=self.pause_each_update,
+        ).pack(anchor="w")
+        # Step button removed (unused)
+
+        tk.Label(self.state_window, text="Update delay (ms)").pack(anchor="w")
+        tk.Entry(self.state_window, textvariable=self.update_delay_ms_var, width=6).pack(anchor="w")
+
+        tk.Checkbutton(
+            self.state_window,
+            text="Slow update 3000ms",
+            variable=self.slow_update_var,
+            command=self.toggle_slow_update,
+        ).pack(anchor="w")
+
+        tk.Checkbutton(
+            self.state_window,
+            text="Full traceback",
+            variable=self.traceback_full_var,
+            command=self.toggle_full_traceback,
+        ).pack(anchor="w")
+
+        self.update_state_window()
+
+    def update_state_window(self):
+        if not (self.state_window and self.state_window.winfo_exists()):
             return
         zoom = self.get_zoom_context()
         values = {
@@ -6683,7 +6668,7 @@ class VideoPlayer:
                     lbl.config(text=f"{name}: {values.get(name)}")
             except tk.TclError:
                 continue
-        self.canvas_overlay.after(100, self.update_debug_overlay)
+        self.state_window.after(100, self.update_state_window)
 
     def toggle_slow_update(self):
         if self.slow_update_var.get():
@@ -8572,16 +8557,6 @@ class VideoPlayer:
         self.player = self.instance.media_player_new()
         self.player.set_hwnd(self.video_frame.winfo_id())
 
-        # Canvas overlay for debug UI and messages
-        self.canvas_overlay = tk.Canvas(
-            self.video_area,
-            bg="",
-            highlightthickness=0,
-        )
-        self.canvas_overlay.place(relx=0, rely=0, relwidth=1, relheight=1)
-        self.canvas_overlay.lift(self.canvas)
-        self.debug_overlay_frame = None
-
 
         
         # === TIMELINE EVENTS
@@ -8840,58 +8815,101 @@ class VideoPlayer:
 
     def build_midi_pattern(self):
         if not hasattr(self, "current_loop"):
+            Brint("[MIDIPLAY] ❌ No current_loop set")
             return {}
+
         loop = self.current_loop
         mapping = getattr(loop, "mapped_notes", None)
+
         if not mapping and hasattr(loop, "map_notes_to_subdivs"):
+            Brint("[MIDIPLAY] 🧠 Generating mapped_notes from loop")
             mapping = loop.map_notes_to_subdivs()
             loop.mapped_notes = mapping
+
+        if not mapping:
+            Brint("[MIDIPLAY] ⚠️ No note mapping found in loop")
+            return {}
+
         key = getattr(loop, "key", "C")
         mode = getattr(loop, "mode", "ionian")
+
         pattern = {}
-        if mapping and pretty_midi:
+
+        if pretty_midi:
+            Brint(f"[MIDIPLAY] 🎼 Building MIDI pattern with key={key}, mode={mode}")
             for idx, notes in mapping.items():
                 if not notes:
                     continue
                 note_entry = notes[0].get("note") if isinstance(notes[0], dict) else notes[0]
+                Brint(f"[MIDIPLAY] → grid[{idx}] raw: {note_entry}")
+
                 resolved = normalize_note_entry(str(note_entry), key, mode)
+                Brint(f"[MIDIPLAY]    → resolved: {resolved}")
+
                 if resolved:
                     try:
                         midi_note = pretty_midi.note_name_to_number(resolved)
-                    except Exception:
-                        continue
-                    pattern[idx] = midi_note
-        return pattern
+                        Brint(f"[MIDIPLAY] ✅ grid[{idx}] → MIDI {midi_note} ({midi_note_to_name(midi_note)})")
+                        pattern[idx] = midi_note
+                    except Exception as e:
+                        Brint(f"[MIDIPLAY] ❌ Error converting '{resolved}' to MIDI: {e}")
+                else:
+                    Brint(f"[MIDIPLAY] ⚠️ Could not resolve note entry at grid[{idx}]")
 
+        Brint(f"[MIDIPLAY] 🎯 Final MIDI pattern: {pattern}")
+        return pattern
     def toggle_midi_loop_playback(self, event=None):
         if self.midi_looper:
-            self.midi_looper.stop_loop()
+            Brint("[MIDIPLAY] ⏹️ Stopping current MIDI loop...")
+            self.midi_looper.stop()
             self.midi_looper = None
             self.console.config(text="🎹 MIDI loop OFF")
+            Brint("[MIDIPLAY] ✅ Loop stopped and looper instance cleared")
             return
+
         if not (self.loop_start and self.loop_end and self.tempo_bpm):
+            Brint("[MIDIPLAY] ❌ Missing loop_start, loop_end or tempo_bpm")
             self.console.config(text="⛔ Loop or tempo missing for MIDI")
             return
+
         if not getattr(self, "grid_times", None):
+            Brint("[MIDIPLAY] ⏳ No grid_times found, building rhythm grid...")
             self.build_rhythm_grid()
-        pattern = self.build_midi_pattern()
+
         try:
+            pattern = self.build_midi_pattern()
+
+            Brint("[MIDIPLAY] 🎛️ Creating MidiLooper with parameters:")
+            Brint(f"  tempo_bpm      = {self.tempo_bpm}")
+            Brint(f"  loop_start_ms  = {self.loop_start}")
+            Brint(f"  loop_end_ms    = {self.loop_end}")
+            Brint(f"  loop_dur_ms    = {self.loop_end - self.loop_start}")
+            Brint(f"  grid_times     = {len(self.grid_times)} items")
+            Brint(f"  port_name      = 'Carla2Reaper'")
+
             self.midi_looper = MidiLooper(
                 tempo_bpm=self.tempo_bpm,
-                loop_start_ms=self.loop_start,
-                loop_end_ms=self.loop_end,
                 grid_times=self.grid_times,
+                loop_duration_ms=self.loop_end - self.loop_start,
                 port_name="Carla2Reaper",
             )
+
             if pattern:
+                Brint(f"[MIDIPLAY] 🎼 Pattern ready: {len(pattern)} items")
+                for k, v in pattern.items():
+                    Brint(f"    → grid[{k}] → note {v}")
                 self.midi_looper.load_pattern(pattern)
-            self.midi_looper.start_loop()
+            else:
+                Brint("[MIDIPLAY] ⚠️ Empty pattern, nothing to play")
+
+            self.midi_looper.go()
             self.console.config(text="🎹 MIDI loop ON")
+            Brint("[MIDIPLAY] ▶️ MIDI loop started")
+
         except Exception as e:
-            Brint(f"[MIDI ERROR] {e}")
+            Brint(f"[MIDIPLAY] ❌ MIDI loop error: {e}")
             self.console.config(text="⛔ MIDI error")
             self.midi_looper = None
-        
 
     def center_on_playhead(self):
         # À ajuster selon ton implémentation timeline
@@ -10239,7 +10257,7 @@ class VideoPlayer:
             Brint(f"[LIVE WATCH] ⚠️ Subdiv 2 missing from raw_hit_memory")
 
         self.root.bind('t', lambda e: self.tap_tempo())
-        self.update_debug_overlay()
+        self.update_state_window()
 
         if self.grid_visible:
             self.draw_rhythm_grid_canvas()
