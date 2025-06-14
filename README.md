@@ -9,6 +9,7 @@ It was developed with the help of AI tools (e.g., ChatGPT) and includes original
 - Tempo synchronization and grid display
 - GUI with real-time feedback
 - Optional integration of MIDI and audio analysis
+- Real-time MIDI loop generation via ``MidiLooper`` for syncing with Carla
 
 ## Getting Started
 
@@ -110,6 +111,7 @@ main shortcuts and what they do:
 | `Ctrl+Enter` | Reset playback speed |
 | `s` | Stop and return to A |
 | `n` | Toggle loop note playback |
+| `Ctrl+M` | Toggle MIDI loop playback |
 | `Shift+A` | Jump to marker A / record loop start |
 | `Shift+B` | Record loop end |
 | `Shift+C` | Clear current loop |
@@ -125,6 +127,24 @@ main shortcuts and what they do:
 
 The `ZoomAB` slider in the control bar now ranges from **0.33x** up to **8x**.
 Double-click the slider to quickly reset the zoom to 80%.
+
+
+## MIDI Loop Example
+```
+from midi_looper import MidiLooper
+
+grid = [0.0, 0.5, 1.0, 1.5, 2.0]  # seconds
+pattern = {0: 60, 2: 64, 4: 67}  # grid index -> MIDI note
+
+looper = MidiLooper(tempo_bpm=90, loop_start_ms=0, loop_end_ms=2000, grid_times=grid)
+looper.load_pattern(pattern)
+looper.start_loop()
+
+# in your playback loop
+while True:
+    looper.update_playhead(get_playhead_ms())
+```
+
 
 
 ## loop scroll

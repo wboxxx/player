@@ -54,6 +54,7 @@ import pygame
 import soundfile as sf
 import vlc
 from pydub import AudioSegment
+from midi_looper import MidiLooper
 try:
     import simpleaudio as sa  # pragma: no cover
 except Exception:  # pragma: no cover
@@ -8408,6 +8409,9 @@ class VideoPlayer:
         self._note_playback_prev_ms = 0
         self._note_sounds = {}
 
+        # --- MIDI loop playback ---
+        self.midi_looper = None
+
         # === RESULT BOX ===
         self.result_visible = False  # doit être AVANT le pack
 
@@ -8671,6 +8675,7 @@ class VideoPlayer:
         self.root.bind('<Key-plus>', lambda e: self.adjust_speed(0.1))
         self.root.bind('<Key-minus>', lambda e: self.adjust_speed(-0.1))
         self.root.bind('<Key-n>', lambda e: self.toggle_loop_note_playback())
+        self.root.bind('<Control-m>', lambda e: self.toggle_midi_loop_playback())
         self.root.bind('<Up>', lambda e: self.adjust_volume(10))
         self.root.bind('<Down>', lambda e: self.adjust_volume(-10))
         self.root.bind('<Key-a>', lambda e: self.set_edit_mode("loop_start"))
@@ -8793,6 +8798,63 @@ class VideoPlayer:
                 self.play_note_sound(resolved)
             self._note_playback_index += 1
         self._note_playback_prev_ms = now_ms
+
+    def process_midi_looper(self):
+        if self.midi_looper and self.playhead_time is not None:
+            self.midi_looper.update_playhead(int(self.playhead_time * 1000))
+
+    def build_midi_pattern(self):
+        if not hasattr(self, "current_loop"):
+            return {}
+        loop = self.current_loop
+        mapping = getattr(loop, "mapped_notes", None)
+        if not mapping and hasattr(loop, "map_notes_to_subdivs"):
+            mapping = loop.map_notes_to_subdivs()
+            loop.mapped_notes = mapping
+        key = getattr(loop, "key", "C")
+        mode = getattr(loop, "mode", "ionian")
+        pattern = {}
+        if mapping and pretty_midi:
+            for idx, notes in mapping.items():
+                if not notes:
+                    continue
+                note_entry = notes[0].get("note") if isinstance(notes[0], dict) else notes[0]
+                resolved = normalize_note_entry(str(note_entry), key, mode)
+                if resolved:
+                    try:
+                        midi_note = pretty_midi.note_name_to_number(resolved)
+                    except Exception:
+                        continue
+                    pattern[idx] = midi_note
+        return pattern
+
+    def toggle_midi_loop_playback(self, event=None):
+        if self.midi_looper:
+            self.midi_looper.stop_loop()
+            self.midi_looper = None
+            self.console.config(text="🎹 MIDI loop OFF")
+            return
+        if not (self.loop_start and self.loop_end and self.tempo_bpm):
+            self.console.config(text="⛔ Loop or tempo missing for MIDI")
+            return
+        if not getattr(self, "grid_times", None):
+            self.build_rhythm_grid()
+        pattern = self.build_midi_pattern()
+        try:
+            self.midi_looper = MidiLooper(
+                tempo_bpm=self.tempo_bpm,
+                loop_start_ms=self.loop_start,
+                loop_end_ms=self.loop_end,
+                grid_times=self.grid_times,
+            )
+            if pattern:
+                self.midi_looper.load_pattern(pattern)
+            self.midi_looper.start_loop()
+            self.console.config(text="🎹 MIDI loop ON")
+        except Exception as e:
+            Brint(f"[MIDI ERROR] {e}")
+            self.console.config(text="⛔ MIDI error")
+            self.midi_looper = None
         
 
     def center_on_playhead(self):
@@ -10240,6 +10302,7 @@ class VideoPlayer:
 
             self.time_display.config(text=f"⏱ {self.hms(self.playhead_time * 1000)} / {self.hms(self.duration)}")
             self.process_loop_note_playback()
+            self.process_midi_looper()
 
         if self.spam_mode_active:
             Brint("[SPAM]  spam")
