@@ -8846,6 +8846,7 @@ class VideoPlayer:
                 loop_start_ms=self.loop_start,
                 loop_end_ms=self.loop_end,
                 grid_times=self.grid_times,
+                port_name="Carla2Reaper",
             )
             if pattern:
                 self.midi_looper.load_pattern(pattern)
