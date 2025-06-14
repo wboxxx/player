@@ -19,13 +19,13 @@ sys.modules['pydub'].AudioSegment = MagicMock()
 
 # Assuming player.py is in the same directory or accessible via PYTHONPATH
 from player import (
-    format_time,
     _util_extract_audio_segment,
     _util_get_tempo_and_beats_librosa,
     extract_keyframes,
     VideoPlayer,
     TraceableDict,
 )
+from time_utils import format_time
 import player
 
 class TestFormatTime(unittest.TestCase):
