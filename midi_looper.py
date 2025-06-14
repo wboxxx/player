@@ -1,52 +1,46 @@
 import time
-from typing import Dict, List, Tuple, Union, Optional
+import threading
+from typing import List, Dict, Union, Tuple, Optional
 
 try:
     import rtmidi
-except ImportError:  # pragma: no cover - rtmidi may not be installed during tests
+except ImportError:
     rtmidi = None
 
+def midi_note_to_name(note: int) -> str:
+    names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']
+    octave = (note // 12) - 1
+    name = names[note % 12]
+    return f"{name}{octave}"
 
 class MidiLooper:
-    """Real-time MIDI playback synced to an A/B loop.
-
-    The class exposes a small API to load a pattern of notes and to call
-    :py:meth:`update_playhead` as the media playhead advances.  Notes are sent
-    through a virtual ``rtmidi`` output port which can then be routed in Carla
-    or any other MIDI host.
-    """
-
     def __init__(
         self,
         tempo_bpm: float,
-        loop_start_ms: int,
-        loop_end_ms: int,
         grid_times: List[float],
         *,
         port_name: str = "PlayerMidiOut",
         note_length_ms: int = 200,
+        loop_duration_ms: Optional[int] = None
     ) -> None:
         if rtmidi is None:
             raise RuntimeError("python-rtmidi is required for MidiLooper")
 
         self.tempo_bpm = tempo_bpm
-        self.loop_start_ms = loop_start_ms
-        self.loop_end_ms = loop_end_ms
-        self.loop_duration_ms = max(loop_end_ms - loop_start_ms, 1)
         self.grid_times = grid_times
         self.port_name = port_name
         self.note_length_ms = note_length_ms
+        self.loop_duration_ms = loop_duration_ms or int((grid_times[-1] * 1000) if grid_times else 1000)
 
         self.midiout: Optional[rtmidi.MidiOut] = None
         self.pattern: List[Tuple[int, int]] = []  # list of (time_ms, midi_note)
         self.active_notes: Dict[int, float] = {}
-        self.pending_off_events: List[Tuple[float, int]] = []
-        self.last_loop_pos: Optional[int] = None
         self.running = False
+        self.thread: Optional[threading.Thread] = None
+        self.start_time: Optional[float] = None
 
     def load_pattern(self, pattern: Dict[Union[int, float], int]) -> None:
-        """Load a note pattern mapping timestamps or grid indices to MIDI notes."""
-        events: List[Tuple[int, int]] = []
+        events = []
         for key, note in pattern.items():
             if isinstance(key, int) and key < len(self.grid_times):
                 t_ms = int(self.grid_times[key] * 1000)
@@ -55,85 +49,90 @@ class MidiLooper:
             t_ms = max(0, min(t_ms, self.loop_duration_ms - 1))
             events.append((t_ms, note))
         self.pattern = sorted(events, key=lambda x: x[0])
+        print(f"[MIDILOOPER] 🎼 Pattern loaded: {len(self.pattern)} events")
 
-    def start_loop(self) -> None:
-        if self.running:
-            return
-        self.midiout = rtmidi.MidiOut()
-        self.midiout.open_virtual_port(self.port_name)
-        self.last_loop_pos = None
-        self.running = True
-
-    def stop_loop(self) -> None:
-        if not self.running:
-            return
-        for note in list(self.active_notes):
-            self._send_note_off(note)
-        self.active_notes.clear()
-        self.pending_off_events.clear()
-        self.running = False
-        if self.midiout:
-            self.midiout.close_port()
-            self.midiout = None
-
-    # --- Internal helpers -------------------------------------------------
     def _send_note_on(self, note: int, velocity: int = 100) -> None:
         if self.midiout:
             self.midiout.send_message([0x90, note, velocity])
-        print(
-            f"[MIDI] NoteOn  note={note} vel={velocity} system_ms={int(time.time()*1000)}"
-        )
+        print(f"[MIDILOOPER] 🎵 NoteOn  → {note} ({midi_note_to_name(note)})")
 
     def _send_note_off(self, note: int) -> None:
         if self.midiout:
             self.midiout.send_message([0x80, note, 0])
-        print(
-            f"[MIDI] NoteOff note={note} system_ms={int(time.time()*1000)}"
-        )
+        print(f"[MIDILOOPER] 🔇 NoteOff → {note} ({midi_note_to_name(note)})")
 
-    # --- Main update ------------------------------------------------------
-    def update_playhead(self, playhead_ms: int) -> None:
-        """Update loop state given the current playhead position.
+    def _mark_done(self):
+        self.running = False
+        print("[MIDILOOPER] ✅ Playback finished")
 
-        Parameters
-        ----------
-        playhead_ms : int
-            Current playhead timestamp in milliseconds relative to the start of
-            the media file.
-        """
-        if not self.running or not self.pattern:
-            return
-        loop_pos = (playhead_ms - self.loop_start_ms) % self.loop_duration_ms
-        if self.last_loop_pos is None:
-            self.last_loop_pos = loop_pos
+
+    def go(self) -> None:
+        if self.running:
+            print("[MIDILOOPER] ⚠️ Already running")
             return
 
-        # Determine notes that fall between last position and current
-        if loop_pos >= self.last_loop_pos:
-            todo = [ev for ev in self.pattern if self.last_loop_pos < ev[0] <= loop_pos]
-        else:  # wrapped around
-            todo = [ev for ev in self.pattern if ev[0] > self.last_loop_pos or ev[0] <= loop_pos]
+        print("[MIDILOOPER] ▶️ Triggering one-shot MIDI playback")
+        self.running = True
+        self.start_time = time.time() * 1000  # ms
 
-        self.last_loop_pos = loop_pos
+        self.midiout = rtmidi.MidiOut()
+        ports = self.midiout.get_ports()
+        for i, name in enumerate(ports):
+            if self.port_name.lower() in name.lower():
+                self.midiout.open_port(i)
+                break
+        else:
+            try:
+                self.midiout.open_virtual_port(self.port_name)
+            except Exception as e:
+                print(f"[MIDILOOPER] ❌ MIDI port error: {e}")
+                self.running = False
+                return
 
-        if todo:
-            print(
-                f"[MIDI] Trigger {len(todo)} note(s) at playhead_ms={playhead_ms} loop_pos={loop_pos}"
-            )
+        self._play_once()
 
-        now_ms = time.time() * 1000.0
-        for off_time, note in list(self.pending_off_events):
-            if now_ms >= off_time:
-                self._send_note_off(note)
-                self.pending_off_events.remove((off_time, note))
-                self.active_notes.pop(note, None)
+    def _play_once(self) -> None:
+        """Play the pattern once, synchronised in real time."""
+        now = time.time() * 1000  # ms
+        for t_ms, note in self.pattern:
+            delay_sec = max((t_ms - (now - self.start_time)) / 1000.0, 0)
+            print(f"[MIDILOOPER] ⏳ Scheduling note {note} in {delay_sec:.3f}s")
+            threading.Timer(delay_sec, self._send_note_on, args=[note]).start()
+            threading.Timer(delay_sec + self.note_length_ms / 1000.0, self._send_note_off, args=[note]).start()
 
-        for t_ms, note in todo:
-            if note in self.active_notes:
-                self._send_note_off(note)
-                self.active_notes.pop(note, None)
-            self._send_note_on(note)
-            off = now_ms + self.note_length_ms
-            self.pending_off_events.append((off, note))
-            self.active_notes[note] = off
+        # Auto-clean running flag after longest note
+        total_duration = max((t for t, _ in self.pattern), default=0) + self.note_length_ms
+        threading.Timer(total_duration / 1000.0, self._mark_done).start()
 
+def _mark_done(self):
+    self.running = False
+    print("[MIDILOOPER] ✅ Playback finished")
+    def _loop(self) -> None:
+        next_index = 0
+        loop_start = self.start_time
+        while self.running:
+            now = time.time() * 1000  # ms
+            loop_pos = (now - loop_start) % self.loop_duration_ms
+
+            while next_index < len(self.pattern) and self.pattern[next_index][0] <= loop_pos:
+                t_ms, note = self.pattern[next_index]
+                self._send_note_on(note)
+                threading.Timer(self.note_length_ms / 1000, self._send_note_off, args=[note]).start()
+                next_index += 1
+
+            if next_index >= len(self.pattern):
+                next_index = 0
+                loop_start = time.time() * 1000
+                print("[MIDILOOPER] 🔁 Loop restarted")
+
+            time.sleep(0.01)
+
+    def stop(self) -> None:
+        print("[MIDILOOPER] ⏹️ Stopping playback")
+        self.running = False
+        self.active_notes.clear()
+        if self.midiout:
+            self.midiout.close_port()
+            self.midiout = None
+        self.thread = None
+        print("[MIDILOOPER] ✅ Stopped cleanly")
