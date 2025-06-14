@@ -3,6 +3,8 @@ class _Signal:
         return []
     def sosfilt(self, sos, y):
         return y
+    def find_peaks(self, x, height=None, distance=None):
+        return [], {}
 
 signal = _Signal()
 
