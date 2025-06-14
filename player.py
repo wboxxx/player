@@ -54,7 +54,7 @@ import pygame
 import soundfile as sf
 import vlc
 from pydub import AudioSegment
-from midi_looper import MidiLooper
+from midi_looper import MidiLooper, midi_note_to_name
 try:
     import simpleaudio as sa  # pragma: no cover
 except Exception:  # pragma: no cover
