@@ -9,6 +9,7 @@ It was developed with the help of AI tools (e.g., ChatGPT) and includes original
 - Tempo synchronization and grid display
 - GUI with real-time feedback
 - Optional integration of MIDI and audio analysis
+- Optional playback of detected notes with a user-selected SoundFont
 
 ## Getting Started
 
@@ -22,6 +23,9 @@ It was developed with the help of AI tools (e.g., ChatGPT) and includes original
    The `open_file()` and `open_given_file()` methods also accept a
    `spawn_new_instance` flag. When set to `True` the current player spawns
    `python player.py <path>` in a new process and then exits.
+4. *(Optional)* Install `pyfluidsynth` and the `fluidsynth` system library to
+   enable playback of detected notes. Use the "🎹 Choisir SoundFont" option in
+   the loop menu to select your `.sf2` file.
 
 The setup script reminds you to install system packages such as `ffmpeg` and
 `python3-tk` which are required for full functionality.
@@ -41,11 +45,12 @@ the actual libraries from your environment.
 To install the real dependencies, activate your virtual environment and run:
 
 ```bash
-pip install numpy librosa soundfile scipy
+pip install numpy librosa soundfile scipy pyfluidsynth
 ```
 
 Additional packages listed in the source (e.g. `matplotlib`, `pygame`, `torch`)
 may also be required depending on the features you want to use.
+The `pyfluidsynth` package requires the `libfluidsynth` system library to be installed for MIDI playback.
 
 ## AI Contribution Notice
 

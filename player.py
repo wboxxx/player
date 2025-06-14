@@ -63,6 +63,10 @@ try:
 except ImportError:  # pragma: no cover
     pretty_midi = None
 try:
+    import fluidsynth  # pragma: no cover
+except Exception:  # pragma: no cover
+    fluidsynth = None
+try:
     from basic_pitch.inference import predict  # pragma: no cover
     from basic_pitch import ICASSP_2022_MODEL_PATH  # pragma: no cover
 except Exception:  # pragma: no cover
@@ -1607,7 +1611,46 @@ def freq_to_note_name(freq):
     if freq <= 0:
         return None
     midi = int(round(69 + 12 * np.log2(freq / 440.0)))
-    return NOTE_NAMES[midi % 12]    
+    return NOTE_NAMES[midi % 12]
+
+
+def play_midi_stream(*, note_events=None, midi_data=None, soundfont=None):
+    """Play notes using FluidSynth with the given SoundFont."""
+    if fluidsynth is None or pretty_midi is None:
+        Brint("[SYNTH] Fluidsynth or pretty_midi not available")
+        return
+
+    if not soundfont or not os.path.exists(soundfont):
+        Brint("[SYNTH] Invalid SoundFont path")
+        return
+
+    if midi_data is None and note_events is not None:
+        midi_data = pretty_midi.PrettyMIDI()
+        inst = pretty_midi.Instrument(program=0)
+        for start, end, pitch, *_ in note_events:
+            note = pretty_midi.Note(velocity=100, pitch=int(pitch), start=float(start), end=float(end))
+            inst.notes.append(note)
+        midi_data.instruments.append(inst)
+
+    if midi_data is None:
+        Brint("[SYNTH] No MIDI data to play")
+        return
+
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".mid") as tmp:
+        midi_path = tmp.name
+        midi_data.write(midi_path)
+
+    try:
+        fs = fluidsynth.Synth()
+        fs.start()
+        sfid = fs.sfload(soundfont)
+        fs.program_select(0, sfid, 0, 0)
+        fs.play_midi_file(midi_path)
+        duration = midi_data.get_end_time() or 0
+        time.sleep(duration)
+        fs.delete()
+    finally:
+        os.remove(midi_path)
 
 def interval_to_degree(note, root):
     circle = NOTE_NAMES * 2
@@ -5726,6 +5769,8 @@ class VideoPlayer:
 )
         self.loop_menu.add_command(label="💾 Enregistrer boucle", command=self.save_current_loop)
         self.loop_menu.add_command(label="🗑️ Supprimer boucle", command=self.delete_selected_loop)
+        self.loop_menu.add_command(label="🎹 Choisir SoundFont", command=self.choose_soundfont)
+        self.loop_menu.add_command(label="▶️ Jouer notes détectées", command=self.play_detected_notes)
         self.loop_menu.add_separator()
 
         if hasattr(self, "saved_loops") and self.saved_loops:
@@ -8176,6 +8221,7 @@ class VideoPlayer:
         
         #master notes and co
         self.current_loop_master_notes = []
+        self.soundfont_path = None
 
         #interpol alone slow mo
         self.loop_local_start_time = None  # Temps système au moment où la boucle locale commence
@@ -10925,9 +10971,30 @@ class VideoPlayer:
      
         Brint("[HARMONY] ✅ Fin du dessin harmonique")
 
+    def choose_soundfont(self):
+        """Prompt the user to select a SoundFont (.sf2) file."""
+        path = filedialog.askopenfilename(
+            title="Select SoundFont",
+            filetypes=[("SoundFont", "*.sf2")],
+        )
+        if path:
+            self.soundfont_path = path
+            self.console.config(text=f"🎹 SoundFont loaded: {os.path.basename(path)}")
 
-
-
+    def play_detected_notes(self):
+        """Play the notes detected in the current loop using the chosen SoundFont."""
+        if not self.current_loop_master_notes:
+            self.console.config(text="⚠️ No detected notes to play")
+            return
+        if not self.soundfont_path:
+            self.console.config(text="⚠️ Select a SoundFont first")
+            return
+        events = []
+        loop_start = (self.loop_start or 0) / 1000.0
+        for start, end, pitch_name, _ in self.current_loop_master_notes:
+            pitch = pretty_midi.note_name_to_number(pitch_name)
+            events.append((start - loop_start, end - loop_start, pitch))
+        play_midi_stream(note_events=events, soundfont=self.soundfont_path)
 
     def tap_tempo(self):
         import time
